@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import "../assets/styles/index.css";
 
 function committeeNameForm() {
-  const [nameInputValue, setNameInputValue] = useState('');
-  const [nameSubmittedValue, setNameSubmittedValue] = useState('');
+  const [nameInputValue, setNameInputValue] = useState("");
+  const [nameSubmittedValue, setNameSubmittedValue] = useState("");
 
   // Event handler for input changes
   const handleChange = (event) => {
@@ -28,22 +28,25 @@ function committeeNameForm() {
 }
 
 export default function CreateCommittee() {
-    return (
-        <>
-            <div id="committee-page">
-                <h1 class="page-title">Create a Committee</h1>
-                <div id="create-committees">
-                    <div id="committee-name">
-                        <h2>Committee Name</h2>
-                        committeeNameForm(); {/* This is supposed to be the submission form */}
-                    </div>
-                    <div id="add-members">
-                        <h2>Committee Members</h2>
-                        {/* <input class="searchbar" type="text" name="committeemembers" placeholder="Search by username or email"> */}
-                        <button class="button" id="add-member">Add Member</button>
-                        <ul>
-                            {/* list of current members - dummy text, will be added as members are added to committee */}
-                            {/* <li id="member-1"></li>
+  return (
+    <>
+      <div id="committee-page">
+        <h1 class="page-title">Create a Committee</h1>
+        <div id="create-committees">
+          <div id="committee-name">
+            <h2>Committee Name</h2>
+            committeeNameForm();{" "}
+            {/* This is supposed to be the submission form */}
+          </div>
+          <div id="add-members">
+            <h2>Committee Members</h2>
+            {/* <input class="searchbar" type="text" name="committeemembers" placeholder="Search by username or email"> */}
+            <button class="button" id="add-member">
+              Add Member
+            </button>
+            <ul>
+              {/* list of current members - dummy text, will be added as members are added to committee */}
+              {/* <li id="member-1"></li>
                             <li id="member-2"></li>
                             <li id="member-3"></li>
                             <script src="committee.js"></script>
@@ -57,12 +60,12 @@ export default function CreateCommittee() {
                                 const memberLi3 = document.getElementById('member3');
                                 memberLi3.innerHTML = `<p>${committeeMembers[2].name} (${committeeMembers[2].username})</p>`;  
                             </script>  */}
-                        </ul>
-                    </div>
-                    {/* <button class="button" id="addmember">Create Committee</button> */}
-                    {/* <a href="chat.jsx" class="button">Create Committee</a> */}
-                </div>
-            </div>
-        </>
-    );
+            </ul>
+          </div>
+          {/* <button class="button" id="addmember">Create Committee</button> */}
+          {/* <a href="chat.jsx" class="button">Create Committee</a> */}
+        </div>
+      </div>
+    </>
+  );
 }
