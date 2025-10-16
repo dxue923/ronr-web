@@ -8,7 +8,6 @@ import "../assets/styles/index.css";
 
 export default function CreateAccount() {
   const navigate = useNavigate();
-
   const [form, setForm] = useState({
     name: "",
     username: "",
@@ -171,16 +170,7 @@ export default function CreateAccount() {
                 className={`toggle-btn${showPwdConfirm ? " active" : ""}`}
                 aria-label={showPwdConfirm ? "Hide password" : "Show password"}
                 onClick={() => setShowPwdConfirm((v) => !v)}
-              >
-                <svg
-                  className="icon-eye"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
+              ></button>
             </div>
           </label>
 

@@ -377,8 +377,9 @@ html, body {
 }
 
 .btn {
-  width: 90%;
+  width: 88%;
   margin-top: 24px;
+  margin-left: 25px;
   padding: 14px;
   border: none;
   border-radius: 8px;
@@ -386,6 +387,7 @@ html, body {
   color: #fff;
   font-size: 16px;
   cursor: pointer;
+  
 }
 
 .btn:hover {
