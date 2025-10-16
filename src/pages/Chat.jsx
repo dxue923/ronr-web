@@ -1,120 +1,131 @@
 // src/pages/Discussion.jsx
-import React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import "../assets/styles/index.css";
-import { ChatPageData } from "../data/pageData";
 
 export default function Discussion() {
-  const [data, setData] = useState(ChatPageData);
-  const [input, setInput] = useState("");
-
-  // Handle comment submit
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text) return;
-
-    // Create a new discussion comment
-    const newComment = {
-      id: Date.now(),
-      author: "You",
-      text,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Append to discussion data
-    setData((prev) => ({
-      ...prev,
-      committeePage: {
-        ...prev.committeePage,
-        discussion: [...prev.committeePage.discussion, newComment],
-      },
-    }));
-
-    // Clear the input field
-    setInput("");
+  // ✅ Step 1: Define committee data
+  const committees = {
+    "Committee A": {
+      motion: { text: "Motion to Increase Budget", author: "Alice" },
+      description: "Proposal to increase the budget by 10%.",
+      comments: [
+        { user: "Bob", text: "I think this is a good idea." },
+        { user: "Clara", text: "We should check feasibility first." },
+      ],
+      chair: "Chairman 1",
+      members: ["Member 1", "Member 2"],
+      observers: ["Observer 1"],
+    },
+    "Committee B": {
+      motion: { text: "Motion to Reduce Hours", author: "David" },
+      description: "Proposal to reduce meeting hours by 30 minutes.",
+      comments: [
+        { user: "Eve", text: "Finally! Less time in meetings!" },
+        { user: "Frank", text: "We might miss discussions though." },
+      ],
+      chair: "Chairman 2",
+      members: ["Member 3", "Member 4"],
+      observers: ["Observer 2"],
+    },
+    "Committee C": {
+      motion: { text: "Motion to Adopt New Software", author: "Grace" },
+      description: "Proposal to adopt a new project management tool.",
+      comments: [{ user: "Hank", text: "I prefer our current tool." }],
+      chair: "Chairman 3",
+      members: ["Member 5", "Member 6"],
+      observers: ["Observer 3"],
+    },
   };
+
+  // ✅ Step 2: Track which committee is active
+  const [selectedCommittee, setSelectedCommittee] = useState("Committee A");
+  const data = committees[selectedCommittee];
 
   return (
     <>
+      {/* LEFT SIDE */}
       <div className="left-main">
         <h3 className="committees">Committees</h3>
         <nav className="committee">
           <ul>
-            <li>
-              <a href="#" className="active">
-                Committee A
-              </a>
-            </li>
-            <li>
-              <a href="#">Committee B</a>
-            </li>
-            <li>
-              <a href="#">Committee C</a>
-            </li>
+            {Object.keys(committees).map((name) => (
+              <li key={name}>
+                <a
+                  href="#"
+                  className={selectedCommittee === name ? "active" : ""}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setSelectedCommittee(name);
+                  }}
+                >
+                  {name}
+                </a>
+              </li>
+            ))}
           </ul>
         </nav>
       </div>
 
+      {/* CENTER */}
       <div className="center-main">
         <div className="title-row">
-          <h2>Committee Name</h2>
+          <h2>{selectedCommittee}</h2>
         </div>
+
         <section className="card">
-          <span className="label">Motion</span> – Username
-          <div>[description of motion]</div>
+          <span className="label">{data.motion.text}</span> – {data.motion.author}
+          <div>{data.description}</div>
         </section>
-        <section className="comment">
-          <div className="meta">Discussion – Username</div>
-          <div className="placeholder">[thoughts in favor]</div>
-        </section>
+
+        {data.comments.map((comment, i) => (
+          <section className="comment" key={i}>
+            <div className="meta">Discussion – {comment.user}</div>
+            <div className="placeholder">{comment.text}</div>
+          </section>
+        ))}
+
         <section className="vote push-right">
           <h4>Vote</h4>
           <button className="chip">Pass Motion</button>
           <button className="chip">Reject Motion</button>
         </section>
+
         <section className="composer">
           <button className="plus-btn" aria-label="More options">
             +
           </button>
-          <form className="comment-form" onSubmit={handleSubmit}>
-            <input
-              className="input"
-              placeholder="Write a comment..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-            />
-            <button
-              className="submit"
-              type="submit"
-              aria-label="Submit comment"
-            >
+          <form className="comment-form" onSubmit={(e) => e.preventDefault()}>
+            <input className="input" placeholder="Write a comment..." />
+            <button className="submit" type="submit" aria-label="Submit comment">
               <i className="fa fa-arrow-up" aria-hidden="true"></i>
             </button>
           </form>
         </section>
       </div>
 
+      {/* RIGHT SIDE */}
       <div className="right-main">
         <h4>Chair</h4>
         <div className="chair">
           <img src="#" alt="" className="avatar" />
-          <span>Chairman 1</span>
+          <span>{data.chair}</span>
         </div>
+
         <h4>Members</h4>
-        <div className="member">
-          <img src="#" alt="" className="avatar" />
-          <span>Member 1</span>
-        </div>
-        <div className="member">
-          <img src="#" alt="" className="avatar" />
-          <span>Member2</span>
-        </div>
+        {data.members.map((m, i) => (
+          <div className="member" key={i}>
+            <img src="#" alt="" className="avatar" />
+            <span>{m}</span>
+          </div>
+        ))}
+
         <h4>Observers</h4>
-        <div className="observer">
-          <img src="#" alt="" className="avatar" />
-          <span>Observer 1</span>
-        </div>
+        {data.observers.map((o, i) => (
+          <div className="observer" key={i}>
+            <img src="#" alt="" className="avatar" />
+            <span>{o}</span>
+          </div>
+        ))}
       </div>
     </>
   );
