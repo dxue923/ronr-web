@@ -14,7 +14,7 @@ export default function SignIn() {
     const savedEmail = localStorage.getItem("accountEmail");
     const savedPassword = localStorage.getItem("accountPassword");
 
-    if (email.trim() === "admin@wm.edu" && password === "1234") {
+    if (email.trim() === "savedEmail" && password === "savedPassword") {
       if (remember) {
         localStorage.setItem("rememberEmail", email.trim());
       } else {

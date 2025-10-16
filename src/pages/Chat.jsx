@@ -1,5 +1,5 @@
 // src/pages/Discussion.jsx
-import React from "react";
+
 import "../assets/styles/index.css";
 
 export default function Discussion() {
