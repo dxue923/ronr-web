@@ -1,13 +1,18 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "../assets/styles/index.css";
+import { useLocation } from "react-router-dom";
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-
+  const location = useLocation();
   const toggleMenu = () => {
     setIsOpen((prev) => !prev);
   };
+  const hideNavbar = ["/signin", "/create-account"];
+  if (hideNavbar.includes(location.pathname)) {
+    return null;
+  }
 
   return (
     <div className="navbar-container">

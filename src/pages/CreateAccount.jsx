@@ -70,10 +70,6 @@ export default function CreateAccount() {
         </div>
 
         <form id="createForm" className="form" onSubmit={handleSubmit}>
-          <h1 id="formTitle" className="form-title">
-            Create Account
-          </h1>
-
           <label className="field">
             <span className="field-label">
               Name <span className="req">*</span>
@@ -132,21 +128,6 @@ export default function CreateAccount() {
                 onChange={handleChange}
                 required
               />
-              <button
-                type="button"
-                className={`toggle-btn${showPwd ? " active" : ""}`}
-                aria-label={showPwd ? "Hide password" : "Show password"}
-                onClick={() => setShowPwd((v) => !v)}
-              >
-                <svg
-                  className="icon-eye"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
             </div>
           </label>
 
@@ -165,12 +146,6 @@ export default function CreateAccount() {
                 onChange={handleChange}
                 required
               />
-              <button
-                type="button"
-                className={`toggle-btn${showPwdConfirm ? " active" : ""}`}
-                aria-label={showPwdConfirm ? "Hide password" : "Show password"}
-                onClick={() => setShowPwdConfirm((v) => !v)}
-              ></button>
             </div>
           </label>
 
@@ -186,7 +161,7 @@ export default function CreateAccount() {
               onChange={handleChange}
             />
           </label>
-          <button className="btn" type="submit">
+          <button className="create-account-btn" type="submit">
             Create Account
           </button>
         </form>
