@@ -266,3 +266,65 @@ h4 {
   border: 1px solid #ccc;
   margin-right: 10px;
 }
+
+/* Create Committee */
+.main-content {
+  max-width: '800px';
+  margin: '0 auto';
+  padding: '20px'
+}
+
+.committee-details {
+  background-color: '#f5f5f5';
+  padding: '30px';
+  border-radius: '8px'
+}
+
+.name-committee {
+  margin-bottom: '40px'
+}
+
+.committee-name-input {
+  width: '100%';
+  padding: '12px';
+  border: '1px solid #ddd';
+  border-radius: '4px';
+  margin-bottom: '15px';
+  box-sizing: 'border-box'
+}
+
+.submit-button {
+  background-color: '#1985a1';
+  color: 'white';
+  padding: '12px 24px';
+  border: 'none';
+  border-radius: '4px';
+  cursor: 'pointer'
+}
+
+.committee-members {
+  margin-bottom: '30px'
+}
+
+.member-search-input {
+  width: '100%';
+  padding: '12px';
+  border: '1px solid #ddd';
+  border-radius: '4px';
+  margin-bottom: '15px';
+  box-sizing: 'border-box'
+}
+
+.member-list {
+  list-style: 'none';
+  padding: 0;
+  margin: 0
+}
+
+.member-item {
+  background-color: 'white';
+  padding: '12px';
+  margin-bottom: '8px';
+  border-radius: '4px';
+  border: '1px solid #ddd'
+}

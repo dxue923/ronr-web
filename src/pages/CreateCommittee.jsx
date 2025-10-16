@@ -1,68 +1,96 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import "../assets/styles/index.css";
+// import { CreateCommitteePageData } from "../data/pageData";
 
-function committeeNameForm() {
-  const [nameInputValue, setNameInputValue] = useState('');
-  const [nameSubmittedValue, setNameSubmittedValue] = useState('');
+export default function CreateCommittee() {
+  const [committeeName, setCommitteeName] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [committeeMembers, setCommitteeMembers] = useState([
+    { name: 'John Doe', username: 'johndoe' },
+    { name: 'Jane Smith', username: 'janesmith' },
+    { name: 'Bob Johnson', username: 'bobjohnson' }
+  ]);
 
-  // Event handler for input changes
-  const handleChange = (event) => {
-    setNameInputValue(event.target.value);
+  const handleSaveName = () => {
+    if (committeeName.trim()) {
+      alert(`Committee name saved: ${committeeName}`);
+    }
   };
 
-  // Event handler for form submission
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    setNameSubmittedValue(inputValue); // Save the current input value to submittedValue
+  const handleAddMember = () => {
+    if (searchTerm.trim()) {
+      // This is where you'd implement actual member search/add logic
+      alert(`Searching for: ${searchTerm}`);
+      setSearchTerm('');
+    }
+  };
+
+  const handleCreateCommittee = () => {
+    // This would navigate to the discussion page
+    alert('Committee created!');
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <label>
-        Name your committee:
-        <input type="text" value={nameInputValue} onChange={handleChange} />
-      </label>
-      <button type="submit">Submit</button>
-    </form>
+    <div>
+      {/* Main content */}
+      <div className="main-content">
+        <h1>Create a Committee</h1>
+        <div className="committee-details">
+          {/* Committee Name Section */}
+          <div className="name-committee">
+            <h2>Committee Name</h2>
+            <input
+              className="committee-name-input"
+              type="text"
+              value={committeeName}
+              onChange={(e) => setCommitteeName(e.target.value)}
+              placeholder="Name your committee"
+            />
+            <button 
+              className="submit-button"
+              onClick={handleSaveName}>
+                Save Name
+            </button>
+          </div>
+
+          {/* Committee Members Section */}
+          <div className="committee-members">
+            <h2>Committee Members</h2>
+            <input
+              className="member-search-input"
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by username or email"
+            />
+            <button 
+              className="submit-button"
+              onClick={handleAddMember}>
+                Add Member
+            </button>
+            
+            {/* Members List */}
+            <ul className="member-list">
+              {committeeMembers.map((member, index) => (
+                <li
+                  className="member-item"
+                  key={index}>
+                  <p>
+                    {member.name} ({member.username})
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Create Committee Button */}
+          <button
+            className="submit-button"
+            onClick={handleCreateCommittee}>
+              Create Committee
+          </button>
+        </div>
+      </div>
+    </div>
   );
-}
-
-export default function CreateCommittee() {
-    return (
-        <>
-            <div id="committee-page">
-                <h1 class="page-title">Create a Committee</h1>
-                <div id="create-committees">
-                    <div id="committee-name">
-                        <h2>Committee Name</h2>
-                        committeeNameForm(); {/* This is supposed to be the submission form */}
-                    </div>
-                    <div id="add-members">
-                        <h2>Committee Members</h2>
-                        {/* <input class="searchbar" type="text" name="committeemembers" placeholder="Search by username or email"> */}
-                        <button class="button" id="add-member">Add Member</button>
-                        <ul>
-                            {/* list of current members - dummy text, will be added as members are added to committee */}
-                            {/* <li id="member-1"></li>
-                            <li id="member-2"></li>
-                            <li id="member-3"></li>
-                            <script src="committee.js"></script>
-                            <script>
-                                const memberLi1 = document.getElementById('member1');
-                                memberLi1.innerHTML = `<p>${committeeMembers[0].name} (${committeeMembers[0].username})</p>`;   
-                                
-                                const memberLi2 = document.getElementById('member2');
-                                memberLi2.innerHTML = `<p>${committeeMembers[1].name} (${committeeMembers[1].username})</p>`;  
-
-                                const memberLi3 = document.getElementById('member3');
-                                memberLi3.innerHTML = `<p>${committeeMembers[2].name} (${committeeMembers[2].username})</p>`;  
-                            </script>  */}
-                        </ul>
-                    </div>
-                    {/* <button class="button" id="addmember">Create Committee</button> */}
-                    {/* <a href="chat.jsx" class="button">Create Committee</a> */}
-                </div>
-            </div>
-        </>
-    );
 }
