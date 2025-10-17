@@ -1,8 +1,54 @@
 // src/pages/Discussion.jsx
-
+import React, { useState, useRef, useEffect } from "react";
 import "../assets/styles/index.css";
+import { ChatPageData } from "../data/pageData";
+import { Chatbox } from "../components/Chatbox";
 
 export default function Discussion() {
+  // Initialize data from localStorage or default dataset
+  const [data, setData] = useState(() => {
+    const saved = localStorage.getItem("discussionData");
+    return saved ? JSON.parse(saved) : ChatPageData;
+  });
+
+  // Input state for the new comment field
+  const [input, setInput] = useState("");
+
+  // Add a new comment and update discussion data
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+
+    const newComment = {
+      id: Date.now(),
+      author: "You",
+      text,
+      createdAt: new Date().toISOString(),
+    };
+
+    setData((prev) => ({
+      ...prev,
+      committeePage: {
+        ...prev.committeePage,
+        discussion: [...prev.committeePage.discussion, newComment],
+      },
+    }));
+
+    setInput("");
+  };
+
+  // Ref to automatically scroll to the latest message
+  const threadEndRef = useRef(null);
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [data.committeePage.discussion.length]);
+
+  // Persist discussion data in localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("discussionData", JSON.stringify(data));
+  }, [data]);
+
   return (
     <>
       <div className="app-layout">
@@ -26,28 +72,29 @@ export default function Discussion() {
         </div>
 
         <div className="center-main">
-          <div className="title-row">
-            <h2>Committee Name</h2>
+          <div className="discussion-thread">
+            {data.committeePage.discussion.map((c) => (
+              <Chatbox
+                key={c.id}
+                message={c.text}
+                author={c.author}
+                timestamp={c.createdAt}
+                isOwn={c.author === "You"}
+              />
+            ))}
+            <div ref={threadEndRef} />
           </div>
-          <section className="card">
-            <span className="label">Motion</span> – Username
-            <div>[description of motion]</div>
-          </section>
-          <section className="comment">
-            <div className="meta">Discussion – Username</div>
-            <div className="placeholder">[thoughts in favor]</div>
-          </section>
-          <section className="vote push-right">
-            <h4>Vote</h4>
-            <button className="chip">Pass Motion</button>
-            <button className="chip">Reject Motion</button>
-          </section>
           <section className="composer">
             <button className="plus-btn" aria-label="More options">
               +
             </button>
-            <form className="comment-form" onSubmit={(e) => e.preventDefault()}>
-              <input className="input" placeholder="Write a comment..." />
+            <form className="comment-form" onSubmit={handleSubmit}>
+              <input
+                className="input"
+                placeholder="Write a comment..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
               <button
                 className="submit"
                 type="submit"
