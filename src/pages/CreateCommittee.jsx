@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import "../assets/styles/index.css";
-// import { CreateCommitteePageData } from "../data/pageData";
+import { CreateCommitteePageData } from "../data/pageData";
 
 export default function CreateCommittee() {
   const [committeeName, setCommitteeName] = useState('');
