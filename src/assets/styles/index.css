@@ -408,7 +408,10 @@ body {
   border: 1px solid #e5e7eb;
   object-fit: cover;
 }
-
+.avatar-label:hover{
+  text-decoration: underline;
+  cursor: pointer;
+}
 .form {
   width: 100%;
   display: flex;
@@ -445,6 +448,23 @@ body {
 .field-input:focus {
   border-color: #1985a1;
   box-shadow: 0 0 0 3px rgba(25, 133, 161, 0.15);
+}
+
+.create-account-btn {
+  width: 88%;
+  margin-top: 24px;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  background: #1985a1;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  
+}
+
+.create-account-btn:hover {
+  background: #146b81;
 }
 
 .btn {
