@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../assets/styles/index.css";
 export default function SignIn() {
@@ -8,13 +8,21 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
 
+  useEffect(() => {
+    const remembered = localStorage.getItem("rememberEmail");
+    if (remembered) {
+      setEmail(remembered);
+      setRemember(true);
+    }
+  }, []);
+
   function handleSubmit(e) {
     e.preventDefault();
 
     const savedEmail = localStorage.getItem("accountEmail");
     const savedPassword = localStorage.getItem("accountPassword");
 
-    if (email.trim() === "savedEmail" && password === "savedPassword") {
+    if (email.trim() === savedEmail && password === savedPassword) {
       if (remember) {
         localStorage.setItem("rememberEmail", email.trim());
       } else {

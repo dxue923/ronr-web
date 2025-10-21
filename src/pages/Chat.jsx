@@ -14,7 +14,34 @@ export default function Discussion() {
   // Input state for the new comment field
   const [input, setInput] = useState("");
 
-  // Add a new comment and update discussion data
+  // Keep track of which motion is selected currently
+  const [motions, setMotions] = useState(
+    data.committeePage.motions.length
+      ? data.committeePage.motions
+      : [
+          { name: "Motion A", discussion: [] },
+          { name: "Motion B", discussion: [] },
+        ]
+  );
+
+  const [activeMotionIndex, setActiveMotionIndex] = useState(0);
+
+  // Adding new motion states
+  const [addingMotion, setAddingMotion] = useState(false);
+  const [newMotion, setNewMotion] = useState("");
+
+  // Motion with empty discussion page
+  const handleAddMotion = () => {
+    const trimmed = newMotion.trim();
+    if (!trimmed) return;
+
+    setMotions((prev) => [...prev, { name: trimmed, discussion: [] }]);
+
+    setNewMotion("");
+    setAddingMotion(false);
+  };
+
+  // Handle new chat entries
   const handleSubmit = (e) => {
     e.preventDefault();
     const text = input.trim();
@@ -27,24 +54,35 @@ export default function Discussion() {
       createdAt: new Date().toISOString(),
     };
 
-    setData((prev) => ({
-      ...prev,
-      committeePage: {
-        ...prev.committeePage,
-        discussion: [...prev.committeePage.discussion, newComment],
-      },
-    }));
+    // Commenting on active motion’s page
+    setMotions((prev) =>
+      prev.map((m, i) =>
+        i === activeMotionIndex
+          ? { ...m, discussion: [...m.discussion, newComment] }
+          : m
+      )
+    );
 
     setInput("");
   };
 
-  // Ref to automatically scroll to the latest message
+  // Automatically scroll to the latest message
   const threadEndRef = useRef(null);
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [data.committeePage.discussion.length]);
+  }, [motions[activeMotionIndex].discussion.length]);
 
   // Persist discussion data in localStorage whenever it changes
+  useEffect(() => {
+    setData((prev) => ({
+      ...prev,
+      committeePage: {
+        ...prev.committeePage,
+        motions,
+      },
+    }));
+  }, [motions]);
+
   useEffect(() => {
     localStorage.setItem("discussionData", JSON.stringify(data));
   }, [data]);
@@ -53,27 +91,52 @@ export default function Discussion() {
     <>
       <div className="app-layout">
         <div className="left-main">
-          <h3 className="committees">Committees</h3>
-          <nav className="committee">
+          <div className="motions-header">
+            <h3 className="motions">Motions</h3>
+            <button
+              className="add-motion-btn"
+              aria-label="Add motion"
+              onClick={() => setAddingMotion(true)}
+            >
+              +
+            </button>
+          </div>
+          <nav className="motion-list">
             <ul>
-              <li>
-                <a href="#" className="active">
-                  Committee A
-                </a>
-              </li>
-              <li>
-                <a href="#">Committee B</a>
-              </li>
-              <li>
-                <a href="#">Committee C</a>
-              </li>
+              {motions.map((m, idx) => (
+                <li key={idx}>
+                  <a
+                    href="#"
+                    className={idx === activeMotionIndex ? "active" : ""}
+                    onClick={() => setActiveMotionIndex(idx)}
+                  >
+                    {m.name}
+                  </a>
+                </li>
+              ))}
+
+              {/* New motion input field */}
+              {addingMotion && (
+                <li>
+                  <input
+                    type="text"
+                    className="new-motion-input"
+                    placeholder="Enter motion name..."
+                    value={newMotion}
+                    onChange={(e) => setNewMotion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddMotion();
+                    }}
+                  />
+                </li>
+              )}
             </ul>
           </nav>
         </div>
 
         <div className="center-main">
           <div className="discussion-thread">
-            {data.committeePage.discussion.map((c) => (
+            {motions[activeMotionIndex].discussion.map((c) => (
               <Chatbox
                 key={c.id}
                 message={c.text}
@@ -91,7 +154,7 @@ export default function Discussion() {
             <form className="comment-form" onSubmit={handleSubmit}>
               <input
                 className="input"
-                placeholder="Write a comment..."
+                placeholder={`Write a comment for ${motions[activeMotionIndex].name}...`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
               />
@@ -105,7 +168,6 @@ export default function Discussion() {
             </form>
           </section>
         </div>
-
         <div className="right-main">
           <h4>Chair</h4>
           <div className="chair">
@@ -119,7 +181,7 @@ export default function Discussion() {
           </div>
           <div className="member">
             <img src="#" alt="" className="avatar" />
-            <span>Member2</span>
+            <span>Member 2</span>
           </div>
           <h4>Observers</h4>
           <div className="observer">
