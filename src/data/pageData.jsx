@@ -47,7 +47,11 @@ export const ChatPageData = {
   // Committee data
   committeePage: {
     committee: null,
-    motions: [],
+    motions: [
+      { name: "Motion 1: Budget Approval", discussion: [], active: true },
+      { name: "Motion 2: New Policy Proposal", discussion: [], active: false },
+      { name: "Motion 3: Event Planning", discussion: [], active: false },
+    ],
     discussion: [],
     votes: [],
     activeTab: "motions",

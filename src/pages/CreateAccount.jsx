@@ -17,9 +17,6 @@ export default function CreateAccount() {
     bio: "",
   });
 
-  const [showPwd, setShowPwd] = useState(false);
-  const [showPwdConfirm, setShowPwdConfirm] = useState(false);
-
   const [avatarPreview, setAvatarPreview] = useState("");
   const fileInputRef = useRef(null);
 
@@ -43,6 +40,25 @@ export default function CreateAccount() {
       alert("Passwords do not match.");
       return;
     }
+
+    // save info to local storage
+    const account = {
+      name: form.name.trim(),
+      username: form.username.trim(),
+      email: form.email.trim().toLowerCase(),
+      password: form.password,
+      bio: form.bio,
+      avatarDataUrl: avatarPreview || null,
+      createdAt: new Date().toISOString(),
+    };
+
+    localStorage.setItem("account", JSON.stringify(account));
+
+    // sign in verification
+    localStorage.setItem("accountEmail", form.email.trim().toLowerCase());
+    localStorage.setItem("accountPassword", form.password);
+
+    alert("Account created. sign in now.");
 
     navigate("/signin");
   }
@@ -122,7 +138,7 @@ export default function CreateAccount() {
                 className="field-input"
                 id="password"
                 name="password"
-                type={showPwd ? "text" : "password"}
+                type="text"
                 placeholder="Password"
                 value={form.password}
                 onChange={handleChange}
@@ -140,7 +156,7 @@ export default function CreateAccount() {
                 className="field-input"
                 id="password_confirm"
                 name="passwordConfirm"
-                type={showPwdConfirm ? "text" : "password"}
+                type="text"
                 placeholder="Password"
                 value={form.passwordConfirm}
                 onChange={handleChange}

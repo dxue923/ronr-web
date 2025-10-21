@@ -152,8 +152,16 @@ body {
   width: 220px;
   flex-shrink: 0;
 }
+.motions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
 
-.committees {
+.motions {
   font-size: 14px;
   font-weight: 600;
   color: #373c40;
@@ -162,13 +170,13 @@ body {
   margin: 10px 0 12px 10px;
 }
 
-.committee ul {
+.motion-list ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
-.committee a {
+.motion-list a {
   display: block;
   padding: 10px 12px;
   text-decoration: none;
@@ -179,12 +187,30 @@ body {
   transition: background-color 0.2s ease;
 }
 
-.committee a:hover {
+.motion-list a:hover {
   background-color: #e9ecef;
 }
-.committee a.active {
+.motion-list a.active {
   background-color: #1985a1;
   color: #fff;
+}
+
+/* New motion input */
+.new-motion-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5d9;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.new-motion-input::placeholder { color: #9aa3a8; }
+
+.new-motion-input:focus {
+  border-color: #1985a1;
+  box-shadow: 0 0 0 4px rgba(25,133,161,0.06);
 }
 
 /* Center column */
