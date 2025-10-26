@@ -1,16 +1,25 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Chat from "../pages/Chat";
 import EditProfile from "../pages/EditProfile";
 import SignIn from "../pages/SignIn";
 import CreateAccount from "../pages/CreateAccount";
+import Home from "../pages/Home";
 
 export default function App() {
+  const location = useLocation();
+  const hideNavbarOn = ["/"];
+  const showNavbar = !hideNavbarOn.includes(location.pathname);
+
   return (
     <>
-      <Navbar />
+      {showNavbar && <Navbar />}
+
       <Routes>
-        <Route path="/" element={<Chat />} />
+        <Route path="/" element={<Home />} />
+
+        <Route path="/discussion" element={<Chat />} />
+
         <Route path="/edit-profile" element={<EditProfile />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/create-account" element={<CreateAccount />} />

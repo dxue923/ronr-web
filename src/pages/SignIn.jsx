@@ -15,6 +15,11 @@ export default function SignIn() {
       setRemember(true);
     }
   }, []);
+  // useEffect(() => {
+  //   if (localStorage.getItem("auth") === "true") {
+  //     navigate("/chat", { replace: true });
+  //   }
+  // }, [navigate]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -28,7 +33,8 @@ export default function SignIn() {
       } else {
         localStorage.removeItem("rememberEmail");
       }
-      navigate("/create-committee");
+      localStorage.setItem("auth", "true");
+      navigate("/discussion", { replace: true });
     } else {
       alert("Incorrect email or password");
     }

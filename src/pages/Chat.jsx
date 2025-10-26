@@ -90,6 +90,7 @@ export default function Discussion() {
   return (
     <>
       <div className="app-layout">
+        {/* LEFT: Motions + People */}
         <div className="left-main">
           <div className="motions-header">
             <h3 className="motions">Motions</h3>
@@ -101,6 +102,7 @@ export default function Discussion() {
               +
             </button>
           </div>
+
           <nav className="motion-list">
             <ul>
               {motions.map((m, idx) => (
@@ -114,8 +116,6 @@ export default function Discussion() {
                   </a>
                 </li>
               ))}
-
-              {/* New motion input field */}
               {addingMotion && (
                 <li>
                   <input
@@ -132,8 +132,41 @@ export default function Discussion() {
               )}
             </ul>
           </nav>
+
+          {/* Divider */}
+          <div
+            className="sidebar-divider"
+            role="separator"
+            aria-hidden="true"
+          />
+
+          {/* People section moved here */}
+          <div className="sidebar-people">
+            <h4>Chair</h4>
+            <div className="chair">
+              <img src="#" alt="" className="avatar" />
+              <span>Chairman 1</span>
+            </div>
+
+            <h4>Members</h4>
+            <div className="member">
+              <img src="#" alt="" className="avatar" />
+              <span>Member 1</span>
+            </div>
+            <div className="member">
+              <img src="#" alt="" className="avatar" />
+              <span>Member 2</span>
+            </div>
+
+            <h4>Observers</h4>
+            <div className="observer">
+              <img src="#" alt="" className="avatar" />
+              <span>Observer 1</span>
+            </div>
+          </div>
         </div>
 
+        {/* CENTER stays the same */}
         <div className="center-main">
           <div className="discussion-thread">
             {motions[activeMotionIndex].discussion.map((c) => (
@@ -147,6 +180,7 @@ export default function Discussion() {
             ))}
             <div ref={threadEndRef} />
           </div>
+
           <section className="composer">
             <button className="plus-btn" aria-label="More options">
               +
@@ -167,27 +201,6 @@ export default function Discussion() {
               </button>
             </form>
           </section>
-        </div>
-        <div className="right-main">
-          <h4>Chair</h4>
-          <div className="chair">
-            <img src="#" alt="" className="avatar" />
-            <span>Chairman 1</span>
-          </div>
-          <h4>Members</h4>
-          <div className="member">
-            <img src="#" alt="" className="avatar" />
-            <span>Member 1</span>
-          </div>
-          <div className="member">
-            <img src="#" alt="" className="avatar" />
-            <span>Member 2</span>
-          </div>
-          <h4>Observers</h4>
-          <div className="observer">
-            <img src="#" alt="" className="avatar" />
-            <span>Observer 1</span>
-          </div>
         </div>
       </div>
     </>
