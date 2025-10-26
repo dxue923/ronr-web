@@ -1,103 +1,86 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import "../assets/styles/index.css";
-import { Link, useLocation } from "react-router-dom";
 import { useLocation } from "react-router-dom";
 import SignOutButton from "./SignOutButton";
 import { useAuth0 } from "@auth0/auth0-react";
 
-
 export default function Navbar() {
+  const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const { isAuthenticated, isLoading } = useAuth0();
   const toggleMenu = () => {
     setIsOpen((prev) => !prev);
   };
   const hideNavbar = ["/signin", "/create-account"];
-  if (hideNavbar.includes(location.pathname)) return null;
-
-  const isActive = (path) => location.pathname === path;
-  const toggleMotionsPanel = (e) => {
-    e.preventDefault();
-    const panel = document.querySelector(".left-main");
-    if (panel) {
-      panel.classList.toggle("hidden-panel");
-    }
-  };
+  if (hideNavbar.includes(location.pathname)) {
+    return null;
+  }
 
   return (
-    <aside className="left-rail" role="navigation" aria-label="Primary">
-      <div className="nav-rail">
-        <Link
-          to="/discussion"
-          onClick={toggleMotionsPanel}
-          className={`nav-item ${isActive("/discussion") ? "is-active" : ""}`}
-          title="Motions"
-          aria-label="Motions"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
-            aria-hidden="true"
+    <div className="navbar-container">
+      <div id="navbar-menu" className={`navbar-menu ${isOpen ? "open" : ""}`}>
+        <nav className="navbar-links" role="navigation">
+          {/* Create comittee button */}
+          <Link
+            className="navbar-link"
+            to="/create-committee"
+            title="Create Committee"
+            aria-label="Create new committee"
           >
-            <path d="M4 4h16v10H6l-2 2V4zm2 4h12v2H6V8zm0 4h8v2H6v-2z" />
-          </svg>
-        </Link>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width="24"
+              height="24"
+            >
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 
+                       10 10 10 10-4.48 10-10S17.52 2 
+                       12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"
+              />
+            </svg>
+          </Link>
+          {/* Edit profile button */}
+          <Link className="navbar-link" to="/edit-profile" title="Profile">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width="24"
+              height="24"
+            >
+              <path
+                d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 
+                       1.79-4 4 1.79 4 4 4zm0 
+                       2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+              />
+            </svg>
+          </Link>
 
-        <Link
-          to="/create-committee"
-          className={`nav-item ${
-            isActive("/create-committee") ? "is-active" : ""
-          }`}
-          title="Create Committee"
-          aria-label="Create Committee"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              d="M12 2C6.48 2 2 6.48 2 12s4.48 
-              10 10 10 10-4.48 10-10S17.52 2 
-              12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"
-            />
-          </svg>
-        </Link>
-
-        <Link
-          to="/edit-profile"
-          className={`nav-item ${isActive("/edit-profile") ? "is-active" : ""}`}
-          title="Profile"
-          aria-label="Profile"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 
-              1.79-4 4 1.79 4 4 4zm0 
-              2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-            />
-          </svg>
-        </Link>
-
-        <Link
-          to="/"
-          className="nav-item"
-          title="Sign Out"
-          aria-label="Sign Out"
-            <div className="right">
+          {/* Sign out button */}
+          <Link className="navbar-link" to="/signin" title="Sign Out">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width="24"
+              height="24"
+            >
+              <path d="M0 0h24v24H0z" fill="none" />
+              <path
+                d="M17 7l-1.41 1.41L18.17 
+                       11H8v2h10.17l-2.58 2.58L17 
+                       17l5-5zM4 5h8V3H4c-1.1 
+                       0-2 .9-2 2v14c0 1.1.9 2 
+                       2 2h8v-2H4V5z"
+              />
+            </svg>
+          </Link>
+        </nav>
+      </div>
+      <div className="right">
         {!isLoading && isAuthenticated && <SignOutButton />}
       </div>
 
@@ -116,23 +99,17 @@ export default function Navbar() {
           width="24"
           height="24"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M0 0h24v24H0z" fill="none" />
-            <path
-              d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 
-              17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 
-              2 2h8v-2H4V5z"
-            />
-          </svg>
-        </Link>
-      </div>
-    </aside>
+          <path d="M0 0h24v24H0V0z" fill="none" />
+          <path
+            d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 
+                   .9-2 2 .9 2 2 2zm0 2c-1.1 
+                   0-2 .9-2 2s.9 2 2 2 2-.9 
+                   2-2-.9-2-2-2zm0 6c-1.1 
+                   0-2 .9-2 2s.9 2 2 2 2-.9 
+                   2-2-.9-2-2-2z"
+          />
+        </svg>
+      </button>
+    </div>
   );
 }
