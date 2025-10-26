@@ -2,10 +2,14 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import "../assets/styles/index.css";
 import { useLocation } from "react-router-dom";
+import SignOutButton from "./SignOutButton";
+import { useAuth0 } from "@auth0/auth0-react";
+
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+  const { isAuthenticated, isLoading } = useAuth0();
   const toggleMenu = () => {
     setIsOpen((prev) => !prev);
   };
@@ -77,6 +81,10 @@ export default function Navbar() {
             </svg>
           </Link>
         </nav>
+      </div>
+
+            <div className="right">
+        {!isLoading && isAuthenticated && <SignOutButton />}
       </div>
 
       {/* Menu toggle button */}
