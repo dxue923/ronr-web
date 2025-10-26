@@ -1,18 +1,13 @@
-import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import "../assets/styles/index.css";
-export default function SignIn() {
-  const navigate = useNavigate();
+import { useEffect } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+// import "../assets/styles/index.css";
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
+export default function SignIn() {
+  const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0();
 
   useEffect(() => {
-    const remembered = localStorage.getItem("rememberEmail");
-    if (remembered) {
-      setEmail(remembered);
-      setRemember(true);
+    if (!isLoading && !isAuthenticated) {
+      loginWithRedirect();
     }
   }, []);
   // useEffect(() => {
@@ -77,12 +72,7 @@ export default function SignIn() {
             />
             <label htmlFor="myCheckbox">Remember Me</label>
           </div>
+  }, [isLoading, isAuthenticated, loginWithRedirect]);
 
-          <button className="btn" type="submit">
-            Sign in
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+  return null;
 }

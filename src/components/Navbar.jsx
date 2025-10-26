@@ -1,9 +1,17 @@
 import { useState } from "react";
 import "../assets/styles/index.css";
 import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import SignOutButton from "./SignOutButton";
+import { useAuth0 } from "@auth0/auth0-react";
+
 
 export default function Navbar() {
   const location = useLocation();
+  const { isAuthenticated, isLoading } = useAuth0();
+  const toggleMenu = () => {
+    setIsOpen((prev) => !prev);
+  };
   const hideNavbar = ["/signin", "/create-account"];
   if (hideNavbar.includes(location.pathname)) return null;
 
@@ -89,6 +97,24 @@ export default function Navbar() {
           className="nav-item"
           title="Sign Out"
           aria-label="Sign Out"
+            <div className="right">
+        {!isLoading && isAuthenticated && <SignOutButton />}
+      </div>
+
+      {/* Menu toggle button */}
+      <button
+        id="navbar-toggle"
+        className="navbar-link"
+        title="Actions"
+        type="button"
+        onClick={toggleMenu}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          width="24"
+          height="24"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
