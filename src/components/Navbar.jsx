@@ -5,7 +5,6 @@ import { useLocation } from "react-router-dom";
 import SignOutButton from "./SignOutButton";
 import { useAuth0 } from "@auth0/auth0-react";
 
-
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
@@ -43,7 +42,6 @@ export default function Navbar() {
               />
             </svg>
           </Link>
-
           {/* Edit profile button */}
           <Link className="navbar-link" to="/edit-profile" title="Profile">
             <svg
@@ -82,8 +80,7 @@ export default function Navbar() {
           </Link>
         </nav>
       </div>
-
-            <div className="right">
+      <div className="right">
         {!isLoading && isAuthenticated && <SignOutButton />}
       </div>
 
