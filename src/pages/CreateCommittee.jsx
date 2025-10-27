@@ -5,40 +5,41 @@ import { CreateCommitteePageData } from "../data/pageData";
 export default function CreateCommittee() {
   const [committeeName, setCommitteeName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Placeholder committee members
   const [committeeMembers, setCommitteeMembers] = useState([
-    { name: 'John Doe', username: 'johndoe' },
-    { name: 'Jane Smith', username: 'janesmith' },
-    { name: 'Bob Johnson', username: 'bobjohnson' }
+    { name: 'Member One', username: 'member1' },
+    { name: 'Member Two', username: 'member_2' },
+    { name: 'Member Three', username: 'member.3' }
   ]);
 
-  const handleSaveName = () => {
-    if (committeeName.trim()) {
-      alert(`Committee name saved: ${committeeName}`);
-    }
-  };
-
   const handleAddMember = () => {
-    if (searchTerm.trim()) {
-      // This is where you'd implement actual member search/add logic
-      alert(`Searching for: ${searchTerm}`);
-      setSearchTerm('');
-    }
+    /*
+      Needs some form of search functionality to find users by username/email
+      Members are added to the list by pressing enter or clicking their name when it pops up
+      No need for special "add-member" button
+    */
   };
 
   const handleCreateCommittee = () => {
-    // This would navigate to the discussion page
-    alert('Committee created!');
+    /* 
+      Handle case where committeeName is empty
+      Handle case where no members are added
+      Navigate to discussion page upon successful creation
+      Create empty discussion board for new committee
+    */
   };
 
   return (
-    <div>
+    <div className="create-committee-page">
       {/* Main content */}
-      <div className="main-content">
-        <h1>Create a Committee</h1>
+      <div className="account-card">
+        <h1 className="page-title">Create a Committee</h1>
         <div className="committee-details">
           {/* Committee Name Section */}
           <div className="name-committee">
-            <h2>Committee Name</h2>
+            <span className="committee-name-label">Committee Name </span>
+            <span className="req">*</span>
             <input
               className="committee-name-input"
               type="text"
@@ -46,16 +47,17 @@ export default function CreateCommittee() {
               onChange={(e) => setCommitteeName(e.target.value)}
               placeholder="Name your committee"
             />
-            <button 
-              className="submit-button"
-              onClick={handleSaveName}>
-                Save Name
-            </button>
           </div>
 
           {/* Committee Members Section */}
+          {/* Should this be mandatory? 
+                Committee creator should be added by default
+                Add functionality to add new members later - probably not done here
+          */}
+
           <div className="committee-members">
-            <h2>Committee Members</h2>
+            <span className="committee-members-label">Committee Members</span>
+            {/* <span className="req">*</span> */}
             <input
               className="member-search-input"
               type="text"
@@ -63,11 +65,6 @@ export default function CreateCommittee() {
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by username or email"
             />
-            <button 
-              className="submit-button"
-              onClick={handleAddMember}>
-                Add Member
-            </button>
             
             {/* Members List */}
             <ul className="member-list">
@@ -75,21 +72,20 @@ export default function CreateCommittee() {
                 <li
                   className="member-item"
                   key={index}>
-                  <p>
-                    {member.name} ({member.username})
-                  </p>
+                  <p className="member-name"> {member.name} </p>
+                  <p className="member-username"> {member.username} </p>
                 </li>
               ))}
             </ul>
           </div>
-
-          {/* Create Committee Button */}
-          <button
-            className="submit-button"
-            onClick={handleCreateCommittee}>
-              Create Committee
-          </button>
         </div>
+        
+        {/* Create Committee Button */}
+        <button
+          className="submit-button"
+          onClick={handleCreateCommittee}>
+            Create Committee
+        </button>
       </div>
     </div>
   );
