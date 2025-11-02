@@ -1,17 +1,19 @@
 // src/components/Navbar.jsx
 import "../assets/styles/index.css";
 import { Link, useLocation } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function Navbar() {
   const location = useLocation();
+  const { isAuthenticated, isLoading, logout } = useAuth0();
+
   const hideNavbar = ["/signin", "/create-account"];
   if (hideNavbar.includes(location.pathname)) return null;
 
   const isActive = (path) => location.pathname === path;
 
   // Toggle motions panel visibility (slides .left-main off/on screen)
-  const toggleMotionsPanel = (e) => {
-    // Keep navigation on /discussion if not already there, but always toggle panel
+  const toggleMotionsPanel = () => {
     const panel = document.querySelector(".left-main");
     if (panel) panel.classList.toggle("hidden-panel");
   };
@@ -87,29 +89,36 @@ export default function Navbar() {
           </svg>
         </Link>
 
-        {/* Sign Out */}
-        <Link
-          to="/"
-          className="nav-item"
-          title="Sign Out"
-          aria-label="Sign Out"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
-            aria-hidden="true"
+        {/* Sign Out (Auth0 logout) */}
+        {!isLoading && isAuthenticated && (
+          <button
+            className="nav-item"
+            title="Sign Out"
+            aria-label="Sign Out"
+            onClick={() =>
+              logout({
+                logoutParams: { returnTo: window.location.origin },
+              })
+            }
           >
-            <path d="M0 0h24v24H0z" fill="none" />
-            <path
-              d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 
-              17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 
-              2 2h8v-2H4V5z"
-            />
-          </svg>
-        </Link>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M0 0h24v24H0z" fill="none" />
+              <path
+                d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 
+                2.58L17 17l5-5zM4 5h8V3H4c-1.1 
+                0-2 .9-2 2v14c0 1.1.9 2 
+                2 2h8v-2H4V5z"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </aside>
   );
