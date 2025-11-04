@@ -20,7 +20,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
 
         <Route path="/discussion" element={<Chat />} />
-
+        <Route path="/committees/:id/chat" element={<Chat />} />
         <Route path="/create-committee" element={<CreateCommittee />} />
 
         <Route path="/edit-profile" element={<EditProfile />} />
