@@ -26,20 +26,49 @@ export const EditProfilePageData = {
 
 // Create committee page
 export const CreateCommitteePageData = {
-  // Search data
-  dashboard: {
-    committees: [],
-    search: "",
-    loading: false,
-  },
-
-  // Creation data
-  createCommittee: {
-    name: "",
-    members: [],
-    submitting: false,
-    error: null,
-  },
+  committees: [
+    {
+      id: "committee-1",
+      name: "General Committee",
+      description: "Handles administrative motions and budget approvals.",
+      members: [
+        { id: "u1", name: "Chairman 1", role: "chair" },
+        { id: "u2", name: "Member 1", role: "member" },
+        { id: "u3", name: "Member 2", role: "member" },
+      ],
+      motions: [
+        {
+          id: "motion-1",
+          title: "Motion 1: Budget Approval",
+          description: "Approve the new annual budget.",
+          discussion: [
+            {
+              id: "msg-1",
+              author: "Member 1",
+              text: "I support this motion.",
+              createdAt: "2025-11-02T18:00:00Z",
+            },
+            {
+              id: "msg-2",
+              author: "Member 2",
+              text: "I think we need more discussion.",
+              createdAt: "2025-11-02T18:01:00Z",
+            },
+          ],
+          createdAt: "2025-11-02T17:59:00Z",
+        },
+        {
+          id: "motion-2",
+          title: "Motion 2: New Policy Proposal",
+          description: "Introduce attendance tracking.",
+          discussion: [],
+          createdAt: "2025-11-02T18:05:00Z",
+        },
+      ],
+      createdAt: "2025-11-02T17:55:00Z",
+    },
+  ],
+  activeCommitteeId: "committee-1",
 };
 
 // Chat page
