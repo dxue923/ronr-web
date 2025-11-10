@@ -1,88 +1,131 @@
-// Temporary in-memory motion store (resets on reload)
-let motions = [
-  { id: "1", name: "Motion 1: Budget Approval", discussion: [], active: true },
-  { id: "2", name: "Motion 2: New Policy Proposal", discussion: [], active: false },
-  { id: "3", name: "Motion 3: Event Planning", discussion: [], active: false },
-];
+// netlify/functions/motions.js
+// Serverless function for managing committee motions (GET all, GET one, POST new)
 
-// Helper: standard JSON response
-function json(status, data) {
-  return {
-    statusCode: status,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  };
-}
+import fs from "fs";
+import path from "path";
 
-// Helper: generate unique IDs
-function uid() {
-  return (globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 9));
-}
-
-// Main Netlify function handler
 export async function handler(event) {
-  const { httpMethod, queryStringParameters, body } = event;
+  // Locate and interact with data.json (the pseudo-database)
+  const filePath = path.join(
+    process.cwd(),
+    "netlify",
+    "functions",
+    "data.json"
+  );
+
+  const readData = () => JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  const writeData = (data) =>
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 
   try {
-    switch (httpMethod) {
-      // GET /api/motions
-      // GET /api/motions?id=123
-      case "GET": {
-        const id = queryStringParameters?.id;
-        if (id) {
-          const motion = motions.find((m) => m.id === id);
-          return motion ? json(200, motion) : json(404, { error: "Motion not found" });
+    const method = event.httpMethod || "GET";
+
+    // ---------- GET: Retrieve all motions or one by ID ----------
+    if (method === "GET") {
+      const params = event.queryStringParameters || {};
+      const motionId = params.id || null;
+      const filterCommitteeId = params.committeeId || null;
+
+      const data = readData();
+
+      // make sure the top-level arrays exist
+      const motions = data.motions || [];
+      const activeCommitteeId = data.activeCommitteeId || null;
+
+      // if they asked for a single motion by id
+      if (motionId) {
+        const motion = motions.find((m) => m.id === motionId);
+        if (!motion) {
+          return {
+            statusCode: 404,
+            body: JSON.stringify({ error: "Motion not found" }),
+          };
         }
-        return json(200, motions);
-      }
-
-      // POST /api/motions
-      case "POST": {
-        const data = JSON.parse(body || "{}");
-        if (!data.name || !data.name.trim()) {
-          return json(400, { error: "Missing motion name" });
-        }
-        const newMotion = {
-          id: uid(),
-          name: data.name.trim(),
-          discussion: [],
-          active: false,
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(motion),
         };
-        motions.push(newMotion);
-        return json(201, newMotion);
       }
 
-      // PATCH /api/motions?id=123
-      case "PATCH": {
-        const id = queryStringParameters?.id;
-        if (!id) return json(400, { error: "Missing motion ID" });
+      const committeeToUse = filterCommitteeId || activeCommitteeId; // <— unchanged
+      const result = committeeToUse
+        ? motions.filter((m) => m.committeeId === committeeToUse) // <— changed line
+        : motions;
 
-        const idx = motions.findIndex((m) => m.id === id);
-        if (idx === -1) return json(404, { error: "Motion not found" });
-
-        const data = JSON.parse(body || "{}");
-        motions[idx] = {
-          ...motions[idx],
-          ...(typeof data.name === "string" ? { name: data.name.trim() } : {}),
-          ...(typeof data.active === "boolean" ? { active: data.active } : {}),
-        };
-
-        return json(200, motions[idx]);
-      }
-
-      // DELETE /api/motions?id=123
-      case "DELETE": {
-        const id = queryStringParameters?.id;
-        if (!id) return json(400, { error: "Missing motion ID" });
-
-        motions = motions.filter((m) => m.id !== id);
-        return { statusCode: 204, body: "" };
-      }
-
-      default:
-        return json(405, { error: "Method not allowed" });
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result),
+      };
     }
-  } catch (err) {
-    return json(500, { error: err.message });
+
+    // ---------- POST: Create a new motion ----------
+    if (method === "POST") {
+      const body = JSON.parse(event.body || "{}");
+      const title = String(body.title ?? "").trim();
+      const description = String(body.description ?? "").trim();
+
+      if (!title) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: "Motion title is required" }),
+        };
+      }
+
+      const data = readData();
+
+      // make sure arrays exist
+      if (!Array.isArray(data.motions)) data.motions = [];
+      if (!Array.isArray(data.committees)) data.committees = [];
+
+      // decide which committee this motion belongs to
+      const committeeId =
+        body.committeeId ||
+        data.activeCommitteeId ||
+        (data.committees[0] && data.committees[0].id) ||
+        null;
+
+      if (!committeeId) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            error: "No committeeId provided and no active committee set",
+          }),
+        };
+      }
+
+      // Build and append the new motion object (flat, not nested)
+      const newMotion = {
+        id: Date.now().toString(),
+        committeeId,
+        title,
+        description,
+        status: "open",
+        createdAt: new Date().toISOString(),
+      };
+
+      data.motions.push(newMotion);
+      writeData(data);
+
+      return {
+        statusCode: 201,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newMotion),
+      };
+    }
+
+    // ---------- Fallback: Unsupported HTTP method ----------
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: "Method Not Allowed" }),
+    };
+  } catch (error) {
+    console.error("Error handling motions:", error);
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Failed to process motions" }),
+    };
   }
 }

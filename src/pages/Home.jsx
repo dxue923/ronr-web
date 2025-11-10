@@ -11,7 +11,7 @@ export default function Home() {
           <Link to="/signin" className="btn btn-login">
             Log In
           </Link>
-          <Link to="/create-account" className="btn btn-signup">
+          <Link to="/signup" className="btn btn-signup">
             Sign Up
           </Link>
         </div>
@@ -24,7 +24,7 @@ export default function Home() {
           </h2>
 
           <div className="home-cta fade-in-delay-2">
-            <Link to="/create-account" className="btn btn-primary">
+            <Link to="/signup" className="btn btn-primary">
               Get Started
             </Link>
           </div>

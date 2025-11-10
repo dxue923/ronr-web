@@ -1,0 +1,57 @@
+{
+  "committees": [
+    {
+      "id": "committee-1",
+      "name": "General Committee",
+      "description": "Handles administrative motions and budget approvals.",
+      "createdAt": "2025-11-02T17:55:00Z"
+    }
+  ],
+  "motions": [
+    {
+      "id": "motion-1",
+      "committeeId": "committee-1",
+      "title": "Motion 1: Budget Approval",
+      "description": "Approve the new annual budget.",
+      "status": "open",
+      "createdAt": "2025-11-02T17:59:00Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": "msg-1",
+      "motionId": "motion-1",
+      "author": "Member 1",
+      "text": "I support this motion.",
+      "createdAt": "2025-11-02T18:00:00Z"
+    },
+    {
+      "id": "msg-2",
+      "motionId": "motion-1",
+      "author": "Member 2",
+      "text": "I think we need more discussion.",
+      "createdAt": "2025-11-02T18:01:00Z"
+    }
+  ],
+  "members": [
+    {
+      "id": "u1",
+      "name": "Chairman 1",
+      "role": "chair",
+      "committeeId": "committee-1"
+    },
+    {
+      "id": "u2",
+      "name": "Member 1",
+      "role": "member",
+      "committeeId": "committee-1"
+    },
+    {
+      "id": "u3",
+      "name": "Member 2",
+      "role": "member",
+      "committeeId": "committee-1"
+    }
+  ],
+  "activeCommitteeId": "committee-1"
+}

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import "../assets/styles/index.css";
+import { CreateCommitteePageData } from "../data/pageData";
 import { Chatbox } from "../components/Chatbox";
 import { ROLE, Can } from "../utils/permissions";
 
@@ -26,6 +27,24 @@ function loadMotionsForCommittee(id) {
 function saveMotionsForCommittee(id, motions) {
   localStorage.setItem(`committee:${id}:motions`, JSON.stringify(motions));
 }
+
+/* ---------- cache helpers (for shared discussionData) ---------- */
+const loadCache = (key, fallback) => {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const saveCache = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+};
+const getActiveCommittee = (data) =>
+  data?.committees?.find((c) => c.id === data?.activeCommitteeId) ??
+  data?.committees?.[0] ??
+  null;
 
 /* ---------- current user ---------- */
 function getCurrentUser() {
@@ -82,15 +101,28 @@ function groupMembersByRole(committee) {
   return groups;
 }
 
+// ensure motions always have .name and .discussion
+const normalizeMotion = (m) => ({
+  ...m,
+  name: m.name || m.title || "Untitled motion",
+  discussion: Array.isArray(m.discussion) ? m.discussion : [],
+});
+
 /* ---------- component ---------- */
 export default function Chat() {
   const { id } = useParams();
   const me = getCurrentUser();
 
+  // local committee (route-based)
   const [committee, setCommittee] = useState(() => findCommitteeById(id));
   useEffect(() => {
     setCommittee(findCommitteeById(id));
   }, [id]);
+
+  // shared cached data (for when API returns motions)
+  const [data, setData] = useState(() =>
+    loadCache("discussionData", CreateCommitteePageData)
+  );
 
   if (!committee) {
     return (
@@ -110,10 +142,10 @@ export default function Chat() {
   const [motions, setMotions] = useState(() => {
     const existing = loadMotionsForCommittee(id);
     return existing.length
-      ? existing
+      ? existing.map(normalizeMotion)
       : [
-          { name: "Motion A", discussion: [] },
-          { name: "Motion B", discussion: [] },
+          normalizeMotion({ id: "local-a", name: "Motion A", discussion: [] }),
+          normalizeMotion({ id: "local-b", name: "Motion B", discussion: [] }),
         ];
   });
   const [activeMotionIndex, setActiveMotionIndex] = useState(0);
@@ -122,25 +154,147 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [isDiscussing, setIsDiscussing] = useState(true);
 
+  // save per-committee motions
   useEffect(() => {
     saveMotionsForCommittee(id, motions);
   }, [id, motions]);
 
-  const handleAddMotion = () => {
-    if (!Can.createMotion(myRole)) return;
-    const trimmed = newMotion.trim();
-    if (!trimmed) return;
-    setMotions((prev) => [...prev, { name: trimmed, discussion: [] }]);
-    setNewMotion("");
-    setAddingMotion(false);
-    setActiveMotionIndex(motions.length);
+  // fetch motions from API once
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/.netlify/functions/motions")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((list) => {
+        if (!cancelled && Array.isArray(list) && list.length) {
+          const normalized = list.map(normalizeMotion);
+          setMotions(normalized);
+
+          // also mirror to cached discussionData
+          setData((prev) => {
+            const activeId =
+              prev?.activeCommitteeId ?? getActiveCommittee(prev)?.id ?? id;
+            const committees = (prev?.committees ?? []).map((c) =>
+              c.id === activeId ? { ...c, motions: normalized } : c
+            );
+            const next = { ...prev, committees };
+            saveCache("discussionData", next);
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // fetch comments for current motion
+  useEffect(() => {
+    if (!motions?.length) return;
+    const current = motions[activeMotionIndex];
+    if (!current?.id) return;
+    if (current._discussionLoaded) return;
+
+    let cancelled = false;
+    fetch(`/.netlify/functions/discussion?motionId=${current.id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((list) => {
+        if (cancelled || !Array.isArray(list)) return;
+        setMotions((prev) =>
+          prev.map((m) =>
+            m.id === current.id
+              ? { ...m, discussion: list, _discussionLoaded: true }
+              : m
+          )
+        );
+      })
+      .catch(() => {
+        setMotions((prev) =>
+          prev.map((m) =>
+            m.id === current.id ? { ...m, _discussionLoaded: true } : m
+          )
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [motions, activeMotionIndex]);
+
+  // when motions change, also push to cached data
+  useEffect(() => {
+    setData((prev) => {
+      if (!prev) return prev;
+      const activeId =
+        prev?.activeCommitteeId ?? getActiveCommittee(prev)?.id ?? id;
+      const committees = (prev?.committees ?? []).map((c) =>
+        c.id === activeId ? { ...c, motions } : c
+      );
+      const next = { ...prev, committees };
+      saveCache("discussionData", next);
+      return next;
+    });
+  }, [motions, id]);
+
+  // autoscroll
+  const threadEndRef = useRef(null);
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [motions, activeMotionIndex]);
+
+  // derived
+  const activeCommittee = getActiveCommittee(data);
+  const currentMotion = motions?.[activeMotionIndex];
+
+  // add motion
+  const handleAddMotion = async () => {
+    const title = newMotion.trim();
+    if (!title) return;
+
+    try {
+      const res = await fetch("/.netlify/functions/motions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description: "" }),
+      });
+      if (!res.ok) throw new Error("Failed to create motion");
+      const payload = await res.json();
+      const created = normalizeMotion(payload.motion ?? payload);
+
+      setMotions((prev) => {
+        const next = [...prev, created];
+        setActiveMotionIndex(next.length - 1);
+        return next;
+      });
+    } catch (e) {
+      const created = normalizeMotion({
+        id: String(Date.now()),
+        title,
+        description: "",
+        discussion: [],
+        createdAt: new Date().toISOString(),
+      });
+      setMotions((prev) => {
+        const next = [...prev, created];
+        setActiveMotionIndex(next.length - 1);
+        return next;
+      });
+    } finally {
+      setNewMotion("");
+      setAddingMotion(false);
+    }
   };
 
-  const handleSubmit = (e) => {
+  // replace your handleSubmit with this:
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!Can.comment(myRole)) return;
+
+    const currentMotion = motions[activeMotionIndex];
     const text = input.trim();
-    if (!text) return;
+    if (!text) return; // ✅ only check text, not motion id
+
+    // local optimistic update
     const newComment = {
       id: Date.now(),
       author: me.name || "You",
@@ -150,17 +304,29 @@ export default function Chat() {
     setMotions((prev) =>
       prev.map((m, i) =>
         i === activeMotionIndex
-          ? { ...m, discussion: [...m.discussion, newComment] }
+          ? { ...m, discussion: [...(m.discussion ?? []), newComment] }
           : m
       )
     );
     setInput("");
-  };
 
-  const threadEndRef = useRef(null);
-  useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [motions[activeMotionIndex]?.discussion.length]);
+    // ✅ only try to POST if motion has a real id (from API)
+    if (currentMotion?.id) {
+      try {
+        await fetch("/.netlify/functions/discussion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            motionId: currentMotion.id,
+            author: me.name || "You",
+            text,
+          }),
+        });
+      } catch {
+        // silent
+      }
+    }
+  };
 
   const handleToggleDiscussion = () => {
     if (!Can.startDiscussion(myRole)) return;
@@ -180,8 +346,6 @@ export default function Chat() {
           <strong>{title}</strong>
           {showCount && <span className="count">{list.length}</span>}
         </div>
-
-        {/* Members listed below as separate boxes */}
         <div className="role-members">
           {list.map((m) => (
             <div className="member" key={keyOf(m)}>
@@ -193,6 +357,8 @@ export default function Chat() {
       </div>
     );
   };
+
+  const groups = groupMembersByRole(committee);
 
   return (
     <div className="app-layout">
@@ -216,7 +382,7 @@ export default function Chat() {
         <nav className="motion-list">
           <ul>
             {motions.map((m, idx) => (
-              <li key={`${m.name}-${idx}`}>
+              <li key={`${m.id || m.name}-${idx}`}>
                 <a
                   href="#"
                   className={idx === activeMotionIndex ? "active" : ""}
@@ -250,34 +416,28 @@ export default function Chat() {
 
         <div className="sidebar-divider" role="separator" />
 
-        {/* People (read-only). No "Participants" label per request. */}
-        {(() => {
-          const groups = groupMembersByRole(committee);
-          return (
-            <div className="sidebar-people">
-              <RoleBlock
-                title="Owner"
-                list={groups[ROLE.OWNER]}
-                showCount={false}
-              />
-              <RoleBlock
-                title="Chair"
-                list={groups[ROLE.CHAIR]}
-                showCount={false}
-              />
-              <RoleBlock
-                title="Member"
-                list={groups[ROLE.MEMBER]}
-                showCount={true}
-              />
-              <RoleBlock
-                title="Observer"
-                list={groups[ROLE.OBSERVER]}
-                showCount={true}
-              />
-            </div>
-          );
-        })()}
+        <div className="sidebar-people">
+          <RoleBlock
+            title="Owner"
+            list={groups[ROLE.OWNER]}
+            showCount={false}
+          />
+          <RoleBlock
+            title="Chair"
+            list={groups[ROLE.CHAIR]}
+            showCount={false}
+          />
+          <RoleBlock
+            title="Member"
+            list={groups[ROLE.MEMBER]}
+            showCount={true}
+          />
+          <RoleBlock
+            title="Observer"
+            list={groups[ROLE.OBSERVER]}
+            showCount={true}
+          />
+        </div>
 
         <div style={{ marginTop: 12 }}>
           <Link to="/create-committee" className="link">
@@ -320,7 +480,7 @@ export default function Chat() {
         </div>
 
         <div className="discussion-thread" aria-busy={!isDiscussing}>
-          {motions[activeMotionIndex]?.discussion.map((c) => (
+          {(currentMotion?.discussion || []).map((c) => (
             <Chatbox
               key={c.id}
               message={c.text}
@@ -340,7 +500,7 @@ export default function Chat() {
               placeholder={
                 Can.comment(myRole)
                   ? `Write a comment for ${
-                      motions[activeMotionIndex]?.name || "this motion"
+                      currentMotion?.name || "this motion"
                     }…`
                   : "Observers cannot comment"
               }

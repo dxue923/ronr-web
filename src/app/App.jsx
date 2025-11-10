@@ -4,12 +4,12 @@ import Chat from "../pages/Chat";
 import EditProfile from "../pages/EditProfile";
 import CreateCommittee from "../pages/CreateCommittee";
 import SignIn from "../pages/SignIn";
-import CreateAccount from "../pages/CreateAccount";
+import SignUp from "../pages/SignUp";
 import Home from "../pages/Home";
 
 export default function App() {
   const location = useLocation();
-  const hideNavbarOn = ["/"];
+  const hideNavbarOn = ["/", "/signup", "/signin"];
   const showNavbar = !hideNavbarOn.includes(location.pathname);
 
   return (
@@ -25,7 +25,7 @@ export default function App() {
 
         <Route path="/edit-profile" element={<EditProfile />} />
         <Route path="/signin" element={<SignIn />} />
-        <Route path="/create-account" element={<CreateAccount />} />
+        <Route path="/signup" element={<SignUp />} />
       </Routes>
     </>
   );

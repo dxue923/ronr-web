@@ -49,12 +49,12 @@ body {
   gap: 10px;
 }
 
-/* Home buttons (Login/Signup) */
-
+/* --------------------------------------------------
+   BUTTONS (Login / Signup)
+-------------------------------------------------- */
 .btn + .btn {
-  margin-left: 0;
+  margin-left: 0px;
 }
-
 .btn {
   color: inherit;
   text-decoration: none;
@@ -126,12 +126,8 @@ a.btn-primary,
   display: inline-block;
   max-width: 70%;
   text-align: center;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 a.btn-primary:hover,
@@ -219,9 +215,82 @@ a.btn-primary:focus {
   }
 }
 
-/* ==================================================
-   NAVBAR (icons row on top-right)
-================================================== */
+/* CHAT/DISCUSSION PAGE */
+
+.discussion-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 0;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.chatbox-container {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  gap: 6px;
+}
+.chatbox-container.own {
+  justify-content: flex-end;
+}
+.chatbox-content {
+  display: flex;
+  flex-direction: column;
+  max-width: 75%;
+}
+.chatbox-author {
+  font-size: 0.75rem;
+  color: #555;
+  margin-bottom: 2px;
+}
+.chatbox {
+  border-radius: 16px;
+  padding-right: 2px;
+  padding-left: 2px;
+  padding: 0 6px;
+}
+.own-box {
+  background: #3f4042;
+  color: #fff;
+  border-top-right-radius: 0;
+  max-height: 35px;
+}
+
+.own-box p {
+  margin: 8px;
+}
+
+.other-box {
+  background: #f2f2f2;
+  color: #222;
+  border-top-left-radius: 0;
+}
+.chatbox-time {
+  font-size: 0.65rem;
+  color: #888;
+  margin-top: 3px;
+  align-self: flex-end;
+}
+.chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ccc;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Navbar */
 
 .navbar-container {
   position: absolute;
@@ -316,11 +385,8 @@ a.btn-primary:focus {
   color: #555555;
   background: #f5f6f7;
   border: 1px solid #e4e6e8;
-  transition:
-    background-color 0.15s ease,
-    transform 0.08s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
+  transition: background-color 0.15s ease, transform 0.08s ease,
+    color 0.15s ease, border-color 0.15s ease;
   text-decoration: none;
 }
 
@@ -412,28 +478,37 @@ a.btn-primary:focus {
   margin: 0;
 }
 
-.motion-list a {
+.motion-list button {
+  font-family: inherit;
   display: block;
+  width: 100%;
+  text-align: left;
   padding: 10px 12px;
+  border: none;
+  background: transparent;
   text-decoration: none;
   color: #343a40;
   border-radius: 6px;
   font-size: 15px;
   font-weight: 500;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
 }
 
-.motion-list a:hover {
+/* Hover matches previous anchor hover */
+.motion-list button:hover,
+.motion-list button:focus-visible {
   background-color: #e9ecef;
+  outline: none;
 }
 
-.motion-list a.active {
+/* Active matches previous anchor active */
+.motion-list button.active {
   background-color: #2358bb;
   color: #ffffff;
 }
 
-/* New motion input */
-
+/* New motion input — unchanged */
 .new-motion-input {
   width: 100%;
   padding: 8px 10px;
@@ -450,7 +525,7 @@ a.btn-primary:focus {
 
 .new-motion-input:focus {
   border-color: #2358bb;
-  box-shadow: 0 0 0 3px rgba(35, 88, 187, 0.25);
+  box-shadow: 0 0 0 4px rgba(25, 133, 161, 0.06);
 }
 
 /* ==================================================
@@ -891,7 +966,6 @@ label[for="myCheckbox"] {
   border: 1px solid #e5e7eb;
   object-fit: cover;
 }
-
 .avatar-label:hover {
   text-decoration: underline;
   cursor: pointer;
@@ -1303,78 +1377,64 @@ label[for="myCheckbox"] {
   margin-top: 12px;
 }
 
-.committee-tile {
-  text-align: left;
-  padding: 12px 14px;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.08s ease;
+/* CREATE COMMITTEE PAGE */
+.main-content {
+  max-width: "800px";
+  margin: "0 auto";
+  padding: "20px";
 }
 
-.committee-tile:hover {
-  background: #f9fafb;
-  transform: translateY(-1px);
+.committee-details {
+  background-color: "#f5f5f5";
+  padding: "30px";
+  border-radius: "8px";
 }
 
-.tile-title {
-  font-weight: 600;
-  color: #0f172a;
+.name-committee {
+  margin-bottom: "40px";
 }
 
-.tile-sub {
-  color: #6b7280;
-  font-size: 0.9rem;
+.committee-name-input {
+  width: "100%";
+  padding: "12px";
+  border: "1px solid #ddd";
+  border-radius: "4px";
+  margin-bottom: "15px";
+  box-sizing: "border-box";
 }
 
-/* -------- Responsive -------- */
-
-@media (max-width: 1024px) {
-  .create-committee-page.two-pane {
-    grid-template-columns: 1fr;
-    direction: ltr;
-  }
-
-  .create-committee-page .pane > .card {
-    min-height: auto;
-  }
-
-  .side-panel {
-    border-right: none;
-    padding-right: 0;
-  }
-}
-.committee-tile-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
+.submit-button {
+  background-color: "#2358bb";
+  color: "white";
+  padding: "12px 24px";
+  border: "none";
+  border-radius: "4px";
+  cursor: "pointer";
 }
 
-.committee-tile-row .tile-body {
-  pointer-events: none;
+.committee-members {
+  margin-bottom: "30px";
 }
 
-.committee-tile-row .edit-btn {
-  pointer-events: auto;
-  opacity: 0;
-  transition: opacity 120ms ease;
-  background: #ffffff;
-  border: 1px solid #cfd7e3;
-  color: #2358bb;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
-  font-size: 16px;
-  cursor: pointer;
+.member-search-input {
+  width: "100%";
+  padding: "12px";
+  border: "1px solid #ddd";
+  border-radius: "4px";
+  margin-bottom: "15px";
+  box-sizing: "border-box";
 }
 
-.committee-tile-row:hover .edit-btn {
-  opacity: 1;
+.member-list {
+  list-style: "none";
+  padding: 0;
+  margin: 0;
 }
 
-.committee-tile-row .edit-btn:hover {
-  background: #eef3ff;
-  border-color: #2358bb;
+.member-item {
+  background-color: "white";
+  padding: "12px";
+  margin-bottom: "8px";
+  border-radius: "4px";
+  border: "1px solid #ddd";
 }
