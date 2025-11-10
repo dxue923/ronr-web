@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+// src/pages/EditProfile.jsx
+import React, { useState, useEffect } from "react";
 import "../assets/styles/index.css";
+
+const PLACEHOLDER_AVATAR = "";
 
 export default function EditProfile() {
   const [formData, setFormData] = useState({
@@ -8,40 +11,66 @@ export default function EditProfile() {
     email: "",
     bio: "",
   });
-  const [preview, setPreview] = useState(null);
+  const [avatar, setAvatar] = useState(null);
+
+  // load existing profileData from localStorage
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("profileData") || "{}");
+      setFormData({
+        name: stored.name || stored.username || "",
+        username: stored.username || "",
+        email: stored.email || "",
+        bio: stored.bio || "",
+      });
+      setAvatar(stored.avatarUrl || null);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // read uploaded image as data URL so it survives refresh
   const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setPreview(URL.createObjectURL(file));
-    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setAvatar(ev.target.result); // data URL
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("Updated profile:", formData);
+
+    // write to ls
+    const payload = {
+      name: formData.name?.trim(),
+      username: formData.username?.trim() || formData.name?.trim() || "You",
+      email: formData.email?.trim() || "",
+      bio: formData.bio || "",
+      avatarUrl: avatar || "",
+    };
+
+    localStorage.setItem("profileData", JSON.stringify(payload));
+
     alert("Profile updated!");
   };
 
   return (
     <div className="create-account-page">
       <div className="account-card">
-        <a href="/" className="back-link">
-          ← Back
-        </a>
         <h2 style={{ textAlign: "center", marginBottom: "12px" }}>
           Edit Profile
         </h2>
 
         <div className="avatar">
-          <img
-            src={preview || "https://via.placeholder.com/160"}
-          />
+          <img src={avatar || PLACEHOLDER_AVATAR} alt="Profile" />
           <label htmlFor="avatar-upload" className="avatar-label">
             Edit
           </label>
@@ -87,9 +116,10 @@ export default function EditProfile() {
             />
           </div>
 
+          {/* 
           <div className="field">
             <label className="field-label" htmlFor="email">
-              Email <span className="req">*</span>
+              Email
             </label>
             <input
               className="field-input"
@@ -99,10 +129,8 @@ export default function EditProfile() {
               placeholder="Enter your email"
               value={formData.email}
               onChange={handleChange}
-              required
             />
           </div>
-
           <div className="field">
             <label className="field-label" htmlFor="bio">
               Biography
@@ -117,6 +145,7 @@ export default function EditProfile() {
               rows="4"
             />
           </div>
+          */}
 
           <button type="submit" className="btn">
             Save Changes

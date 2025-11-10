@@ -5,24 +5,31 @@ import { useAuth0 } from "@auth0/auth0-react";
 
 export default function Navbar() {
   const location = useLocation();
-  const { isAuthenticated, isLoading, logout } = useAuth0();
+  const { logout } = useAuth0();
 
-  const hideNavbar = ["/signin", "/create-account"];
+  const hideNavbar = ["/signin", "/create-account", "/callback"];
   if (hideNavbar.includes(location.pathname)) return null;
 
   const isActive = (path) => location.pathname === path;
 
-  // Toggle motions panel visibility (slides .left-main off/on screen)
-  const toggleMotionsPanel = () => {
+  const toggleMotionsPanel = (e) => {
+    e.preventDefault(); // stop navigation
     const panel = document.querySelector(".left-main");
-    if (panel) panel.classList.toggle("hidden-panel");
+    if (panel) {
+      panel.classList.toggle("hidden-panel");
+    }
+  };
+  const handleSignOut = () => {
+    logout({
+      logoutParams: { returnTo: `${window.location.origin}/` },
+    });
   };
 
   return (
     <aside className="left-rail" role="navigation" aria-label="Primary">
       <div className="nav-rail">
-        {/* Motions (toggle the motions/members panel) */}
-        <Link
+        {/* Motions */}
+        <button
           to="/discussion"
           onClick={toggleMotionsPanel}
           className={`nav-item ${isActive("/discussion") ? "is-active" : ""}`}
@@ -35,11 +42,10 @@ export default function Navbar() {
             width="24"
             height="24"
             fill="currentColor"
-            aria-hidden="true"
           >
             <path d="M4 4h16v10H6l-2 2V4zm2 4h12v2H6V8zm0 4h8v2H6v-2z" />
           </svg>
-        </Link>
+        </button>
 
         {/* Create Committee */}
         <Link
@@ -56,7 +62,6 @@ export default function Navbar() {
             width="24"
             height="24"
             fill="currentColor"
-            aria-hidden="true"
           >
             <path
               d="M12 2C6.48 2 2 6.48 2 12s4.48 
@@ -79,7 +84,6 @@ export default function Navbar() {
             width="24"
             height="24"
             fill="currentColor"
-            aria-hidden="true"
           >
             <path
               d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 
@@ -89,36 +93,31 @@ export default function Navbar() {
           </svg>
         </Link>
 
-        {/* Sign Out (Auth0 logout) */}
-        {!isLoading && isAuthenticated && (
-          <button
-            className="nav-item"
-            title="Sign Out"
-            aria-label="Sign Out"
-            onClick={() =>
-              logout({
-                logoutParams: { returnTo: window.location.origin },
-              })
-            }
+        {/* Sign Out (Auth0) */}
+        <button
+          type="button"
+          className="nav-item"
+          title="Sign Out"
+          aria-label="Sign Out"
+          onClick={handleSignOut}
+          style={{
+            background: "none",
+            border: 0,
+            padding: 0,
+            cursor: "pointer",
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="24"
+            height="24"
+            fill="currentColor"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              width="24"
-              height="24"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M0 0h24v24H0z" fill="none" />
-              <path
-                d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 
-                2.58L17 17l5-5zM4 5h8V3H4c-1.1 
-                0-2 .9-2 2v14c0 1.1.9 2 
-                2 2h8v-2H4V5z"
-              />
-            </svg>
-          </button>
-        )}
+            <path d="M0 0h24v24H0z" fill="none" />
+            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
+          </svg>
+        </button>
       </div>
     </aside>
   );
