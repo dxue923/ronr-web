@@ -17,6 +17,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       clientId={clientId}
       authorizationParams={{
         redirect_uri: window.location.origin + "/discussion",
+        audience: import.meta.env.VITE_AUTH0_AUDIENCE,
       }}
       cacheLocation="localstorage"
     >
