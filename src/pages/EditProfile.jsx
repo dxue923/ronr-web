@@ -1,10 +1,11 @@
-// src/pages/EditProfile.jsx
 import React, { useState, useEffect } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import "../assets/styles/index.css";
 
 const PLACEHOLDER_AVATAR = "";
 
 export default function EditProfile() {
+  const { user, isAuthenticated } = useAuth0();
   const [formData, setFormData] = useState({
     name: "",
     username: "",
@@ -13,42 +14,36 @@ export default function EditProfile() {
   });
   const [avatar, setAvatar] = useState(null);
 
-  // load existing profileData from localStorage
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem("profileData") || "{}");
       setFormData({
         name: stored.name || stored.username || "",
         username: stored.username || "",
-        email: stored.email || "",
+        email: user?.email || stored.email || "",
         bio: stored.bio || "",
       });
       setAvatar(stored.avatarUrl || null);
-    } catch {
-      // ignore
-    }
-  }, []);
+    } catch {}
+  }, [user]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // read uploaded image as data URL so it survives refresh
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setAvatar(ev.target.result); // data URL
+      setAvatar(ev.target.result);
     };
     reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
-    // write to ls
     const payload = {
       name: formData.name?.trim(),
       username: formData.username?.trim() || formData.name?.trim() || "You",
@@ -56,11 +51,13 @@ export default function EditProfile() {
       bio: formData.bio || "",
       avatarUrl: avatar || "",
     };
-
     localStorage.setItem("profileData", JSON.stringify(payload));
-
     alert("Profile updated!");
   };
+
+  if (!isAuthenticated) {
+    return <div>Please log in to edit your profile.</div>;
+  }
 
   return (
     <div className="create-account-page">
@@ -116,7 +113,6 @@ export default function EditProfile() {
             />
           </div>
 
-          {/* 
           <div className="field">
             <label className="field-label" htmlFor="email">
               Email
@@ -126,26 +122,10 @@ export default function EditProfile() {
               id="email"
               name="email"
               type="email"
-              placeholder="Enter your email"
               value={formData.email}
-              onChange={handleChange}
+              disabled // lock email, uneditable
             />
           </div>
-          <div className="field">
-            <label className="field-label" htmlFor="bio">
-              Biography
-            </label>
-            <textarea
-              className="field-input"
-              id="bio"
-              name="bio"
-              placeholder="Tell us a bit about yourself"
-              value={formData.bio}
-              onChange={handleChange}
-              rows="4"
-            />
-          </div>
-          */}
 
           <button type="submit" className="btn">
             Save Changes

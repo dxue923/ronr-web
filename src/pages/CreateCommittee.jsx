@@ -30,7 +30,6 @@ function getCurrentUser() {
   }
 }
 
-// we will render a real circle when blank
 const AVATAR_SIZE = 54;
 const norm = (s) => (s ?? "").toString().trim().toLowerCase();
 
@@ -68,6 +67,9 @@ export default function CreateCommittee() {
     [committees]
   );
 
+  /* ---------- show/hide form ---------- */
+  const [showForm, setShowForm] = useState(false);
+
   /* ---------- form state ---------- */
   const [committeeName, setCommitteeName] = useState("");
   const [memberInput, setMemberInput] = useState("");
@@ -81,12 +83,14 @@ export default function CreateCommittee() {
       name: currentUser.name,
       username: currentUser.username,
       role: ROLE.OWNER,
-      avatarUrl: currentUser.avatarUrl || "", // real user may have avatar
+      avatarUrl: currentUser.avatarUrl || "",
     },
   ]);
   const [stagedOwnerId, setStagedOwnerId] = useState(currentUser.username);
 
   const roleSelectRef = useRef(null);
+  const membersScrollRef = useRef(null);
+  const [lastAddedId, setLastAddedId] = useState(null);
 
   /* ---------- tiny helper to render avatar ---------- */
   const Avatar = ({ src, alt }) => {
@@ -109,7 +113,6 @@ export default function CreateCommittee() {
         />
       );
     }
-    // blank circle
     return (
       <div
         className="member-avatar"
@@ -125,8 +128,9 @@ export default function CreateCommittee() {
     );
   };
 
-  /* ---------- helpers ---------- */
-  const clearForm = () => {
+  /* ---------- handy reset for a brand-new committee ---------- */
+  const resetToBlankCommittee = () => {
+    setEditingId(null);
     setCommitteeName("");
     setMemberInput("");
     setMemberRoleInput(ROLE.MEMBER);
@@ -139,7 +143,13 @@ export default function CreateCommittee() {
       },
     ]);
     setStagedOwnerId(currentUser.username);
-    setEditingId(null);
+    setLastAddedId(null);
+  };
+
+  /* ---------- helpers ---------- */
+  const clearForm = () => {
+    resetToBlankCommittee();
+    setShowForm(false);
   };
 
   const gotoChat = (id) => navigate(`/committees/${id}/chat`);
@@ -149,7 +159,6 @@ export default function CreateCommittee() {
     const raw = memberInput.trim();
     if (!raw) return;
 
-    // username slug
     const slug =
       raw
         .toLowerCase()
@@ -167,7 +176,7 @@ export default function CreateCommittee() {
 
     const chosenRole = memberRoleInput;
 
-    // if adding a new OWNER, transfer ownership
+    // handle new owner
     if (chosenRole === ROLE.OWNER) {
       const ok = window.confirm(
         `Make ${raw} the new owner? This will demote the current owner to Member.`
@@ -185,12 +194,13 @@ export default function CreateCommittee() {
           name: raw,
           username: slug,
           role: ROLE.OWNER,
-          avatarUrl: "", // new user, no picture
+          avatarUrl: "",
         },
       ]);
       setStagedOwnerId(slug);
       setMemberInput("");
       setMemberRoleInput(ROLE.MEMBER);
+      setLastAddedId(slug);
       return;
     }
 
@@ -201,11 +211,12 @@ export default function CreateCommittee() {
         name: raw,
         username: slug,
         role: chosenRole,
-        avatarUrl: "", // no picture, show blank circle
+        avatarUrl: "",
       },
     ]);
     setMemberInput("");
     setMemberRoleInput(ROLE.MEMBER);
+    setLastAddedId(slug);
   };
 
   const removeStaged = (username) => {
@@ -215,6 +226,20 @@ export default function CreateCommittee() {
     }
     setStagedMembers((prev) => prev.filter((m) => m.username !== username));
   };
+
+  /* ---------- scroll to newly added member ---------- */
+  useEffect(() => {
+    if (!lastAddedId) return;
+    const container = membersScrollRef.current;
+    if (!container) return;
+    const el = container.querySelector(`#member-${lastAddedId}`);
+    if (el) {
+      container.scrollTo({
+        top: el.offsetTop - 14,
+        behavior: "smooth",
+      });
+    }
+  }, [lastAddedId]);
 
   /* ---------- normalize + create/save/delete ---------- */
   const normalizeForSave = (name) => {
@@ -303,6 +328,7 @@ export default function CreateCommittee() {
   };
 
   const loadCommitteeIntoForm = (committee) => {
+    setShowForm(true);
     setEditingId(committee.id);
     setCommitteeName(committee.name || "");
     setStagedOwnerId(committee.ownerId || "");
@@ -311,7 +337,6 @@ export default function CreateCommittee() {
       name: m.name,
       username: m.username || m.id || m.name,
       role: resolveMemberRole(m, committee),
-      // if stored committee has an avatar, keep it. otherwise blank
       avatarUrl: m.avatarUrl || "",
     }));
 
@@ -319,6 +344,7 @@ export default function CreateCommittee() {
     cloned.forEach((m) => map.set(norm(m.username), m));
     setStagedMembers([...map.values()]);
     setMemberRoleInput(ROLE.MEMBER);
+    setLastAddedId(null);
   };
 
   /* ---------- group by role for display ---------- */
@@ -336,11 +362,33 @@ export default function CreateCommittee() {
   );
 
   return (
-    <div className="create-committee-page two-pane">
+    <div
+      className={`create-committee-page two-pane ${
+        showForm ? "show-form" : "hide-form"
+      }`}
+    >
+      {/* LEFT: Your Committees */}
       <aside className="side-panel pane">
         <div className="card">
           <div className="side-header">
             <h2>Your Committees</h2>
+            <button
+              className="add-committee-btn"
+              onClick={() => {
+                setShowForm((prev) => {
+                  // if we are closing it, just close
+                  if (prev) {
+                    return false;
+                  }
+                  // opening -> blank form
+                  resetToBlankCommittee();
+                  return true;
+                });
+              }}
+              title={showForm ? "Close form" : "Create a committee"}
+            >
+              {showForm ? "×" : "+"}
+            </button>
           </div>
 
           <div className="side-list">
@@ -378,232 +426,272 @@ export default function CreateCommittee() {
           </div>
         </div>
       </aside>
+      {/* message on empty rirght panel */}
+      {!showForm && (
+        <div className="empty-panel-message">
+          <h1>Welcome to e-motions Committees</h1>
+          <p>
+            Here you can organize your groups, assign roles, and manage
+            discussions for each committee. To get started, click the{" "}
+            <strong>+</strong> button to create your committee.
+          </p>
+          <p>
+            Once you create a committee, you'll be able to chat, make motions,
+            and collaborate with your members in one place.
+          </p>
+        </div>
+      )}
 
-      {/* Create / Edit panel */}
-      <div className="main-content pane">
-        <div className="card">
-          <div className="name-committee section">
-            <h1>{isEditing ? "Edit Committee" : "Create a Committee"}</h1>
-            <input
-              className="committee-name-input"
-              type="text"
-              value={committeeName}
-              onChange={(e) => setCommitteeName(e.target.value)}
-              placeholder="Name your committee"
-            />
-          </div>
-
-          <div className="committee-members section">
-            <h2>Members & Roles</h2>
-
-            {/* role selector -> input -> add */}
-            <div className="row">
-              <div
-                className="role-select-wrap"
-                style={{ minWidth: "140px" }}
-                onClick={() => {
-                  const el = roleSelectRef.current;
-                  if (!el) return;
-                  if (typeof el.showPicker === "function") {
-                    el.showPicker();
-                  } else {
-                    el.focus();
-                    el.click();
-                  }
-                }}
-              >
-                <select
-                  ref={roleSelectRef}
-                  className="pill role-select"
-                  value={memberRoleInput}
-                  onChange={(e) => setMemberRoleInput(e.target.value)}
-                >
-                  <option value={ROLE.OWNER}>Owner</option>
-                  <option value={ROLE.CHAIR}>Chair</option>
-                  <option value={ROLE.MEMBER}>Member</option>
-                  <option value={ROLE.OBSERVER}>Observer</option>
-                </select>
-              </div>
-
+      {/* RIGHT: Create / Edit panel */}
+      {showForm && (
+        <div
+          className={`main-content pane ${showForm ? "is-open" : "is-closed"}`}
+        >
+          <div className="card">
+            <div className="name-committee section">
+              <h1>{isEditing ? "Edit Committee" : "Create a Committee"}</h1>
               <input
-                className="member-search-input"
+                className="committee-name-input"
                 type="text"
-                value={memberInput}
-                onChange={(e) => setMemberInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addMember();
-                  }
-                }}
-                placeholder="Enter username"
+                value={committeeName}
+                onChange={(e) => setCommitteeName(e.target.value)}
+                placeholder="Name your committee"
               />
-
-              <button className="submit-button" onClick={addMember}>
-                Add
-              </button>
             </div>
 
-            {/* grouped list */}
-            <ul className="member-list" style={{ marginTop: "16px" }}>
-              {/* OWNER */}
-              {owners.length > 0 && (
-                <li className="role-section">
-                  <div className="role-header">
-                    <span>Owner</span>
-                  </div>
-                  <div className="role-members">
-                    {owners.map((m) => (
-                      <div className="member-item" key={m.username}>
-                        <div className="member-left">
-                          <Avatar src={m.avatarUrl} alt={m.name} />
-                          <div className="member-meta">
-                            <p className="member-name">{m.name}</p>
-                            <p className="member-username">({m.username})</p>
-                          </div>
-                        </div>
-                        {/* owner can't be removed */}
-                      </div>
-                    ))}
-                  </div>
-                </li>
-              )}
+            <div className="committee-members section">
+              <h2>Members & Roles</h2>
 
-              {/* CHAIR */}
-              {chairs.length > 0 && (
-                <li className="role-section">
-                  <div className="role-header">
-                    <span>Chair</span>
-                  </div>
-                  <div className="role-members">
-                    {chairs.map((m) => (
-                      <div className="member-item" key={m.username}>
-                        <div className="member-left">
-                          <Avatar src={m.avatarUrl} alt={m.name} />
-                          <div className="member-meta">
-                            <p className="member-name">{m.name}</p>
-                            <p className="member-username">({m.username})</p>
-                          </div>
-                        </div>
-                        <button
-                          className="pill remove"
-                          onClick={() => removeStaged(m.username)}
-                          title="Remove member"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </li>
-              )}
-
-              {/* MEMBER */}
-              {members.length > 0 && (
-                <li className="role-section">
-                  <div className="role-header">
-                    <span>Member</span>
-                    {members.length > 0 && (
-                      <span className="role-count">{members.length}</span>
-                    )}
-                  </div>
-                  <div className="role-members">
-                    {members.map((m) => (
-                      <div className="member-item" key={m.username}>
-                        <div className="member-left">
-                          <Avatar src={m.avatarUrl} alt={m.name} />
-                          <div className="member-meta">
-                            <p className="member-name">{m.name}</p>
-                            <p className="member-username">({m.username})</p>
-                          </div>
-                        </div>
-                        <button
-                          className="pill danger"
-                          onClick={() => removeStaged(m.username)}
-                          title="Remove member"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </li>
-              )}
-
-              {/* OBSERVER */}
-              {observers.length > 0 && (
-                <li className="role-section">
-                  <div className="role-header">
-                    <span>Observer</span>
-                    {observers.length > 0 && (
-                      <span className="role-count">{observers.length}</span>
-                    )}
-                  </div>
-                  <div className="role-members">
-                    {observers.map((m) => (
-                      <div className="member-item" key={m.username}>
-                        <div className="member-left">
-                          <Avatar src={m.avatarUrl} alt={m.name} />
-                          <div className="member-meta">
-                            <p className="member-name">{m.name}</p>
-                            <p className="member-username">({m.username})</p>
-                          </div>
-                        </div>
-                        <button
-                          className="pill danger"
-                          onClick={() => removeStaged(m.username)}
-                          title="Remove member"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </li>
-              )}
-
-              {owners.length === 0 &&
-                chairs.length === 0 &&
-                members.length === 0 &&
-                observers.length === 0 && (
-                  <li className="empty-hint">
-                    No members yet — add someone above
-                  </li>
-                )}
-            </ul>
-          </div>
-
-          <div className="section" style={{ display: "flex", gap: 8 }}>
-            {isEditing ? (
-              <>
-                <button className="submit-button" onClick={handleSave}>
-                  Save Changes
-                </button>
-                <button
-                  className="submit-button"
-                  onClick={clearForm}
-                  style={{ background: "#6c757d" }}
-                  title="Cancel editing"
+              {/* fixed add controls */}
+              <div className="member-add-row">
+                <div
+                  className="role-select-wrap"
+                  style={{ minWidth: "140px" }}
+                  onClick={() => {
+                    const el = roleSelectRef.current;
+                    if (!el) return;
+                    if (typeof el.showPicker === "function") {
+                      el.showPicker();
+                    } else {
+                      el.focus();
+                      el.click();
+                    }
+                  }}
                 >
-                  Cancel
+                  <select
+                    ref={roleSelectRef}
+                    className="pill role-select"
+                    value={memberRoleInput}
+                    onChange={(e) => setMemberRoleInput(e.target.value)}
+                  >
+                    <option value={ROLE.OWNER}>Owner</option>
+                    <option value={ROLE.CHAIR}>Chair</option>
+                    <option value={ROLE.MEMBER}>Member</option>
+                    <option value={ROLE.OBSERVER}>Observer</option>
+                  </select>
+                </div>
+
+                <input
+                  className="member-search-input"
+                  type="text"
+                  value={memberInput}
+                  onChange={(e) => setMemberInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addMember();
+                    }
+                  }}
+                  placeholder="Enter username"
+                />
+
+                <button className="submit-button" onClick={addMember}>
+                  Add
                 </button>
-                <button
-                  className="submit-button"
-                  onClick={handleDelete}
-                  style={{ background: "#dc2626" }}
-                  title="Delete committee"
-                >
-                  Delete
+              </div>
+
+              {/* scrollable members list */}
+              <div className="members-scroll" ref={membersScrollRef}>
+                <ul className="member-list" style={{ marginTop: "16px" }}>
+                  {/* OWNER */}
+                  {owners.length > 0 && (
+                    <li className="role-section">
+                      <div className="role-header">
+                        <span>Owner</span>
+                      </div>
+                      <div className="role-members">
+                        {owners.map((m) => (
+                          <div
+                            className="member-item"
+                            key={m.username}
+                            id={`member-${m.username}`}
+                          >
+                            <div className="member-left">
+                              <Avatar src={m.avatarUrl} alt={m.name} />
+                              <div className="member-meta">
+                                <p className="member-name">{m.name}</p>
+                                <p className="member-username">
+                                  ({m.username})
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  )}
+
+                  {/* CHAIR */}
+                  {chairs.length > 0 && (
+                    <li className="role-section">
+                      <div className="role-header">
+                        <span>Chair</span>
+                      </div>
+                      <div className="role-members">
+                        {chairs.map((m) => (
+                          <div
+                            className="member-item"
+                            key={m.username}
+                            id={`member-${m.username}`}
+                          >
+                            <div className="member-left">
+                              <Avatar src={m.avatarUrl} alt={m.name} />
+                              <div className="member-meta">
+                                <p className="member-name">{m.name}</p>
+                                <p className="member-username">
+                                  ({m.username})
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              className="pill remove"
+                              onClick={() => removeStaged(m.username)}
+                              title="Remove member"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  )}
+
+                  {/* MEMBER */}
+                  {members.length > 0 && (
+                    <li className="role-section">
+                      <div className="role-header">
+                        <span>Member</span>
+                        <span className="role-count">{members.length}</span>
+                      </div>
+                      <div className="role-members">
+                        {members.map((m) => (
+                          <div
+                            className="member-item"
+                            key={m.username}
+                            id={`member-${m.username}`}
+                          >
+                            <div className="member-left">
+                              <Avatar src={m.avatarUrl} alt={m.name} />
+                              <div className="member-meta">
+                                <p className="member-name">{m.name}</p>
+                                <p className="member-username">
+                                  ({m.username})
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              className="pill danger"
+                              onClick={() => removeStaged(m.username)}
+                              title="Remove member"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  )}
+
+                  {/* OBSERVER */}
+                  {observers.length > 0 && (
+                    <li className="role-section">
+                      <div className="role-header">
+                        <span>Observer</span>
+                        <span className="role-count">{observers.length}</span>
+                      </div>
+                      <div className="role-members">
+                        {observers.map((m) => (
+                          <div
+                            className="member-item"
+                            key={m.username}
+                            id={`member-${m.username}`}
+                          >
+                            <div className="member-left">
+                              <Avatar src={m.avatarUrl} alt={m.name} />
+                              <div className="member-meta">
+                                <p className="member-name">{m.name}</p>
+                                <p className="member-username">
+                                  ({m.username})
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              className="pill danger"
+                              onClick={() => removeStaged(m.username)}
+                              title="Remove member"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </li>
+                  )}
+
+                  {owners.length === 0 &&
+                    chairs.length === 0 &&
+                    members.length === 0 &&
+                    observers.length === 0 && (
+                      <li className="empty-hint">
+                        No members yet — add someone above
+                      </li>
+                    )}
+                </ul>
+              </div>
+            </div>
+
+            <div className="section" style={{ display: "flex", gap: 8 }}>
+              {isEditing ? (
+                <>
+                  <button className="submit-button" onClick={handleSave}>
+                    Save Changes
+                  </button>
+                  <button
+                    className="submit-button"
+                    onClick={clearForm}
+                    style={{ background: "#6c757d" }}
+                    title="Cancel editing"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="submit-button"
+                    onClick={handleDelete}
+                    style={{ background: "#dc2626" }}
+                    title="Delete committee"
+                  >
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <button className="submit-button" onClick={handleCreate}>
+                  Create Committee
                 </button>
-              </>
-            ) : (
-              <button className="submit-button" onClick={handleCreate}>
-                Create Committee
-              </button>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
