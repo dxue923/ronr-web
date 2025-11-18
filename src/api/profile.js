@@ -1,81 +1,37 @@
-// src/api/profile.js
-// DEBUGGING version – logs token info, headers, and responses
+const BASE_URL = "/.netlify/functions/profile";
 
-const FUNCTIONS_BASE =
-  import.meta.env.VITE_FUNCTIONS_BASE || "/.netlify/functions";
-const PROFILE_URL = `${FUNCTIONS_BASE}/profile`;
+export async function fetchProfile(idToken) {
+  const res = await fetch(BASE_URL, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
 
-async function getToken(getAccessTokenSilently) {
-  const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
-  try {
-    const token = audience
-      ? await getAccessTokenSilently({ audience })
-      : await getAccessTokenSilently();
-
-    console.log(
-      "%c[ProfileAPI] Got token:",
-      "color:green",
-      token?.slice(0, 30) + "..."
-    );
-    return token;
-  } catch (err) {
-    console.error("[ProfileAPI] getAccessTokenSilently failed:", err);
-    throw err;
-  }
-}
-
-async function handleResponse(res, action) {
-  console.log(`[ProfileAPI] ${action} → status`, res.status);
-
-  const text = await res.text();
-  console.log(`[ProfileAPI] ${action} → body:`, text);
+  const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new Error(`${action} failed (${res.status}): ${text}`);
+    throw new Error(data?.message || data?.error || "Failed to load profile");
   }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+  return data;
 }
 
-// ---------- Get current user profile ----------
-export async function getProfile(getAccessTokenSilently) {
-  const token = await getToken(getAccessTokenSilently);
-
-  console.log("[ProfileAPI] Sending GET with headers:", {
-    Authorization: `Bearer ${token?.slice(0, 15)}...`,
-  });
-
-  const res = await fetch(PROFILE_URL, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  return handleResponse(res, "Profile GET");
-}
-
-// ---------- Update user profile ----------
-export async function updateProfile(getAccessTokenSilently, partialProfile) {
-  const token = await getToken(getAccessTokenSilently);
-
-  console.log(
-    "[ProfileAPI] Sending PUT to",
-    PROFILE_URL,
-    "with body:",
-    partialProfile
-  );
-
-  const res = await fetch(PROFILE_URL, {
-    method: "PUT",
+export async function updateProfile(idToken, updates) {
+  const res = await fetch(BASE_URL, {
+    method: "POST",
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${idToken}`,
     },
-    body: JSON.stringify(partialProfile),
+    body: JSON.stringify(updates),
   });
 
-  return handleResponse(res, "Profile PUT");
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || "Failed to update profile");
+  }
+  return data;
 }

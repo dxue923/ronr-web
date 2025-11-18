@@ -1,57 +1,89 @@
 {
+  "profile": [
+    {
+      "id": "google-oauth2|102653477444434217720",
+      "username": "dxue923",
+      "name": "Dave Xue",
+      "email": "dxue923@gmail.com",
+      "avatarUrl": "https://cdn.britannica.com/07/183407-050-C35648B5/Chicken.jpg",
+      "memberships": [],
+      "bio": ""
+    }
+  ],
   "committees": [
     {
-      "id": "committee-1",
-      "name": "General Committee",
-      "description": "Handles administrative motions and budget approvals.",
-      "createdAt": "2025-11-02T17:55:00Z"
-    }
-  ],
-  "motions": [
-    {
-      "id": "motion-1",
-      "committeeId": "committee-1",
-      "title": "Motion 1: Budget Approval",
-      "description": "Approve the new annual budget.",
-      "status": "open",
-      "createdAt": "2025-11-02T17:59:00Z"
-    }
-  ],
-  "comments": [
-    {
-      "id": "msg-1",
-      "motionId": "motion-1",
-      "author": "Member 1",
-      "text": "I support this motion.",
-      "createdAt": "2025-11-02T18:00:00Z"
+      "id": "committee-1762834306482",
+      "name": "test",
+      "description": "",
+      "createdAt": "2025-11-11T04:11:46.482Z"
     },
     {
-      "id": "msg-2",
-      "motionId": "motion-1",
-      "author": "Member 2",
-      "text": "I think we need more discussion.",
-      "createdAt": "2025-11-02T18:01:00Z"
+      "id": "committee-1763057544731",
+      "name": "hi",
+      "createdAt": "2025-11-13T18:12:24.731Z"
+    },
+    {
+      "id": "committee-1763403920699",
+      "name": "test",
+      "createdAt": "2025-11-17T18:25:20.699Z"
     }
   ],
-  "members": [
+  "committeeMembers": [
     {
-      "id": "u1",
+      "userId": "u1",
       "name": "Chairman 1",
       "role": "chair",
       "committeeId": "committee-1"
     },
     {
-      "id": "u2",
+      "userId": "u2",
       "name": "Member 1",
       "role": "member",
       "committeeId": "committee-1"
     },
     {
-      "id": "u3",
+      "userId": "u3",
       "name": "Member 2",
       "role": "member",
       "committeeId": "committee-1"
     }
   ],
-  "activeCommitteeId": "committee-1"
+  "motions": [
+    {
+      "id": "1763411180511",
+      "committeeId": "committee-1763403920699",
+      "title": "JOB",
+      "description": "I am a men",
+      "status": "closed",
+      "createdAt": "2025-11-17T20:26:20.511Z",
+      "votes": {
+        "yes": 13,
+        "no": 8,
+        "abstain": 5
+      }
+    },
+    {
+      "id": "1763411196698",
+      "committeeId": "committee-1763403920699",
+      "title": "patel",
+      "description": "i am a woman",
+      "status": "paused",
+      "createdAt": "2025-11-17T20:26:36.698Z",
+      "votes": {
+        "yes": 5,
+        "no": 0,
+        "abstain": 0
+      }
+    }
+  ],
+  "comments": [
+    {
+      "id": "msg-1763410649843",
+      "motionId": "motion1",
+      "author": "dev-user",
+      "text": "meow meow",
+      "createdAt": "2025-11-17T20:17:29.843Z"
+    }
+  ],
+  "activeCommitteeId": "committee-1763403920699"
 }
