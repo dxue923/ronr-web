@@ -29,7 +29,7 @@ export default function Navbar() {
     <aside className="left-rail" role="navigation" aria-label="Primary">
       <div className="nav-rail">
         {/* Motions */}
-        <button
+        {/* <button
           to="/discussion"
           onClick={toggleMotionsPanel}
           className={`nav-item ${isActive("/discussion") ? "is-active" : ""}`}
@@ -45,79 +45,94 @@ export default function Navbar() {
           >
             <path d="M4 4h16v10H6l-2 2V4zm2 4h12v2H6V8zm0 4h8v2H6v-2z" />
           </svg>
-        </button>
+        </button> */}
 
-        {/* Create Committee */}
-        <Link
-          to="/create-committee"
-          className={`nav-item ${
-            isActive("/create-committee") ? "is-active" : ""
-          }`}
-          title="Create Committee"
-          aria-label="Create Committee"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
+        {/* Create Committee (clean group icon) */}
+        <div className="nav-block">
+          <Link
+            to="/create-committee"
+            className={`nav-item ${
+              isActive("/create-committee") ? "is-active" : ""
+            }`}
+            title="Create Committee"
+            aria-label="Create Committee"
           >
-            <path
-              d="M12 2C6.48 2 2 6.48 2 12s4.48 
-              10 10 10 10-4.48 10-10S17.52 2 
-              12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"
-            />
-          </svg>
-        </Link>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              role="img"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <circle cx="12" cy="10" r="2.2" />
+              <circle cx="7.2" cy="12.2" r="1.8" />
+              <circle cx="16.8" cy="12.2" r="1.8" />
+              <path d="M9.6 16.2c.9-.7 2.1-1.1 3.4-1.1 1.3 0 2.5.4 3.4 1.1" />
+              <path d="M5.8 15.8c.6-.5 1.4-.8 2.2-.8 .8 0 1.6.3 2.2.8" />
+              <path d="M13.8 15.8c.6-.5 1.4-.8 2.2-.8 .8 0 1.6.3 2.2.8" />
+            </svg>
+          </Link>
+          <span className="nav-label">Committees</span>
+        </div>
 
         {/* Profile */}
-        <Link
-          to="/edit-profile"
-          className={`nav-item ${isActive("/edit-profile") ? "is-active" : ""}`}
-          title="Profile"
-          aria-label="Profile"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
+        <div className="nav-block">
+          <Link
+            to="/edit-profile"
+            className={`nav-item ${
+              isActive("/edit-profile") ? "is-active" : ""
+            }`}
+            title="Profile"
+            aria-label="Profile"
           >
-            <path
-              d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 
-              1.79-4 4 1.79 4 4 4zm0 
-              2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-            />
-          </svg>
-        </Link>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="currentColor"
+              role="img"
+              aria-hidden="true"
+            >
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+            </svg>
+          </Link>
+          <span className="nav-label">Profile</span>
+        </div>
 
         {/* Sign Out (Auth0) */}
-        <button
-          type="button"
-          className="nav-item"
-          title="Sign Out"
-          aria-label="Sign Out"
-          onClick={handleSignOut}
-          style={{
-            background: "none",
-            border: 0,
-            padding: 0,
-            cursor: "pointer",
-          }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="24"
-            height="24"
-            fill="currentColor"
+        <div className="nav-block">
+          <button
+            type="button"
+            className="nav-item"
+            title="Sign Out"
+            aria-label="Sign Out"
+            onClick={handleSignOut}
+            /* inline style trimmed so default .nav-item border/background show */
+            style={{ cursor: "pointer" }}
           >
-            <path d="M0 0h24v24H0z" fill="none" />
-            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="currentColor"
+              role="img"
+              aria-hidden="true"
+            >
+              <path d="M0 0h24v24H0z" fill="none" />
+              <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
+            </svg>
+          </button>
+          <span className="nav-label">Sign Out</span>
+        </div>
       </div>
     </aside>
   );

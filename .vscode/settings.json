@@ -1,0 +1,12 @@
+{
+  // Preferred Copilot chat model (will use GPT-5 if your account has access)
+  "github.copilot.chat.preferredModel": "gpt-5",
+  // Attempt to use GPT-5 for inline suggestions too (may be ignored if unsupported)
+  "github.copilot.inlineSuggest.model": "gpt-5",
+  // Editor (multi-turn) preference
+  "github.copilot.editor.preferredModel": "gpt-5",
+  // Fallback order if GPT-5 not available or throttled
+  "github.copilot.chat.fallbackModels": ["gpt-4o", "gpt-4", "claude-3.5-sonnet"],
+  // Auto-select the highest available model without manual prompt each session
+  "github.copilot.chat.autoSelectModel": true
+}
