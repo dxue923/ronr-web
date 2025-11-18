@@ -30,7 +30,7 @@ function getCurrentUser() {
   }
 }
 
-const AVATAR_SIZE = 54;
+const AVATAR_SIZE = 40;
 const norm = (s) => (s ?? "").toString().trim().toLowerCase();
 
 function resolveMemberRole(member, committee) {
@@ -426,24 +426,9 @@ export default function CreateCommittee() {
           </div>
         </div>
       </aside>
-      {/* message on empty rirght panel */}
-      {!showForm && (
-        <div className="empty-panel-message">
-          <h1>Welcome to e-motions Committees</h1>
-          <p>
-            Here you can organize your groups, assign roles, and manage
-            discussions for each committee. To get started, click the{" "}
-            <strong>+</strong> button to create your committee.
-          </p>
-          <p>
-            Once you create a committee, you'll be able to chat, make motions,
-            and collaborate with your members in one place.
-          </p>
-        </div>
-      )}
 
-      {/* RIGHT: Create / Edit panel */}
-      {showForm && (
+      {/* RIGHT: Create / Edit panel OR welcome message */}
+      {showForm ? (
         <div
           className={`main-content pane ${showForm ? "is-open" : "is-closed"}`}
         >
@@ -512,7 +497,7 @@ export default function CreateCommittee() {
 
               {/* scrollable members list */}
               <div className="members-scroll" ref={membersScrollRef}>
-                <ul className="member-list" style={{ marginTop: "16px" }}>
+                <ul className="member-list">
                   {/* OWNER */}
                   {owners.length > 0 && (
                     <li className="role-section">
@@ -690,6 +675,19 @@ export default function CreateCommittee() {
               )}
             </div>
           </div>
+        </div>
+      ) : (
+        <div className="empty-panel-message">
+          <h1>Welcome to e-motions Committees</h1>
+          <p>
+            Here you can organize your groups, assign roles, and manage
+            discussions for each committee. To get started, click the{" "}
+            <strong>+</strong> button to create your committee.
+          </p>
+          <p>
+            Once you create a committee, you'll be able to chat, make motions,
+            and collaborate with your members in one place.
+          </p>
         </div>
       )}
     </div>

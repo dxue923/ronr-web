@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import "../assets/styles/index.css";
 
-const PLACEHOLDER_AVATAR = "";
+const PLACEHOLDER_AVATAR = null;
 
 export default function EditProfile() {
   const { user, isAuthenticated } = useAuth0();
@@ -55,21 +55,23 @@ export default function EditProfile() {
     alert("Profile updated!");
   };
 
-  if (!isAuthenticated) {
-    return <div>Please log in to edit your profile.</div>;
-  }
+  const notAuthed = !isAuthenticated;
 
   return (
-    <div className="create-account-page">
-      <div className="account-card">
-        <h2 style={{ textAlign: "center", marginBottom: "12px" }}>
-          Edit Profile
-        </h2>
+    <div className="edit-profile-page">
+      <div className="profile-card">
+        {notAuthed && (
+          <div className="auth-warning">
+            Please sign in to sync your profile with your account. You can still
+            edit and save profile data locally.
+          </div>
+        )}
+        <h2 className="profile-title">Edit Profile</h2>
 
-        <div className="avatar">
-          <img src={avatar || PLACEHOLDER_AVATAR} alt="Profile" />
-          <label htmlFor="avatar-upload" className="avatar-label">
-            Edit
+        <div className="avatar-section">
+          <img src={avatar || undefined} alt="" className="profile-image" />
+          <label htmlFor="avatar-upload" className="avatar-edit-label">
+            Edit Avatar
           </label>
           <input
             id="avatar-upload"
@@ -80,13 +82,14 @@ export default function EditProfile() {
           />
         </div>
 
-        <form className="form" onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="field-label" htmlFor="name">
-              Name <span className="req">*</span>
+        <form className="profile-edit-form" onSubmit={handleSubmit}>
+          {/* Name */}
+          <div className="form-field">
+            <label className="form-label" htmlFor="name">
+              Name <span className="required">*</span>
             </label>
             <input
-              className="field-input"
+              className="form-input"
               id="name"
               name="name"
               type="text"
@@ -97,12 +100,13 @@ export default function EditProfile() {
             />
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor="username">
-              Username <span className="req">*</span>
+          {/* Username */}
+          <div className="form-field">
+            <label className="form-label" htmlFor="username">
+              Username <span className="required">*</span>
             </label>
             <input
-              className="field-input"
+              className="form-input"
               id="username"
               name="username"
               type="text"
@@ -113,21 +117,40 @@ export default function EditProfile() {
             />
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor="email">
+          {/* Email */}
+          <div className="form-field">
+            <label className="form-label" htmlFor="email">
               Email
             </label>
             <input
-              className="field-input"
+              className="form-input"
               id="email"
               name="email"
               type="email"
               value={formData.email}
-              disabled // lock email, uneditable
+              disabled
+              placeholder="Email"
             />
           </div>
 
-          <button type="submit" className="btn">
+          {/* Bio */}
+          {/* <div className="form-field">
+            <label className="form-label" htmlFor="bio">
+              Bio
+            </label>
+            <textarea
+              className="form-input"
+              id="bio"
+              name="bio"
+              placeholder="Tell us about yourself"
+              value={formData.bio}
+              onChange={handleChange}
+              rows="4"
+            />
+          </div> */}
+
+          {/* Submit Button */}
+          <button type="submit" className="submit-btn">
             Save Changes
           </button>
         </form>

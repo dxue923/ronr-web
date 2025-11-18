@@ -6,7 +6,7 @@ export default function Home() {
   return (
     <div className="home-page">
       <header className="home-header">
-        <h1 className="home-title">MotionSpace</h1>
+        <h1 className="home-title">e-motions</h1>
         <div className="home-buttons">
           <Link to="/signin" className="btn btn-login">
             Log In
