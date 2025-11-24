@@ -67,7 +67,7 @@ export default function Chat() {
   const [showManagePanel, setShowManagePanel] = useState(false);
   const [memberInput, setMemberInput] = useState("");
   const [newMemberRole, setNewMemberRole] = useState("member");
-  // bump to force re-read of committee from localStorage after edits
+  //  force re-read of committee from localStorage after edits
   const [membersRev, setMembersRev] = useState(0);
   // collapse participants on narrow screens to save vertical space
   const initialMembersCollapsed =
@@ -101,6 +101,7 @@ export default function Chat() {
   const [decisionSummary, setDecisionSummary] = useState("");
   const [decisionPros, setDecisionPros] = useState("");
   const [decisionCons, setDecisionCons] = useState("");
+  const [decisionOutcome, setDecisionOutcome] = useState("");
   const [savingDecision, setSavingDecision] = useState(false);
   // edit decision summary state (when manager wants to revise rationale)
   const [editingDecision, setEditingDecision] = useState(false);
@@ -112,9 +113,7 @@ export default function Chat() {
   const [showChairMenu, setShowChairMenu] = useState(false);
   // transient blink indicator when chair closes a motion
   const [finalBlink, setFinalBlink] = useState(false);
-  // toast notification for saves
-  const [toastMessage, setToastMessage] = useState("");
-  const toastTimeoutRef = useRef(null);
+  // toast notification for saves (removed)
 
   // find active motion object
   const activeMotion = motions.find((m) => m.id === activeMotionId) || null;
@@ -174,6 +173,17 @@ export default function Chat() {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [activeMotion]);
+
+  // ensure we scroll to the most recent messages when returning to Discussion view
+  useEffect(() => {
+    if (viewTab !== "discussion") return;
+    if (!scrollRef.current) return;
+    // schedule after render/layout to ensure correct scrollHeight
+    const t = setTimeout(() => {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, 0);
+    return () => clearTimeout(t);
+  }, [viewTab, activeMotion?.id]);
 
   if (!committee) {
     return (
@@ -402,11 +412,12 @@ export default function Chat() {
     const summary = decisionSummary.trim();
     const pros = decisionPros.trim();
     const cons = decisionCons.trim();
-    if (!summary && !pros && !cons) return; // require at least one field
+    if (!summary && !pros && !cons && !decisionOutcome) return; // require at least one field
     setSavingDecision(true);
     const updated = motions.map((m) => {
       if (m.id !== activeMotion.id) return m;
       const detail = {
+        outcome: decisionOutcome || undefined,
         summary,
         pros: pros
           ? pros
@@ -434,12 +445,13 @@ export default function Chat() {
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
     setSavingDecision(false);
-    // show toast in Discussion tab
-    setToastMessage(
-      "Final decision recorded. View it in the Final Decision tab."
-    );
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => setToastMessage(""), 4000);
+    // notify other windows/clients to highlight the Final Decision tab
+    try {
+      const key = `motionFinalBlink:${committee.id}:${activeMotion.id}`;
+      localStorage.setItem(key, Date.now().toString());
+    } catch (err) {
+      // ignore storage errors (e.g., disabled localStorage)
+    }
   };
 
   // start editing an existing decision summary
@@ -505,22 +517,9 @@ export default function Chat() {
     saveMotionsForCommittee(committee.id, updated);
     setSavingEditDecision(false);
     setEditingDecision(false);
-    // show toast in Discussion tab
-    setToastMessage(
-      "Final decision recorded. View it in the Final Decision tab."
-    );
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => setToastMessage(""), 4000);
   };
 
-  // clear toast timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
+  // no-op: toast logic removed
 
   // Close the motion immediately (no modal). The chair will fill decision
   // details on the Final Decision page after the motion is closed.
@@ -591,6 +590,26 @@ export default function Chat() {
     }
   }, [activeMotion?.state, viewTab]);
 
+  // listen for final-decision notifications from other windows (chair save)
+  useEffect(() => {
+    function onStorage(e) {
+      if (!e?.key) return;
+      if (!e.key.startsWith("motionFinalBlink:")) return;
+      const parts = e.key.split(":");
+      // key format: motionFinalBlink:committeeId:motionId
+      if (parts.length < 3) return;
+      const commId = parts[1];
+      const motionId = parts[2];
+      if (!committee || commId !== committee.id) return;
+      // only set blink for others (non-managers) and when the motion matches
+      if (!amIManager && activeMotion && motionId === activeMotion.id) {
+        setFinalBlink(true);
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [committee?.id, activeMotion?.id, amIManager]);
+
   // when the tabs are hidden (not closing modal and motion not closed),
   // ensure we return to the discussion view so no stale 'final' view remains
   useEffect(() => {
@@ -621,6 +640,21 @@ export default function Chat() {
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
   };
+
+  // group motions for UI sections: active (not closed) and concluded (closed)
+  const activeMotions = (motions || []).filter((m) => m.state !== "closed");
+  const concludedMotions = (motions || []).filter((m) => m.state === "closed");
+
+  // transient visibility for status pills: show briefly when motion/state changes
+  const [showStatusPill, setShowStatusPill] = useState(false);
+  useEffect(() => {
+    // whenever the active motion or its state changes, show the pill briefly
+    if (!activeMotion) return;
+    setShowStatusPill(true);
+    const t = setTimeout(() => setShowStatusPill(false), 10000); // 10s
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMotion?.id, activeMotion?.state]);
 
   return (
     <div
@@ -712,98 +746,140 @@ export default function Chat() {
               {motions.length === 0 && (
                 <p className="empty">No motions yet. Add one.</p>
               )}
-              {motions.map((m) =>
-                showManageMotions ? (
-                  <div key={m.id} className="motion-manage">
-                    <div className="motion-manage-controls">
-                      {(() => {
-                        // compute permission locally so JSX stays tidy
-                        const canClose = m && m.state !== "closed";
-                        return (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMotionId(m.id);
-                                changeMotionState("discussion");
-                                setShowManageMotions(false);
-                              }}
-                            >
-                              Resume Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMotionId(m.id);
-                                changeMotionState("paused");
-                                setShowManageMotions(false);
-                              }}
-                              disabled={m.state === "closed"}
-                              title={
-                                m.state === "closed"
-                                  ? "Disabled — motion is closed"
-                                  : undefined
-                              }
-                            >
-                              Pause Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMotionId(m.id);
-                                changeMotionState("voting");
-                                setShowManageMotions(false);
-                              }}
-                              disabled={m.state === "closed"}
-                              title={
-                                m.state === "closed"
-                                  ? "Disabled — motion is closed"
-                                  : undefined
-                              }
-                            >
-                              Move to Vote
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!canClose) return; // guard
-                                // immediately close the motion and switch to Final view
-                                handleCloseMotionNow(m.id);
-                                setShowManageMotions(false);
-                              }}
-                              disabled={!canClose}
-                              title={
-                                canClose
-                                  ? "Close motion"
-                                  : "Close disabled — resume discussion first"
-                              }
-                            >
-                              Close Motion
-                            </button>
-                          </>
-                        );
-                      })()}
-                    </div>
+
+              {activeMotions.length > 0 && (
+                <>
+                  <div className="motions-section-header">
+                    <strong>Active Motions</strong>
                   </div>
-                ) : (
-                  <button
-                    key={m.id}
-                    className={
-                      "motion-list-item " +
-                      (m.id === activeMotionId ? "motion-active" : "")
-                    }
-                    onClick={() => setActiveMotionId(m.id)}
+                  {activeMotions.map((m) => (
+                    <div key={m.id} className="motion-list-row">
+                      <div
+                        className={
+                          "motion-list-item " +
+                          (m.id === activeMotionId ? "motion-active" : "")
+                        }
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setActiveMotionId(m.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setActiveMotionId(m.id);
+                          }
+                        }}
+                      >
+                        <div className="motion-row-content">
+                          <span className="motion-title">{m.title}</span>
+                          <span
+                            className={`status-pill status-${
+                              m.state || "discussion"
+                            }`}
+                          >
+                            {m.state || "discussion"}
+                          </span>
+                        </div>
+
+                        {showManageMotions && amIManager && (
+                          <div className="motion-action-row manage-internal">
+                            <button
+                              type="button"
+                              className="motion-action-btn danger"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                handleDeleteMotion(m.id);
+                              }}
+                              title="Delete motion"
+                            >
+                              Delete
+                            </button>
+
+                            <button
+                              type="button"
+                              className="motion-action-btn"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                openEditMotion(m);
+                              }}
+                              title="Edit motion"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {concludedMotions.length > 0 && (
+                <>
+                  <div
+                    className="motions-section-header"
+                    style={{ marginTop: 8 }}
                   >
-                    <span className="motion-title">{m.title}</span>
-                    <span
-                      className={`status-pill status-${
-                        m.state || "discussion"
-                      }`}
-                    >
-                      {m.state || "discussion"}
-                    </span>
-                  </button>
-                )
+                    <strong>Concluded Motions</strong>
+                  </div>
+                  {concludedMotions.map((m) => (
+                    <div key={m.id} className="motion-list-row">
+                      <div
+                        className={
+                          "motion-list-item " +
+                          (m.id === activeMotionId ? "motion-active" : "")
+                        }
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setActiveMotionId(m.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setActiveMotionId(m.id);
+                          }
+                        }}
+                      >
+                        <div className="motion-row-content">
+                          <span className="motion-title">{m.title}</span>
+                          <span
+                            className={`status-pill status-${
+                              m.state || "discussion"
+                            }`}
+                          >
+                            {m.state || "discussion"}
+                          </span>
+                        </div>
+
+                        {showManageMotions && amIManager && (
+                          <div className="motion-action-row manage-internal">
+                            <button
+                              type="button"
+                              className="motion-action-btn danger"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                handleDeleteMotion(m.id);
+                              }}
+                              title="Delete motion"
+                            >
+                              Delete
+                            </button>
+
+                            <button
+                              type="button"
+                              className="motion-action-btn"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                openEditMotion(m);
+                              }}
+                              title="Edit motion"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           </div>
@@ -943,7 +1019,10 @@ export default function Chat() {
                           (viewTab === "final" ? "is-active" : "") +
                           (finalBlink ? " is-blink" : "")
                         }
-                        onClick={() => setViewTab("final")}
+                        onClick={() => {
+                          setViewTab("final");
+                          setFinalBlink(false);
+                        }}
                         aria-pressed={viewTab === "final"}
                       >
                         Final Decision
@@ -955,12 +1034,7 @@ export default function Chat() {
               {/* (tallies are shown in a larger panel below the thread) */}
             </header>
 
-            {/* Toast notification (shows only in Discussion view) */}
-            {viewTab === "discussion" && toastMessage && (
-              <div className="toast" role="status" aria-live="polite">
-                {toastMessage}
-              </div>
-            )}
+            {/* Toast notification removed */}
 
             {viewTab === "discussion" && (
               <div className="discussion-thread" ref={scrollRef}>
@@ -1014,6 +1088,36 @@ export default function Chat() {
                 )}
               </div>
             )}
+
+            {/* Composer-facing status pill for non-closed states.
+                Uses the same `decision-pill` class as the closed pill so sizing matches. */}
+            {viewTab === "discussion" &&
+              activeMotion &&
+              activeMotion.state !== "closed" && (
+                <div
+                  className="composer-status"
+                  style={{
+                    marginTop: 8,
+                    display: "flex",
+                    justifyContent: "center",
+                  }}
+                >
+                  <span
+                    className={
+                      "decision-pill is-" +
+                      (activeMotion.state || "discussion") +
+                      (showStatusPill ? "" : " is-hidden")
+                    }
+                  >
+                    {(activeMotion.state === "discussion" &&
+                      "Session is active") ||
+                      (activeMotion.state === "paused" &&
+                        "Session is paused") ||
+                      (activeMotion.state === "voting" && "Voting is active") ||
+                      ""}
+                  </span>
+                </div>
+              )}
 
             {/* decision pill moved below the final tally panel */}
 
@@ -1095,10 +1199,11 @@ export default function Chat() {
                             <span
                               className={
                                 "decision-pill is-" +
-                                (activeMotion.state || "closed")
+                                (activeMotion.state || "closed") +
+                                (showStatusPill ? "" : " is-hidden")
                               }
                             >
-                              {activeMotion.decisionNote || "Motion is closed"}
+                              {activeMotion.decisionNote || "Session is closed"}
                             </span>
                           </div>
                         )}
@@ -1330,9 +1435,7 @@ export default function Chat() {
                             )}
                           </div>
 
-                          <label className="decision-label">
-                            Chair's Summary
-                          </label>
+                          <label className="decision-label">Summary</label>
                           <textarea
                             value={editDecisionSummary}
                             onChange={(e) =>
@@ -1401,7 +1504,7 @@ export default function Chat() {
                           </div>
 
                           <div className="final-summary">
-                            <h4>Chair's Summary</h4>
+                            <h4>Summary</h4>
                             <div>
                               {activeMotion.decisionDetails?.summary || (
                                 <em>No summary recorded.</em>
@@ -1525,8 +1628,92 @@ export default function Chat() {
                     </div>
                   </div>
                 ) : (
-                  <div className="empty-thread">
-                    No final decision recorded.
+                  <div>
+                    {amIManager ? (
+                      <form
+                        className="decision-summary-form"
+                        onSubmit={handleSaveDecisionSummary}
+                      >
+                        <label className="decision-label">Outcome</label>
+                        <div
+                          className="outcome-options"
+                          role="radiogroup"
+                          aria-label="Outcome options"
+                        >
+                          {["Passed", "Failed", "Tied", "Deferred"].map(
+                            (opt) => {
+                              const variant = opt.toLowerCase();
+                              const active = decisionOutcome === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  className={`outcome-pill ${variant}${
+                                    active ? " is-active" : ""
+                                  }`}
+                                  onClick={() => setDecisionOutcome(opt)}
+                                  aria-pressed={active}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            }
+                          )}
+                        </div>
+
+                        <label className="decision-label">Summary</label>
+                        <textarea
+                          value={decisionSummary}
+                          onChange={(e) => setDecisionSummary(e.target.value)}
+                          rows={4}
+                        />
+
+                        <label className="decision-label">
+                          Pros (one per line)
+                        </label>
+                        <textarea
+                          value={decisionPros}
+                          onChange={(e) => setDecisionPros(e.target.value)}
+                          rows={3}
+                        />
+
+                        <label className="decision-label">
+                          Cons (one per line)
+                        </label>
+                        <textarea
+                          value={decisionCons}
+                          onChange={(e) => setDecisionCons(e.target.value)}
+                          rows={3}
+                        />
+
+                        <div className="decision-summary-actions">
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => {
+                              setDecisionSummary("");
+                              setDecisionPros("");
+                              setDecisionCons("");
+                              setDecisionOutcome("");
+                            }}
+                            disabled={savingDecision}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="btn-primary"
+                            disabled={savingDecision}
+                          >
+                            {savingDecision ? "Saving…" : "Save"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="empty-thread">
+                        No final decision recorded.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
