@@ -104,12 +104,26 @@ export default function Chat() {
   const [composerStance, setComposerStance] = useState("neutral");
   // view tab for middle column: 'discussion' | 'final'
   const [viewTab, setViewTab] = useState("discussion");
+  // per-motion remembered tabs (remember last-opened tab per motion)
+  const [motionTabs, setMotionTabs] = useState({});
+
+  const setMotionView = (tab, motionId = activeMotionId) => {
+    // debug logging to help trace per-motion tab behavior
+    try {
+      console.debug("setMotionView", { tab, motionId });
+    } catch (e) {}
+    if (motionId) {
+      setMotionTabs((prev) => ({ ...prev, [motionId]: tab }));
+    }
+    setViewTab(tab);
+  };
 
   // add-motion modal state
   const [showAddModal, setShowAddModal] = useState(false);
   const [newMotionTitle, setNewMotionTitle] = useState("");
   const [newMotionDesc, setNewMotionDesc] = useState("");
   const [editingMotionId, setEditingMotionId] = useState(null);
+  const [overturnTarget, setOverturnTarget] = useState(null);
   const [showManageMotions, setShowManageMotions] = useState(false);
   // responsive: split layout when viewport <= 1199px
   const [isSplit, setIsSplit] = useState(
@@ -139,11 +153,16 @@ export default function Chat() {
   const sessionPaused = activeMotion?.state === "paused";
   // whether the current session for the active motion is closed
   const sessionClosed = activeMotion?.state === "closed";
+  // whether the current user voted 'yes' on the active motion
+  const userVotedYes = (activeMotion?.votes || []).some(
+    (v) =>
+      (v.voterId || "") === (me.id || "") &&
+      (v.choice || "").toString().toLowerCase() === "yes"
+  );
   const [showFinalOverlay, setShowFinalOverlay] = useState(false);
 
   // auto-show final decision overlay when a motion with decisionDetails becomes active
   useEffect(() => {
-    // Show the final-decision overlay when the active motion has decisionDetails.
     if (activeMotion && activeMotion.decisionDetails) {
       setShowFinalOverlay(true);
     } else {
@@ -294,6 +313,7 @@ export default function Chat() {
 
   const handleSend = (e) => {
     e && e.preventDefault();
+
     if (!input.trim() || !activeMotion) return;
 
     const updated = motions.map((m) => {
@@ -365,14 +385,17 @@ export default function Chat() {
         state: "discussion",
         messages: [],
         decisionLog: [],
+        meta: overturnTarget ? { overturnOf: overturnTarget.id } : undefined,
       };
       const updated = [newMotion, ...motions];
       setMotions(updated);
       saveMotionsForCommittee(committee.id, updated);
       setActiveMotionId(newMotion.id);
+      setMotionView("discussion", newMotion.id);
       setShowAddModal(false);
       setNewMotionTitle("");
       setNewMotionDesc("");
+      setOverturnTarget(null);
     }
   };
 
@@ -381,6 +404,7 @@ export default function Chat() {
     setEditingMotionId(null);
     setNewMotionTitle("");
     setNewMotionDesc("");
+    setOverturnTarget(null);
   };
 
   const openEditMotion = (motion) => {
@@ -398,7 +422,9 @@ export default function Chat() {
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
     if (activeMotionId === motionId) {
-      setActiveMotionId(updated[0]?.id || null);
+      const nextActive = updated[0]?.id || null;
+      setActiveMotionId(nextActive);
+      setMotionView("discussion", nextActive);
     }
   };
 
@@ -537,6 +563,30 @@ export default function Chat() {
     setEditingDecision(false);
   };
 
+  // Propose a new motion that seeks to overturn the currently selected final decision
+  const handleProposeOverturn = () => {
+    if (!activeMotion || activeMotion.state !== "closed") return;
+    // Only users who voted in favor may propose an overturn
+    if (!userVotedYes) {
+      alert(
+        "Only members who voted in favor of the original decision may propose an overturn."
+      );
+      return;
+    }
+    // Open the add-motion modal pre-filled as an overturn proposal
+    openOverturnModal(activeMotion);
+  };
+
+  function openOverturnModal(targetMotion) {
+    setEditingMotionId(null);
+    setOverturnTarget(targetMotion);
+    setNewMotionTitle(`Motion to overturn "${targetMotion.title}"`);
+    setNewMotionDesc(
+      `This motion proposes to overturn the previous decision on "${targetMotion.title}".`
+    );
+    setShowAddModal(true);
+  }
+
   // no-op: toast logic removed
 
   // Close the motion immediately (no modal). The chair will fill decision
@@ -544,18 +594,14 @@ export default function Chat() {
   const handleCloseMotionNow = (motionId) => {
     const updated = motions.map((m) =>
       m.id === motionId
-        ? {
-            ...m,
-            state: "closed",
-            decisionNote: "Session is closed",
-          }
+        ? { ...m, state: "closed", decisionNote: "Session is closed" }
         : m
     );
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
     // ensure the closed motion is active and switch to Final view
     setActiveMotionId(motionId);
-    setViewTab("final");
+    setMotionView("final", motionId);
     // trigger a brief blink on the Final Decision tab when we close
     const before = motions.find((m) => m.id === motionId);
     if (before && !before.decisionDetails) {
@@ -604,7 +650,7 @@ export default function Chat() {
   // ensure Final tab isn't selectable until motion is closed
   useEffect(() => {
     if (viewTab === "final" && activeMotion?.state !== "closed") {
-      setViewTab("discussion");
+      setMotionView("discussion");
     }
   }, [activeMotion?.state, viewTab]);
 
@@ -633,9 +679,23 @@ export default function Chat() {
   useEffect(() => {
     const tabsVisible = activeMotion?.state === "closed";
     if (!tabsVisible && viewTab !== "discussion") {
-      setViewTab("discussion");
+      setMotionView("discussion");
     }
   }, [activeMotion?.state, viewTab]);
+
+  // restore per-motion tab when active motion changes
+  useEffect(() => {
+    if (!activeMotionId) {
+      setViewTab("discussion");
+      return;
+    }
+    const tab = motionTabs[activeMotionId] || "discussion";
+    try {
+      console.debug("restoreMotionTab", { activeMotionId, tab, motionTabs });
+    } catch (e) {}
+    setViewTab(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMotionId, motionTabs]);
 
   // whether chair may close the current motion (disabled when already closed)
   const canChairClose = activeMotion && activeMotion.state !== "closed";
@@ -683,7 +743,13 @@ export default function Chat() {
       {showAddModal && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>{editingMotionId ? "Edit Motion" : "New Motion"}</h3>
+            <h3>
+              {editingMotionId
+                ? "Edit Motion"
+                : overturnTarget
+                ? "Propose Overturn"
+                : "New Motion"}
+            </h3>
             <form onSubmit={handleCreateMotion} className="modal-form">
               <label htmlFor="motion-title">Title</label>
               <input
@@ -692,6 +758,15 @@ export default function Chat() {
                 onChange={(e) => setNewMotionTitle(e.target.value)}
                 placeholder="Enter motion title"
                 required
+                disabled={!!overturnTarget}
+                readOnly={!!overturnTarget}
+                aria-readonly={!!overturnTarget}
+                aria-disabled={!!overturnTarget}
+                title={
+                  overturnTarget
+                    ? "This field is prefilled for overturn"
+                    : undefined
+                }
               />
               <label htmlFor="motion-desc">Description</label>
               <textarea
@@ -700,7 +775,25 @@ export default function Chat() {
                 onChange={(e) => setNewMotionDesc(e.target.value)}
                 placeholder="Add a short description"
                 rows={4}
+                disabled={!!overturnTarget}
+                readOnly={!!overturnTarget}
+                aria-readonly={!!overturnTarget}
+                aria-disabled={!!overturnTarget}
+                title={
+                  overturnTarget
+                    ? "This field is prefilled for overturn"
+                    : undefined
+                }
               />
+              {overturnTarget && (
+                <div
+                  className="modal-note"
+                  style={{ fontSize: "0.85rem", color: "#4b5563" }}
+                >
+                  This motion will propose overturning “{overturnTarget.title}”.
+                  Fields are locked for editing.
+                </div>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"
@@ -710,7 +803,11 @@ export default function Chat() {
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
-                  {editingMotionId ? "Save Changes" : "Add Motion"}
+                  {editingMotionId
+                    ? "Save Changes"
+                    : overturnTarget
+                    ? "Propose Overturn"
+                    : "Add Motion"}
                 </button>
               </div>
             </form>
@@ -779,7 +876,9 @@ export default function Chat() {
                         }
                         role="button"
                         tabIndex={0}
-                        onClick={() => setActiveMotionId(m.id)}
+                        onClick={() => {
+                          setActiveMotionId(m.id);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
@@ -848,7 +947,9 @@ export default function Chat() {
                         }
                         role="button"
                         tabIndex={0}
-                        onClick={() => setActiveMotionId(m.id)}
+                        onClick={() => {
+                          setActiveMotionId(m.id);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
@@ -1024,7 +1125,7 @@ export default function Chat() {
                         "segment-btn " +
                         (viewTab === "discussion" ? "is-active" : "")
                       }
-                      onClick={() => setViewTab("discussion")}
+                      onClick={() => setMotionView("discussion")}
                       aria-pressed={viewTab === "discussion"}
                     >
                       Discussion
@@ -1038,7 +1139,7 @@ export default function Chat() {
                           (finalBlink ? " is-blink" : "")
                         }
                         onClick={() => {
-                          setViewTab("final");
+                          setMotionView("final");
                           setFinalBlink(false);
                         }}
                         aria-pressed={viewTab === "final"}
@@ -1423,7 +1524,7 @@ export default function Chat() {
                     <div className="final-card-body">
                       {editingDecision ? (
                         <form
-                          className="decision-summary-form"
+                          className="decision-summary-form is-editing"
                           onSubmit={handleSaveEditedDecision}
                         >
                           <label className="decision-label">Outcome</label>
@@ -1530,6 +1631,8 @@ export default function Chat() {
                             </div>
                           </div>
 
+                          {/* overturn button moved to card bottom */}
+
                           <div className="final-pros-cons">
                             <div>
                               <h4>Pros</h4>
@@ -1564,6 +1667,27 @@ export default function Chat() {
                                   None recorded.
                                 </div>
                               )}
+                            </div>
+                          </div>
+
+                          <div className="final-overturn-row">
+                            <button
+                              type="button"
+                              className="propose-overturn-btn"
+                              onClick={handleProposeOverturn}
+                              disabled={!userVotedYes}
+                              aria-disabled={!userVotedYes}
+                              title={
+                                userVotedYes
+                                  ? "Propose a motion to overturn this decision"
+                                  : "Only members who voted for this decision may propose an overturn"
+                              }
+                            >
+                              Propose motion to overturn this decision
+                            </button>
+                            <div className="overturn-hint" aria-hidden>
+                              Only members who voted in favor may propose an
+                              overturn.
                             </div>
                           </div>
                         </div>
