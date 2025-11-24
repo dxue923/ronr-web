@@ -215,7 +215,6 @@ a.btn-primary:focus {
   }
 }
 
-
 /* Left icon rail */
 
 .left-rail {
@@ -286,7 +285,6 @@ a.btn-primary:focus {
   outline: none;
 }
 
-
 /* ========== DISCUSSION PAGE  ========== */
 
 /* -----------------------------!!!!!!!!!!!!!!!!!!!
@@ -340,7 +338,7 @@ START NEW CHAT PAGE CSS
   z-index: 2;
   background: #ffffff;
   padding-top: 0.25rem; /* subtle breathing room when stuck */
-  margin-top: -0.25rem;  /* offset added padding so layout stays consistent */
+  margin-top: -0.25rem; /* offset added padding so layout stays consistent */
   border-bottom: 1px solid #edf0f4;
 }
 
@@ -421,27 +419,51 @@ START NEW CHAT PAGE CSS
   background: #ffffff;
   color: #1c3874;
   cursor: pointer;
-  transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease,
+    border-color 120ms ease;
 }
 .motion-action-btn:hover {
   background: #f4f7ff;
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(35,88,187,0.08);
+  box-shadow: 0 6px 14px rgba(35, 88, 187, 0.08);
 }
 .motion-action-btn.danger {
   color: #b91c1c;
-  border-color: rgba(220,38,38,0.12);
+  border-color: rgba(220, 38, 38, 0.12);
 }
 .motion-action-btn.danger:hover {
   background: #fee2e2;
   color: #7f1a1a;
-  border-color: rgba(220,38,38,0.2);
-  box-shadow: 0 6px 14px rgba(220,38,38,0.06);
+  border-color: rgba(220, 38, 38, 0.2);
+  box-shadow: 0 6px 14px rgba(220, 38, 38, 0.06);
+}
+
+/* Motion row content: allow long titles to wrap without shrinking the container */
+.motion-row-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.motion-row-content .motion-title {
+  flex: 1 1 auto;
+  min-width: 0; /* allow flex child to shrink/wrap inside flex container */
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.motion-row-content .status-pill {
+  flex-shrink: 0;
+  margin-left: 0.5rem;
 }
 
 /* Keep action buttons compact on small screens */
 @media (max-width: 720px) {
-  .motion-action-btn { padding: 6px 8px; font-size: 0.75rem; }
+  .motion-action-btn {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+  }
 }
 
 .motion-title {
@@ -463,7 +485,7 @@ START NEW CHAT PAGE CSS
 }
 .status-discussion {
   background: #e0f2fe; /* light aqua-blue */
-  color: #075985;      /* deep sky blue for contrast */
+  color: #075985; /* deep sky blue for contrast */
 }
 .status-paused {
   background: #fff4da;
@@ -547,7 +569,7 @@ START NEW CHAT PAGE CSS
 }
 .remove-member-btn {
   background: transparent;
-  border: 1px solid rgba(0,0,0,0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   color: #6b7280;
   padding: 6px 8px;
   border-radius: 8px;
@@ -556,7 +578,7 @@ START NEW CHAT PAGE CSS
 .remove-member-btn:hover {
   background: #fee2e2;
   color: #b91c1c;
-  border-color: rgba(220,38,38,0.15);
+  border-color: rgba(220, 38, 38, 0.15);
 }
 
 .member-list h3 {
@@ -799,7 +821,9 @@ START NEW CHAT PAGE CSS
   flex-direction: column;
   min-height: 0;
 }
-.discussion-main { --discussion-header-height: 64px; }
+.discussion-main {
+  --discussion-header-height: 64px;
+}
 
 .discussion-main-header {
   display: flex;
@@ -870,16 +894,16 @@ START NEW CHAT PAGE CSS
   background: transparent;
 }
 .discussion-thread::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0); /* invisible */
+  background: rgba(0, 0, 0, 0); /* invisible */
   border-radius: 999px;
   transition: background-color 160ms ease;
 }
 .discussion-thread:hover::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.12);
+  background: rgba(0, 0, 0, 0.12);
 }
 .discussion-thread:hover {
   /* Firefox: show a subtle thumb color when hovered */
-  scrollbar-color: rgba(0,0,0,0.12) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
 }
 
 /* message wrapper */
@@ -910,16 +934,26 @@ START NEW CHAT PAGE CSS
   font-size: 0.78rem;
 }
 
-.stance-dot-wrapper { display: inline-flex; align-items: center; }
+.stance-dot-wrapper {
+  display: inline-flex;
+  align-items: center;
+}
 .stance-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   display: inline-block;
 }
-.dot-pro { background: #22c55e; }
-.dot-con { background: #ef4444; }
-.dot-neutral { background: #ffffff; border: 1px solid #cbd5e1; }
+.dot-pro {
+  background: #22c55e;
+}
+.dot-con {
+  background: #ef4444;
+}
+.dot-neutral {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+}
 
 /* chosen stance chip */
 /* replaced by icon dots; keep tag styles unused */
@@ -1006,7 +1040,8 @@ START NEW CHAT PAGE CSS
   font-size: 0.62rem;
   cursor: pointer;
   color: #111827;
-  transition: background 0.15s ease-in-out, border 0.15s ease-in-out, color 0.15s ease-in-out;
+  transition: background 0.15s ease-in-out, border 0.15s ease-in-out,
+    color 0.15s ease-in-out;
 }
 
 .stance-inline-btn:hover {
@@ -1034,7 +1069,6 @@ START NEW CHAT PAGE CSS
   background: #2358bb;
   color: #fff;
 }
-
 
 /* time */
 .message-time {
@@ -1124,9 +1158,9 @@ START NEW CHAT PAGE CSS
 
 .composer-stance .stance-inline-btn.is-active {
   background: transparent; /* no fill on active */
-  color: inherit;          /* keep icon color */
-  border-color: #2358bb;   /* darker border to indicate active */
-  box-shadow: none;        /* remove heavy shadow */
+  color: inherit; /* keep icon color */
+  border-color: #2358bb; /* darker border to indicate active */
+  box-shadow: none; /* remove heavy shadow */
 }
 
 /* Composer chair controls (icon + popup menu) */
@@ -1147,16 +1181,18 @@ START NEW CHAT PAGE CSS
   cursor: pointer;
   font-size: 14px;
 }
-.chair-icon-btn:hover { background: #f3f6fb; }
+.chair-icon-btn:hover {
+  background: #f3f6fb;
+}
 .chair-menu {
   position: absolute;
-  left: 0;             
-  right: auto;         
-  bottom: 42px;        
+  left: 0;
+  right: auto;
+  bottom: 42px;
   background: #ffffff;
   border: 1px solid #e6e9ef;
   border-radius: 10px;
-  box-shadow: 0 8px 20px rgba(15,23,42,0.08);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -1172,7 +1208,9 @@ START NEW CHAT PAGE CSS
   border-radius: 8px;
   cursor: pointer;
 }
-.chair-menu button:hover { background: #f4f7fb; }
+.chair-menu button:hover {
+  background: #f4f7fb;
+}
 
 /* visually indicate disabled state for chair/menu and motion manage buttons */
 .chair-menu button[disabled],
@@ -1230,10 +1268,18 @@ START NEW CHAT PAGE CSS
   border: none;
   padding: 0;
 }
-.vote-panel { position: relative; }
-.vote-panel.is-disabled { cursor: not-allowed; }
-.vote-panel.is-disabled .sub { color: #6b7280; }
-.vote-panel.is-disabled .vote-grid button { opacity: 0.7; }
+.vote-panel {
+  position: relative;
+}
+.vote-panel.is-disabled {
+  cursor: not-allowed;
+}
+.vote-panel.is-disabled .sub {
+  color: #6b7280;
+}
+.vote-panel.is-disabled .vote-grid button {
+  opacity: 0.7;
+}
 .panel-disabled-cover {
   position: absolute;
   inset: 0;
@@ -1297,40 +1343,32 @@ START NEW CHAT PAGE CSS
 .vote-tally-panel {
   margin: 0.6rem 0 0.6rem;
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
 }
 
 /* Final decision overlay: prominent focus panel inside discussion */
 .discussion-main.final-decision-active .discussion-thread,
 .discussion-main.final-decision-active .vote-tally-panel {
-  transform: translateY(-320px);
-  transition: transform 300ms ease;
+  /* Positioning for the final-decision layout is handled in JS so avoid
+     applying a hardcoded transform here which doesn't adapt to content height. */
+  transform: none;
+  transition: none;
 }
 .discussion-main.voting-active .vote-tally-panel {
-  /* Nudge the tally downward when voting starts so it sits clearly
-     beneath the discussion thread and the composer. Adjust value as needed. */
-  margin-top: 96px;
-  transition: margin-top 300ms ease, transform 300ms ease;
+  /* Push the vote tally further down so it doesn't crowd the thread/composer */
+  margin-top: 56px;
+  transition: margin-top 200ms ease, transform 200ms ease;
 }
 .discussion-main.voting-active .discussion-thread {
-  /* Move the thread up a modest amount when voting starts so the last
-     comment sits visually just above the tally box. Add bottom padding so
-     the tally's white background doesn't overlap and hide the timestamp. */
-  transform: translateY(-40px);
-  transition: transform 300ms ease;
-  padding-bottom: 160px;
+  /* Nudge the comments down slightly so they sit below floating UI
+     elements (tally / decision box) during voting. Increase bottom
+     padding so composer remains clear of overlays. */
+  transform: translateY(12px);
+  transition: transform 200ms ease;
+  padding-bottom: 100px;
 }
-
-/* Reduce the extra spacing on small screens so layout remains usable */
-@media (max-width: 720px) {
-  .discussion-main.voting-active .vote-tally-panel {
-    margin-top: 40px;
-  }
-  .discussion-main.voting-active .discussion-thread {
-    padding-bottom: 96px;
-  }
-}
-/* light grey overlay that disables the chat panel (no blur) */
 .final-decision-backdrop {
   position: absolute;
   inset: 0;
@@ -1346,20 +1384,24 @@ START NEW CHAT PAGE CSS
   padding: 18px;
   max-width: 820px;
   width: calc(100% - 40px);
-  box-shadow: 0 12px 30px rgba(2,6,23,0.12);
-  margin: 12px auto 0;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.12);
+  margin: 24px auto 0; /* more breathing room above the decision box */
 }
 /* When the summary sits directly after the vote tally, tighten the gap so
    the box sits closer but still below the tally. */
 .vote-tally-panel + .final-decision-box {
   margin-top: 4px;
 }
-.discussion-main { position: relative; }
+.discussion-main {
+  position: relative;
+}
 .final-decision-box.floating {
   position: absolute;
   left: 50%;
-  top: calc(50% + 60px); /* nudge down to avoid overlap with tally */
-  transform: translate(-50%, -30%);
+  /* push the floating box further down so edited/saved decisions sit lower
+     in the viewport and avoid overlapping the composer or vote tally. */
+  top: calc(60% + 80px);
+  transform: translate(-50%, -15%);
   width: calc(100% - 40px);
   max-width: 820px;
   margin: 0; /* absolute positioning ignores margin, keep 0 */
@@ -1367,7 +1409,10 @@ START NEW CHAT PAGE CSS
 }
 
 /* Ensure the vote tally remains visually above the floating box */
-.vote-tally-panel { position: relative; z-index: 1650; }
+.vote-tally-panel {
+  position: relative;
+  z-index: 1650;
+}
 .final-decision-close {
   position: absolute;
   right: 10px;
@@ -1383,9 +1428,21 @@ START NEW CHAT PAGE CSS
   color: #0f172a;
   margin-bottom: 10px;
 }
-.final-decision-box .decision-final-grid { display:flex; gap:16px; margin-top:8px; }
-.final-decision-box .decision-final-column h4 { margin:0 0 6px; font-size:0.75rem; text-transform:uppercase; color:#445065 }
-.final-decision-box .decision-final-column ul { margin:0; padding-left:16px }
+.final-decision-box .decision-final-grid {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.final-decision-box .decision-final-column h4 {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #445065;
+}
+.final-decision-box .decision-final-column ul {
+  margin: 0;
+  padding-left: 16px;
+}
 .vote-tally-inner {
   display: flex;
   gap: 1rem;
@@ -1604,6 +1661,107 @@ START NEW CHAT PAGE CSS
   border: 1px solid #e2e8f0;
 }
 
+/* Make the Final Decision card scrollable when content is tall */
+.final-decision-fullcard {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+  min-height: 0;
+}
+.final-card-body {
+  overflow-y: auto;
+  max-height: calc(100vh - 300px);
+  padding-right: 12px; /* reserve room for scrollbar */
+  scrollbar-gutter: stable;
+
+  /* Center internal content horizontally without moving the panel */
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* center children horizontally */
+  gap: 16px;
+}
+.final-card-body > .decision-summary-form,
+.final-card-body > .final-outcome-row,
+.final-card-body > .final-summary,
+.final-card-body > .final-pros-cons,
+.final-card-body > .final-tally {
+  width: 100%;
+  max-width: 720px; /* constrain inner content for readability */
+}
+
+/* Outcome row: center the label and value */
+.final-outcome-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* keep content left-aligned inside the card */
+  gap: 12px;
+  text-align: left;
+}
+.final-outcome-row .final-outcome {
+  font-weight: 700;
+}
+
+/* Summary: left-align heading and text inside the card */
+.final-summary h4,
+.final-summary > div {
+  text-align: left;
+}
+
+/* Pros/Cons: keep columns centered as a group but allow list text to remain left-aligned for readability */
+.final-pros-cons {
+  display: flex;
+  gap: 24px;
+  justify-content: flex-start; /* left-align the pros/cons columns inside the card */
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.final-pros-cons > div {
+  min-width: 220px;
+  max-width: 340px;
+}
+.final-pros-cons h4 {
+  text-align: left;
+}
+
+/* Final tally: ensure the tally sits centered under the decision content */
+.final-tally {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Decision card that sits inside the final panel and uses a distinct background */
+.decision-card {
+  width: auto; /* don't stretch to full width; allow centering */
+  max-width: 760px;
+  background: #f8fafc; /* subtle off-white / cool tint */
+  border-radius: 12px;
+  padding: 18px;
+  border: 1px solid rgba(230, 238, 246, 0.8);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.045);
+  align-self: center; /* ensure the card centers within its flex container */
+  display: block;
+}
+
+.decision-card {
+  margin: 0 auto; /* center the card in its container */
+  text-align: left; /* ensure inner text defaults to left alignment */
+}
+
+.decision-card .final-outcome-row,
+.decision-card .final-summary,
+.decision-card .final-pros-cons,
+.decision-card .final-tally {
+  width: 100%;
+}
+.final-card-body::-webkit-scrollbar {
+  width: 10px;
+}
+.final-card-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+}
+
 /* Decision log entry styles for left panel */
 .log-entry {
   padding: 8px 10px;
@@ -1629,8 +1787,12 @@ START NEW CHAT PAGE CSS
   gap: 8px;
   flex-wrap: wrap;
 }
-.log-entry-mini .mini-pros { color: #15603d; }
-.log-entry-mini .mini-cons { color: #9b1e1e; }
+.log-entry-mini .mini-pros {
+  color: #15603d;
+}
+.log-entry-mini .mini-cons {
+  color: #9b1e1e;
+}
 
 /* Ensure discussion remains interactive when a motion is closed (votes remain disabled by prop) */
 .discussion-shell.motion-closed .discussion-thread,
@@ -1642,10 +1804,13 @@ START NEW CHAT PAGE CSS
 }
 
 @media (max-width: 640px) {
-  .decision-summary-form, .decision-summary-section {
+  .decision-summary-form,
+  .decision-summary-section {
     padding: 12px 12px 14px;
   }
-  .decision-final-grid { flex-direction: column; }
+  .decision-final-grid {
+    flex-direction: column;
+  }
 }
 
 /* Modal overlay for creating a motion */
@@ -1710,7 +1875,10 @@ START NEW CHAT PAGE CSS
   font-weight: 600;
   cursor: pointer;
 }
-.btn-primary:hover { background: #1b459e; border-color: #1b459e; }
+.btn-primary:hover {
+  background: #1b459e;
+  border-color: #1b459e;
+}
 
 .btn-secondary {
   background: #f9fafb;
@@ -1721,7 +1889,9 @@ START NEW CHAT PAGE CSS
   font-weight: 600;
   cursor: pointer;
 }
-.btn-secondary:hover { background: #eef2f7; }
+.btn-secondary:hover {
+  background: #eef2f7;
+}
 
 /* When an editor modal is open, keep background elements visible but subdued
    and non-interactive. Applied to panels like the composer to keep them in
@@ -1733,25 +1903,150 @@ START NEW CHAT PAGE CSS
 }
 
 /* decision pill color variants by state */
-.decision-pill.is-discussion { /* match status-discussion in aqua-blue */
+.decision-pill.is-discussion {
+  /* match status-discussion in aqua-blue */
   background: #e0f2fe;
   border-color: #bae6fd;
   color: #075985;
 }
-.decision-pill.is-voting { /* match status-voting */
+.decision-pill.is-voting {
+  /* match status-voting */
   background: #e4fff1;
   border-color: #c8f5de;
   color: #007944;
 }
-.decision-pill.is-paused { /* match status-paused */
+.decision-pill.is-paused {
+  /* match status-paused */
   background: #fff4da;
   border-color: #ffe8b3;
   color: #7f5b00;
 }
-.decision-pill.is-closed { /* match status-closed */
+.decision-pill.is-closed {
+  /* match status-closed */
   background: #f3f4f6;
   border-color: #e5e7eb;
   color: #4b5563;
+}
+
+/* Outcome pill options and display badges */
+.outcome-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.outcome-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: #f3f4f6;
+  color: #374151;
+}
+.outcome-pill.is-active,
+.outcome-pill:focus,
+.outcome-pill:hover {
+  transform: translateY(-1px);
+}
+
+/* Make the selected pill visually prominent */
+.outcome-pill.is-active {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.08);
+  border-width: 1px;
+}
+
+/* Variant-specific stronger outlines when active for extra clarity */
+.outcome-pill.passed.is-active {
+  border-color: #10b981; /* green */
+  background: #dcfce7; /* slightly stronger green background */
+}
+.outcome-pill.failed.is-active {
+  border-color: #ef4444; /* red */
+  background: #ffebee; /* slightly stronger red background */
+}
+.outcome-pill.tied.is-active {
+  border-color: #f59e0b; /* amber */
+  background: #fff7ed; /* slightly stronger amber background */
+}
+.outcome-pill.deferred.is-active {
+  border-color: #7c3aed; /* purple */
+  background: #f5f3ff; /* slightly stronger purple background */
+}
+
+/* Make selected pill unmistakable: stronger scale, colored glow, and checkmark */
+.outcome-pill {
+  transition: transform 160ms ease, box-shadow 160ms ease,
+    background-color 160ms ease, border-color 160ms ease;
+}
+.outcome-pill.is-active {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.12), 0 6px 12px rgba(2, 6, 23, 0.06);
+  position: relative;
+}
+
+/* Variant glow using a subtle outline ring */
+.outcome-pill {
+  transition: transform 160ms ease, box-shadow 160ms ease,
+    background-color 160ms ease, border-color 160ms ease;
+  position: relative;
+  padding-left: 18px; /* room for swatch */
+}
+
+/* remove swatch dot: pills are neutral by default; variant colors apply only when active or saved */
+
+/* stronger variant-specific visual treatment when active or when shown as the saved outcome */
+.outcome-pill.passed.is-active,
+.final-outcome .outcome-pill.passed {
+  box-shadow: 0 18px 36px rgba(6, 95, 70, 0.08), 0 6px 12px rgba(2, 6, 23, 0.06);
+  outline: 3px solid rgba(16, 185, 129, 0.12);
+  background: #ecfdf5; /* soft green background */
+  color: #065f46; /* darker green text */
+  border-color: #bbf7d0;
+}
+.outcome-pill.failed.is-active,
+.final-outcome .outcome-pill.failed {
+  box-shadow: 0 18px 36px rgba(127, 26, 26, 0.08),
+    0 6px 12px rgba(2, 6, 23, 0.06);
+  outline: 3px solid rgba(239, 68, 68, 0.12);
+  background: #fff1f2; /* soft red background */
+  color: #7f1a1a; /* darker red text */
+  border-color: #fecaca;
+}
+.outcome-pill.tied.is-active,
+.final-outcome .outcome-pill.tied {
+  box-shadow: 0 18px 36px rgba(149, 115, 22, 0.08),
+    0 6px 12px rgba(2, 6, 23, 0.06);
+  outline: 3px solid rgba(245, 158, 11, 0.12);
+  background: #fffbeb; /* soft yellow background */
+  color: #92400e; /* darker yellow text */
+  border-color: #fde68a;
+}
+.outcome-pill.deferred.is-active,
+.final-outcome .outcome-pill.deferred {
+  box-shadow: 0 18px 36px rgba(55, 48, 163, 0.08),
+    0 6px 12px rgba(2, 6, 23, 0.06);
+  outline: 3px solid rgba(59, 130, 246, 0.12);
+  background: #eef2ff; /* soft blue/purple background */
+  color: #3730a3; /* darker indigo text */
+  border-color: #dbeafe;
+}
+
+/* Variant classes are neutral by default; colors apply only when active or for saved outcome */
+.outcome-pill.passed,
+.outcome-pill.failed,
+.outcome-pill.tied,
+.outcome-pill.deferred {
+  background: #f3f4f6; /* neutral grey */
+  color: #374151; /* neutral text */
+  border-color: #e6e9ef;
+}
+
+/* neutral fallback */
+.outcome-pill.neutral {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #e6e9ef;
 }
 
 /* ========== RESPONSIVE ========== */
@@ -1785,7 +2080,7 @@ START NEW CHAT PAGE CSS
     padding: 0.4rem 0.7rem;
     cursor: pointer;
     margin-bottom: 0.6rem;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
   .toggle-left-panel-btn:hover {
     background: #f2f6ff;
@@ -1798,7 +2093,7 @@ START NEW CHAT PAGE CSS
     grid-template-columns: minmax(0, 1fr);
   }
   .discussion-shell.show-left {
-    grid-template-columns: 200px minmax(0,1fr);
+    grid-template-columns: 200px minmax(0, 1fr);
   }
   .discussion-shell.show-left .discussion-right {
     margin-top: 1rem;
@@ -1811,14 +2106,14 @@ START NEW CHAT PAGE CSS
 /* ultra slim layout: keep discussion on the right and stack chair-controls above motions on the left */
 @media (max-width: 1199px) {
   .discussion-shell {
-   display: grid;
-   /* left column is the stacked side panels, right column is the discussion area
+    display: grid;
+    /* left column is the stacked side panels, right column is the discussion area
      ensure the discussion column is never smaller than the left column */
-   grid-template-columns: 240px minmax(200px, 1fr);
-   grid-template-rows: 1fr; /* full-height single row */
-   gap: 0.85rem;
-   height: calc(100vh - 2rem);
-   overflow: hidden;
+    grid-template-columns: 240px minmax(200px, 1fr);
+    grid-template-rows: 1fr; /* full-height single row */
+    gap: 0.85rem;
+    height: calc(100vh - 2rem);
+    overflow: hidden;
   }
 
   /* place the right-side container in the left/top cell (will contain chair-controls)
@@ -2003,6 +2298,61 @@ START NEW CHAT PAGE CSS
     margin-left: auto;
     margin-right: auto;
   }
+}
+
+/* Segmented view tabs in discussion header */
+.view-tab-segment {
+  display: inline-flex;
+  gap: 6px;
+  border-radius: 10px;
+  background: transparent;
+}
+.view-tab-segment .segment-btn {
+  border: 1px solid transparent;
+  background: #f7f9ff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 160ms ease, background 120ms ease;
+}
+.view-tab-segment .segment-btn.is-active {
+  background: #2358bb;
+  color: #fff;
+  border-color: #1949a1;
+}
+
+@keyframes blinkPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(35, 88, 187, 0.55);
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(35, 88, 187, 0);
+    transform: translateY(-1px) scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(35, 88, 187, 0);
+    transform: translateY(0) scale(1);
+  }
+}
+.segment-btn.is-blink {
+  animation: blinkPulse 1.2s ease-in-out 0s 2;
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  background: #111827;
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.2);
+  z-index: 4000;
+  font-size: 0.95rem;
+  opacity: 0.98;
 }
 
 /* -----------------------------!!!!!!!!!!!!!!!!!!!
@@ -2216,9 +2566,7 @@ label[for="myCheckbox"] {
   background: #1e4b9f;
 }
 
-
 /* NEW CHANGES */
-
 
 /* EMPTY PANEL MESSAGE */
 .empty-panel-message {
@@ -2314,7 +2662,6 @@ label[for="myCheckbox"] {
   overflow: auto;
 }
 
-
 .create-committee-page .side-panel {
   position: relative;
   align-self: start;
@@ -2331,10 +2678,10 @@ label[for="myCheckbox"] {
   flex-direction: column;
   max-height: none;
   min-height: 0;
-  overflow-y: auto;  
-    /* allow left card to collapse when content is short, but cap its height so
+  overflow-y: auto;
+  /* allow left card to collapse when content is short, but cap its height so
       its list scrolls once it grows too tall */
-    max-height: calc(100vh - 80px);
+  max-height: calc(100vh - 80px);
   flex: 0 0 auto;
 }
 
@@ -2425,7 +2772,7 @@ label[for="myCheckbox"] {
   opacity: 0;
   transform: translateY(-20px);
   pointer-events: none;
-  max-width: none;      
+  max-width: none;
 }
 
 .create-committee-page .main-content.is-open {
@@ -2559,11 +2906,11 @@ label[for="myCheckbox"] {
   background: transparent;
 }
 .create-committee-page .members-scroll::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.12);
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 999px;
 }
 .create-committee-page .members-scroll:hover::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .create-committee-page .member-list {
@@ -3119,7 +3466,7 @@ label[for="myCheckbox"] {
 
   /* Firefox scrollbar color: light grey thumb on transparent track */
   scrollbar-width: thin;
-  scrollbar-color: rgba(0,0,0,0.18) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 
 /* WebKit scrollbar: lighter grey, rounded thumb, right-aligned */
@@ -3130,21 +3477,30 @@ label[for="myCheckbox"] {
   background: transparent;
 }
 .discussion-left-content::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.18); /* lighter grey */
+  background: rgba(0, 0, 0, 0.18); /* lighter grey */
   border-radius: 999px;
 }
 .discussion-left-content:hover::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.28); /* slightly darker on hover for visibility */
+  background: rgba(0, 0, 0, 0.28); /* slightly darker on hover for visibility */
 }
 /* Avoid nested scrolling in lists within the left column */
-.discussion-left .motion-list-body { overflow: visible; }
-.discussion-left .motion-list { overflow: visible; }
-.discussion-left .member-list { overflow: visible; }
+.discussion-left .motion-list-body {
+  overflow: visible;
+}
+.discussion-left .motion-list {
+  overflow: visible;
+}
+.discussion-left .member-list {
+  overflow: visible;
+}
 
 @media (max-width: 1199px) {
-  .discussion-left { overflow: hidden; }
-  .discussion-left-content { overflow: auto; }
+  .discussion-left {
+    overflow: hidden;
+  }
+  .discussion-left-content {
+    overflow: auto;
+  }
 }
 
 /* END NEW CHANGES */
-

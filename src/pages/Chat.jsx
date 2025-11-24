@@ -8,7 +8,7 @@ import "../assets/styles/index.css";
 function loadCommittees() {
   try {
     return JSON.parse(localStorage.getItem("committees") || "[]");
-  } catch {
+  } catch (e) {
     return [];
   }
 }
@@ -18,7 +18,7 @@ function findCommitteeById(id) {
 function loadMotionsForCommittee(id) {
   try {
     return JSON.parse(localStorage.getItem(`committee:${id}:motions`) || "[]");
-  } catch {
+  } catch (e) {
     return [];
   }
 }
@@ -36,7 +36,7 @@ function getCurrentUser() {
     const username = (p.username || p.name || "you").toString().trim();
     const name = (p.name || p.username || "You").toString().trim();
     return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
-  } catch {
+  } catch (e) {
     return { id: "you", username: "you", name: "You", avatarUrl: "" };
   }
 }
@@ -84,6 +84,8 @@ export default function Chat() {
   const me = getCurrentUser();
   // stance selection for composer
   const [composerStance, setComposerStance] = useState("neutral");
+  // view tab for middle column: 'discussion' | 'final'
+  const [viewTab, setViewTab] = useState("discussion");
 
   // add-motion modal state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -105,40 +107,32 @@ export default function Chat() {
   const [editDecisionSummary, setEditDecisionSummary] = useState("");
   const [editDecisionPros, setEditDecisionPros] = useState("");
   const [editDecisionCons, setEditDecisionCons] = useState("");
+  const [editDecisionOutcome, setEditDecisionOutcome] = useState("");
   const [savingEditDecision, setSavingEditDecision] = useState(false);
   const [showChairMenu, setShowChairMenu] = useState(false);
+  // transient blink indicator when chair closes a motion
+  const [finalBlink, setFinalBlink] = useState(false);
+  // toast notification for saves
+  const [toastMessage, setToastMessage] = useState("");
+  const toastTimeoutRef = useRef(null);
 
   // find active motion object
   const activeMotion = motions.find((m) => m.id === activeMotionId) || null;
   // whether the current session for the active motion is paused
   const sessionPaused = activeMotion?.state === "paused";
+  // whether the current session for the active motion is closed
+  const sessionClosed = activeMotion?.state === "closed";
   const [showFinalOverlay, setShowFinalOverlay] = useState(false);
-  // Close-motion modal state + handlers (chair records final decision when closing)
-  // Declared here so effects that reference `showCloseDecisionModal` do not
-  // run into TDZ (temporal dead zone) when evaluated during render.
-  const [showCloseDecisionModal, setShowCloseDecisionModal] = useState(false);
-  const [closeDecisionSummary, setCloseDecisionSummary] = useState("");
-  const [closeDecisionPros, setCloseDecisionPros] = useState("");
-  const [closeDecisionCons, setCloseDecisionCons] = useState("");
-  const [savingCloseDecision, setSavingCloseDecision] = useState(false);
 
   // auto-show final decision overlay when a motion with decisionDetails becomes active
   useEffect(() => {
-    // Only show the final-decision overlay when a motion with decisionDetails
-    // becomes active _and_ the close-decision modal is not currently open.
-    // When the user opens the close modal to edit the decision we want to
-    // avoid highlighting other UI elements — the modal alone should be the
-    // focus. Including `showCloseDecisionModal` in deps keeps this in sync.
-    if (
-      activeMotion &&
-      activeMotion.decisionDetails &&
-      !showCloseDecisionModal
-    ) {
+    // Show the final-decision overlay when the active motion has decisionDetails.
+    if (activeMotion && activeMotion.decisionDetails) {
       setShowFinalOverlay(true);
     } else {
       setShowFinalOverlay(false);
     }
-  }, [activeMotion?.id, activeMotion?.decisionDetails, showCloseDecisionModal]);
+  }, [activeMotion?.id, activeMotion?.decisionDetails]);
 
   // ensure we have motions in state if ls changes
   useEffect(() => {
@@ -191,21 +185,30 @@ export default function Chat() {
   }
 
   // temp members on the committee
+
+  {
+    /* Status indicator shown below the final tally when the motion is closed */
+  }
+  {
+    viewTab === "discussion" &&
+      activeMotion?.state === "closed" &&
+      activeMotion?.decisionNote && (
+        <div className="decision-current" style={{ marginTop: 8 }}>
+          <span
+            className={"decision-pill is-" + (activeMotion.state || "closed")}
+          >
+            {activeMotion.decisionNote}
+          </span>
+        </div>
+      );
+  }
   const members = committee.memberships ||
     committee.members || [
       {
         id: committee.ownerId || committee.owner || "owner",
         name: committee.ownerName || "Owner",
-        role: "owner",
       },
     ];
-
-  const myMembership = members.find((m) => m.id === me.id);
-  const amIManager =
-    myMembership?.role === ROLE.OWNER ||
-    myMembership?.role === ROLE.CHAIR ||
-    committee.ownerId === me.id ||
-    committee.owner === me.id;
 
   // persist members to committee in localStorage and trigger re-render
   const persistMembers = (nextMembers) => {
@@ -216,6 +219,19 @@ export default function Chat() {
     saveCommittees(updatedList);
     setMembersRev((r) => r + 1);
   };
+
+  // derive current user's role and manager permissions
+  const myMembership = (members || []).find(
+    (m) =>
+      (m.id || m.name || "").toString() ===
+      (me.id || me.username || "").toString()
+  );
+  const myRole =
+    myMembership?.role ||
+    (committee.ownerId === me.id || committee.owner === me.id
+      ? ROLE.OWNER
+      : ROLE.MEMBER);
+  const amIManager = myRole === ROLE.CHAIR || myRole === ROLE.OWNER;
 
   const handleAddMember = () => {
     const raw = memberInput.trim();
@@ -418,6 +434,12 @@ export default function Chat() {
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
     setSavingDecision(false);
+    // show toast in Discussion tab
+    setToastMessage(
+      "Final decision recorded. View it in the Final Decision tab."
+    );
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => setToastMessage(""), 4000);
   };
 
   // start editing an existing decision summary
@@ -426,6 +448,11 @@ export default function Chat() {
     setEditDecisionSummary(activeMotion.decisionDetails.summary || "");
     setEditDecisionPros((activeMotion.decisionDetails.pros || []).join("\n"));
     setEditDecisionCons((activeMotion.decisionDetails.cons || []).join("\n"));
+    setEditDecisionOutcome(
+      activeMotion.decisionDetails?.outcome ||
+        computeOutcome(activeMotion?.votes || []) ||
+        ""
+    );
     setEditingDecision(true);
   };
 
@@ -448,6 +475,7 @@ export default function Chat() {
     const updated = motions.map((m) => {
       if (m.id !== activeMotion.id) return m;
       const revision = {
+        outcome: editDecisionOutcome || undefined,
         summary,
         pros: prosRaw
           ? prosRaw
@@ -477,76 +505,46 @@ export default function Chat() {
     saveMotionsForCommittee(committee.id, updated);
     setSavingEditDecision(false);
     setEditingDecision(false);
+    // show toast in Discussion tab
+    setToastMessage(
+      "Final decision recorded. View it in the Final Decision tab."
+    );
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => setToastMessage(""), 4000);
   };
 
-  const handleOpenCloseModal = () => {
-    setShowChairMenu(false);
-    // If the active motion already has recorded decision details, prefill
-    // the close modal so the user can edit the existing decision instead
-    // of starting from an empty form.
-    if (activeMotion?.decisionDetails) {
-      setCloseDecisionSummary(activeMotion.decisionDetails.summary || "");
-      setCloseDecisionPros(
-        (activeMotion.decisionDetails.pros || []).join("\n")
-      );
-      setCloseDecisionCons(
-        (activeMotion.decisionDetails.cons || []).join("\n")
-      );
-    } else {
-      setCloseDecisionSummary("");
-      setCloseDecisionPros("");
-      setCloseDecisionCons("");
-    }
-    setShowCloseDecisionModal(true);
-  };
+  // clear toast timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
-  const handleCancelCloseModal = () => {
-    setShowCloseDecisionModal(false);
-    setCloseDecisionSummary("");
-    setCloseDecisionPros("");
-    setCloseDecisionCons("");
-  };
-
-  const handleConfirmCloseMotion = (e) => {
-    e && e.preventDefault();
-    if (!activeMotion) return;
-    setSavingCloseDecision(true);
-    const updated = motions.map((m) => {
-      if (m.id !== activeMotion.id) return m;
-      const summary = closeDecisionSummary.trim();
-      const pros = closeDecisionPros.trim();
-      const cons = closeDecisionCons.trim();
-      const detail = {
-        summary,
-        pros: pros
-          ? pros
-              .split(/\n+/)
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : [],
-        cons: cons
-          ? cons
-              .split(/\n+/)
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : [],
-        recordedAt: new Date().toISOString(),
-        recordedBy: me.id,
-      };
-      return {
-        ...m,
-        state: "closed",
-        decisionDetails: detail,
-        decisionLog: Array.isArray(m.decisionLog)
-          ? [...m.decisionLog, detail]
-          : [detail],
-        decisionNote: "Session is closed",
-      };
-    });
+  // Close the motion immediately (no modal). The chair will fill decision
+  // details on the Final Decision page after the motion is closed.
+  const handleCloseMotionNow = (motionId) => {
+    const updated = motions.map((m) =>
+      m.id === motionId
+        ? {
+            ...m,
+            state: "closed",
+            decisionNote: "Session is closed",
+          }
+        : m
+    );
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
-    setSavingCloseDecision(false);
-    setShowCloseDecisionModal(false);
+    // ensure the closed motion is active and switch to Final view
+    setActiveMotionId(motionId);
+    setViewTab("final");
+    // trigger a brief blink on the Final Decision tab when we close
+    const before = motions.find((m) => m.id === motionId);
+    if (before && !before.decisionDetails) {
+      setFinalBlink(true);
+      setTimeout(() => setFinalBlink(false), 1400);
+    }
   };
 
   // compute tally from votes array: [{ voterId, choice }]
@@ -560,6 +558,47 @@ export default function Chat() {
     }
     return tally;
   };
+
+  // derive a simple outcome label from votes when an explicit outcome isn't set
+  const computeOutcome = (votes = []) => {
+    const tally = computeTally(votes);
+    const total = tally.yes + tally.no + tally.abstain;
+    if (total === 0) return "No Votes";
+    if (tally.yes > tally.no) return "Adopted";
+    if (tally.no > tally.yes) return "Rejected";
+    return "Tied";
+  };
+
+  // map outcome text to CSS class used for colored pills
+  const outcomeClassFromText = (text) => {
+    if (!text) return "neutral";
+    const t = text.toString().toLowerCase();
+    if (t.includes("adopt") || t.includes("pass") || t.includes("passed"))
+      return "passed";
+    if (t.includes("reject") || t.includes("fail") || t.includes("failed"))
+      return "failed";
+    if (t.includes("tie") || t.includes("tied") || t.includes("no votes"))
+      return "tied";
+    if (t.includes("defer") || t.includes("refer") || t.includes("deferred"))
+      return "deferred";
+    return "neutral";
+  };
+
+  // ensure Final tab isn't selectable until motion is closed
+  useEffect(() => {
+    if (viewTab === "final" && activeMotion?.state !== "closed") {
+      setViewTab("discussion");
+    }
+  }, [activeMotion?.state, viewTab]);
+
+  // when the tabs are hidden (not closing modal and motion not closed),
+  // ensure we return to the discussion view so no stale 'final' view remains
+  useEffect(() => {
+    const tabsVisible = activeMotion?.state === "closed";
+    if (!tabsVisible && viewTab !== "discussion") {
+      setViewTab("discussion");
+    }
+  }, [activeMotion?.state, viewTab]);
 
   // whether chair may close the current motion (disabled when already closed)
   const canChairClose = activeMotion && activeMotion.state !== "closed";
@@ -626,77 +665,15 @@ export default function Chat() {
           </div>
         </div>
       )}
-      {showCloseDecisionModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div
-            className="modal-card"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 640 }}
-          >
-            <h3>Close Motion — Final Decision</h3>
-            <form onSubmit={handleConfirmCloseMotion} className="modal-form">
-              <label htmlFor="close-decision-summary">
-                Summary / Rationale
-              </label>
-              <textarea
-                id="close-decision-summary"
-                value={closeDecisionSummary}
-                onChange={(e) => setCloseDecisionSummary(e.target.value)}
-                placeholder="Summary of outcome and rationale"
-                rows={4}
-              />
-
-              <label htmlFor="close-decision-pros">Pros (one per line)</label>
-              <textarea
-                id="close-decision-pros"
-                value={closeDecisionPros}
-                onChange={(e) => setCloseDecisionPros(e.target.value)}
-                placeholder="Positive impacts or advantages..."
-                rows={3}
-              />
-
-              <label htmlFor="close-decision-cons">Cons (one per line)</label>
-              <textarea
-                id="close-decision-cons"
-                value={closeDecisionCons}
-                onChange={(e) => setCloseDecisionCons(e.target.value)}
-                placeholder="Trade-offs or downsides..."
-                rows={3}
-              />
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={handleCancelCloseModal}
-                  disabled={savingCloseDecision}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={savingCloseDecision}
-                >
-                  {savingCloseDecision
-                    ? "Saving..."
-                    : "Close Motion & Save Decision"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Close-motion modal removed: final decision is edited on the Final view */}
       {/* LEFT: motions + participants */}
       <aside className="discussion-left">
-        {!showCloseDecisionModal && (
-          <div className="discussion-left-header">
-            <h2>{committee.name || "Committee"}</h2>
-            <button onClick={handleAddMotion} className="primary-icon-btn">
-              +
-            </button>
-          </div>
-        )}
+        <div className="discussion-left-header">
+          <h2>{committee.name || "Committee"}</h2>
+          <button onClick={handleAddMotion} className="primary-icon-btn">
+            +
+          </button>
+        </div>
         {/* Chair controls moved to composer icon — left-panel panel removed */}
         <div className="discussion-left-content">
           <div className="motions-header-row">
@@ -761,6 +738,12 @@ export default function Chat() {
                                 changeMotionState("paused");
                                 setShowManageMotions(false);
                               }}
+                              disabled={m.state === "closed"}
+                              title={
+                                m.state === "closed"
+                                  ? "Disabled — motion is closed"
+                                  : undefined
+                              }
                             >
                               Pause Discussion
                             </button>
@@ -771,24 +754,27 @@ export default function Chat() {
                                 changeMotionState("voting");
                                 setShowManageMotions(false);
                               }}
+                              disabled={m.state === "closed"}
+                              title={
+                                m.state === "closed"
+                                  ? "Disabled — motion is closed"
+                                  : undefined
+                              }
                             >
                               Move to Vote
                             </button>
                             <button
                               type="button"
                               onClick={() => {
-                                if (!canClose || showCloseDecisionModal) return; // guard
-                                setActiveMotionId(m.id);
-                                // open modal to record final decision before closing
-                                handleOpenCloseModal();
+                                if (!canClose) return; // guard
+                                // immediately close the motion and switch to Final view
+                                handleCloseMotionNow(m.id);
                                 setShowManageMotions(false);
                               }}
-                              disabled={!canClose || showCloseDecisionModal}
+                              disabled={!canClose}
                               title={
-                                canClose && !showCloseDecisionModal
+                                canClose
                                   ? "Close motion"
-                                  : showCloseDecisionModal
-                                  ? "Decision modal open"
                                   : "Close disabled — resume discussion first"
                               }
                             >
@@ -930,364 +916,621 @@ export default function Chat() {
                 {activeMotion.description ? (
                   <p className="motion-desc">{activeMotion.description}</p>
                 ) : null}
+
+                {activeMotion?.state === "closed" && (
+                  <div
+                    className="view-tab-segment"
+                    role="tablist"
+                    aria-label="View"
+                    style={{ marginTop: 8 }}
+                  >
+                    <button
+                      type="button"
+                      className={
+                        "segment-btn " +
+                        (viewTab === "discussion" ? "is-active" : "")
+                      }
+                      onClick={() => setViewTab("discussion")}
+                      aria-pressed={viewTab === "discussion"}
+                    >
+                      Discussion
+                    </button>
+                    {activeMotion?.state === "closed" && (
+                      <button
+                        type="button"
+                        className={
+                          "segment-btn " +
+                          (viewTab === "final" ? "is-active" : "") +
+                          (finalBlink ? " is-blink" : "")
+                        }
+                        onClick={() => setViewTab("final")}
+                        aria-pressed={viewTab === "final"}
+                      >
+                        Final Decision
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
               {/* (tallies are shown in a larger panel below the thread) */}
             </header>
 
-            <div className="discussion-thread" ref={scrollRef}>
-              {(activeMotion.messages || []).map((msg) => {
-                const isMine = msg.authorId === me.id;
-                return (
-                  <div
-                    key={msg.id}
-                    className={"message-row " + (isMine ? "mine" : "")}
-                  >
-                    {/* top line: name + chosen stance */}
-                    <div className="message-header">
-                      <span className="message-author">{msg.authorName}</span>
-                      {msg.stance ? (
-                        <span className="stance-dot-wrapper" title={msg.stance}>
+            {/* Toast notification (shows only in Discussion view) */}
+            {viewTab === "discussion" && toastMessage && (
+              <div className="toast" role="status" aria-live="polite">
+                {toastMessage}
+              </div>
+            )}
+
+            {viewTab === "discussion" && (
+              <div className="discussion-thread" ref={scrollRef}>
+                {(activeMotion.messages || []).map((msg) => {
+                  const isMine = msg.authorId === me.id;
+                  return (
+                    <div
+                      key={msg.id}
+                      className={"message-row " + (isMine ? "mine" : "")}
+                    >
+                      {/* top line: name + chosen stance */}
+                      <div className="message-header">
+                        <span className="message-author">{msg.authorName}</span>
+                        {msg.stance ? (
                           <span
-                            className={
-                              "stance-dot " +
-                              (msg.stance === "pro"
-                                ? "dot-pro"
-                                : msg.stance === "con"
-                                ? "dot-con"
-                                : "dot-neutral")
-                            }
-                          />
-                        </span>
-                      ) : null}
+                            className="stance-dot-wrapper"
+                            title={msg.stance}
+                          >
+                            <span
+                              className={
+                                "stance-dot " +
+                                (msg.stance === "pro"
+                                  ? "dot-pro"
+                                  : msg.stance === "con"
+                                  ? "dot-con"
+                                  : "dot-neutral")
+                              }
+                            />
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* stance options moved to composer; inline controls removed */}
+
+                      {/* actual text bubble */}
+                      <div className="message-bubble">{msg.text}</div>
+
+                      {/* time */}
+                      <div className="message-time">
+                        {new Date(msg.time).toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </div>
                     </div>
+                  );
+                })}
 
-                    {/* stance options moved to composer; inline controls removed */}
+                {(activeMotion.messages || []).length === 0 && (
+                  <p className="empty-thread">No discussion yet.</p>
+                )}
+              </div>
+            )}
 
-                    {/* actual text bubble */}
-                    <div className="message-bubble">{msg.text}</div>
-
-                    {/* time */}
-                    <div className="message-time">
-                      {new Date(msg.time).toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {(activeMotion.messages || []).length === 0 && (
-                <p className="empty-thread">No discussion yet.</p>
-              )}
-            </div>
-
-            {/* current decision message centered below the thread (only when not closed)
-                and hidden while the close-decision modal is open so the modal
-                remains the only visible focus. */}
-            {activeMotion.decisionNote &&
-              activeMotion.state !== "closed" &&
-              !showCloseDecisionModal && (
-                <div className="decision-current">
-                  <span
-                    className={
-                      "decision-pill is-" + (activeMotion.state || "discussion")
-                    }
-                  >
-                    {activeMotion.decisionNote}
-                  </span>
-                </div>
-              )}
+            {/* decision pill moved below the final tally panel */}
 
             {/* Final decision (moved below vote tally) will render after the tally */}
 
             {/* Large vote tally box (visible during voting or after closed) */}
-            {(activeMotion.state === "voting" ||
-              activeMotion.state === "closed") && (
-              <div className="vote-tally-panel">
-                {(() => {
-                  const votes = activeMotion?.votes || [];
-                  const tally = computeTally(votes);
-                  const myVote = votes.find((v) => v.voterId === me.id)?.choice;
-                  const votingOpen = activeMotion?.state === "voting";
-                  const closed = activeMotion?.state === "closed";
-                  return (
-                    <div className="vote-tally-inner">
-                      <button
-                        type="button"
-                        className={
-                          "vote-tally-choice " +
-                          (myVote === "yes" ? "is-active" : "")
-                        }
-                        onClick={() => handleVote("yes")}
-                        disabled={!votingOpen}
-                        aria-pressed={myVote === "yes"}
-                        title={votingOpen ? "Vote Yes" : "Voting closed"}
-                      >
-                        <div className="vote-tally-num">{tally.yes}</div>
-                        <div className="vote-tally-label">Yes</div>
-                      </button>
+            {viewTab === "discussion" &&
+              (activeMotion.state === "voting" ||
+                activeMotion.state === "closed") && (
+                <div className="vote-tally-panel">
+                  {(() => {
+                    const votes = activeMotion?.votes || [];
+                    const tally = computeTally(votes);
+                    const myVote = votes.find(
+                      (v) => v.voterId === me.id
+                    )?.choice;
+                    const votingOpen = activeMotion?.state === "voting";
+                    const closed = activeMotion?.state === "closed";
+                    return (
+                      <>
+                        <div className="vote-tally-inner">
+                          <button
+                            type="button"
+                            className={
+                              "vote-tally-choice " +
+                              (myVote === "yes" ? "is-active" : "")
+                            }
+                            onClick={() => handleVote("yes")}
+                            disabled={!votingOpen}
+                            aria-pressed={myVote === "yes"}
+                            title={votingOpen ? "Vote Yes" : "Voting closed"}
+                          >
+                            <div className="vote-tally-num">{tally.yes}</div>
+                            <div className="vote-tally-label">Yes</div>
+                          </button>
 
-                      <button
-                        type="button"
-                        className={
-                          "vote-tally-choice " +
-                          (myVote === "no" ? "is-active" : "")
-                        }
-                        onClick={() => handleVote("no")}
-                        disabled={!votingOpen}
-                        aria-pressed={myVote === "no"}
-                        title={votingOpen ? "Vote No" : "Voting closed"}
-                      >
-                        <div className="vote-tally-num">{tally.no}</div>
-                        <div className="vote-tally-label">No</div>
-                      </button>
+                          <button
+                            type="button"
+                            className={
+                              "vote-tally-choice " +
+                              (myVote === "no" ? "is-active" : "")
+                            }
+                            onClick={() => handleVote("no")}
+                            disabled={!votingOpen}
+                            aria-pressed={myVote === "no"}
+                            title={votingOpen ? "Vote No" : "Voting closed"}
+                          >
+                            <div className="vote-tally-num">{tally.no}</div>
+                            <div className="vote-tally-label">No</div>
+                          </button>
 
-                      <button
-                        type="button"
-                        className={
-                          "vote-tally-choice " +
-                          (myVote === "abstain" ? "is-active" : "")
-                        }
-                        onClick={() => handleVote("abstain")}
-                        disabled={!votingOpen}
-                        aria-pressed={myVote === "abstain"}
-                        title={votingOpen ? "Abstain" : "Voting closed"}
-                      >
-                        <div className="vote-tally-num">{tally.abstain}</div>
-                        <div className="vote-tally-label">Abstain</div>
-                      </button>
+                          <button
+                            type="button"
+                            className={
+                              "vote-tally-choice " +
+                              (myVote === "abstain" ? "is-active" : "")
+                            }
+                            onClick={() => handleVote("abstain")}
+                            disabled={!votingOpen}
+                            aria-pressed={myVote === "abstain"}
+                            title={votingOpen ? "Abstain" : "Voting closed"}
+                          >
+                            <div className="vote-tally-num">
+                              {tally.abstain}
+                            </div>
+                            <div className="vote-tally-label">Abstain</div>
+                          </button>
 
-                      <div className="vote-tally-state">
-                        {closed ? "Final Tally" : "Live Tally"}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Final decision box: render beneath the vote tally (inline, no overlay).
-                When a tally is present (voting/closed) we add `floating` so CSS
-                can position it visually centered within the discussion area
-                while keeping it after the tally in source order. */}
-            {activeMotion?.decisionDetails &&
-              !showCloseDecisionModal &&
-              activeMotion?.state !== "voting" && (
-                <>
-                  <div
-                    className={
-                      "final-decision-box" +
-                      (activeMotion.state === "voting" ||
-                      activeMotion.state === "closed"
-                        ? " floating"
-                        : "")
-                    }
-                  >
-                    <h3 className="decision-final-heading">Final Decision</h3>
-                    {activeMotion.decisionDetails.summary && (
-                      <div className="decision-final-summary">
-                        {activeMotion.decisionDetails.summary}
-                      </div>
-                    )}
-                    <div className="decision-final-grid">
-                      {activeMotion.decisionDetails.pros?.length > 0 && (
-                        <div className="decision-final-column">
-                          <h4>Pros</h4>
-                          <ul>
-                            {activeMotion.decisionDetails.pros.map((p, i) => (
-                              <li key={`p-${i}`}>{p}</li>
-                            ))}
-                          </ul>
+                          <div className="vote-tally-state">
+                            {closed ? "Final Tally" : "Live Tally"}
+                          </div>
                         </div>
-                      )}
-                      {activeMotion.decisionDetails.cons?.length > 0 && (
-                        <div className="decision-final-column">
-                          <h4>Cons</h4>
-                          <ul>
-                            {activeMotion.decisionDetails.cons.map((c, i) => (
-                              <li key={`c-${i}`}>{c}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 12, textAlign: "right" }}>
-                      {amIManager && (
+
+                        {closed && (
+                          <div
+                            className="decision-current"
+                            style={{ marginTop: 8 }}
+                          >
+                            <span
+                              className={
+                                "decision-pill is-" +
+                                (activeMotion.state || "closed")
+                              }
+                            >
+                              {activeMotion.decisionNote || "Motion is closed"}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+            {/* Inline final-decision box removed from discussion view; final decision is shown via the segmented control's 'Final Decision' view. */}
+
+            {viewTab === "discussion" ? (
+              <form className={"discussion-composer "} onSubmit={handleSend}>
+                {amIManager && activeMotion && (
+                  <div className="composer-chair">
+                    <button
+                      type="button"
+                      className="chair-icon-btn"
+                      aria-haspopup="true"
+                      aria-expanded={showChairMenu}
+                      onClick={() => setShowChairMenu((s) => !s)}
+                      title="Chair controls"
+                    >
+                      ⚙
+                    </button>
+                    {showChairMenu && (
+                      <div className="chair-menu" role="menu">
                         <button
                           type="button"
-                          className="decision-edit-btn"
                           onClick={() => {
-                            handleStartEditDecision();
+                            changeMotionState("discussion");
+                            setShowChairMenu(false);
                           }}
                         >
-                          Edit Decision
+                          Resume Discussion
                         </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* If motion is closed, render the decision pill below the summary box */}
-                  {activeMotion.decisionNote &&
-                    activeMotion.state === "closed" && (
-                      <div className="decision-current">
-                        <span
-                          className={
-                            "decision-pill is-" +
-                            (activeMotion.state || "discussion")
+                        <button
+                          type="button"
+                          onClick={() => {
+                            changeMotionState("paused");
+                            setShowChairMenu(false);
+                          }}
+                          disabled={sessionClosed}
+                          title={
+                            sessionClosed
+                              ? "Disabled — motion is closed"
+                              : undefined
                           }
                         >
-                          {activeMotion.decisionNote}
-                        </span>
+                          Pause Discussion
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            changeMotionState("voting");
+                            setShowChairMenu(false);
+                          }}
+                          disabled={sessionClosed}
+                          title={
+                            sessionClosed
+                              ? "Disabled — motion is closed"
+                              : undefined
+                          }
+                        >
+                          Move to Vote
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canChairClose) return;
+                            handleCloseMotionNow(activeMotion?.id);
+                          }}
+                          disabled={!canChairClose}
+                          title={
+                            canChairClose
+                              ? "Close motion"
+                              : "Close disabled — resume discussion first"
+                          }
+                        >
+                          Close Motion
+                        </button>
                       </div>
                     )}
-                </>
-              )}
+                  </div>
+                )}
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={
+                    sessionClosed
+                      ? "Session closed"
+                      : sessionPaused
+                      ? "Session paused"
+                      : activeMotion
+                      ? `Write a comment for ${activeMotion.title}…`
+                      : "Select a motion to comment"
+                  }
+                  disabled={sessionPaused || sessionClosed || !activeMotion}
+                  aria-disabled={
+                    sessionPaused || sessionClosed || !activeMotion
+                  }
+                  title={
+                    sessionClosed
+                      ? "Session closed"
+                      : sessionPaused
+                      ? "Session paused"
+                      : undefined
+                  }
+                />
+                <div className="composer-controls">
+                  <div className="composer-stance">
+                    <button
+                      type="button"
+                      className={
+                        "stance-inline-btn " +
+                        (composerStance === "pro" ? "is-active" : "")
+                      }
+                      onClick={() => setComposerStance("pro")}
+                      aria-pressed={composerStance === "pro"}
+                      disabled={sessionPaused || sessionClosed || !activeMotion}
+                      aria-disabled={
+                        sessionPaused || sessionClosed || !activeMotion
+                      }
+                      aria-label="Pro stance"
+                      title="Pro stance"
+                    >
+                      <span className="stance-dot dot-pro" />
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "stance-inline-btn " +
+                        (composerStance === "con" ? "is-active" : "")
+                      }
+                      onClick={() => setComposerStance("con")}
+                      aria-pressed={composerStance === "con"}
+                      disabled={sessionPaused || sessionClosed || !activeMotion}
+                      aria-disabled={
+                        sessionPaused || sessionClosed || !activeMotion
+                      }
+                      aria-label="Con stance"
+                      title="Con stance"
+                    >
+                      <span className="stance-dot dot-con" />
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "stance-inline-btn " +
+                        (composerStance === "neutral" ? "is-active" : "")
+                      }
+                      onClick={() => setComposerStance("neutral")}
+                      aria-pressed={composerStance === "neutral"}
+                      disabled={sessionPaused || sessionClosed || !activeMotion}
+                      aria-disabled={
+                        sessionPaused || sessionClosed || !activeMotion
+                      }
+                      aria-label="Neutral stance"
+                      title="Neutral stance"
+                    >
+                      <span className="stance-dot dot-neutral" />
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="send-btn"
+                  aria-label="Send"
+                  disabled={
+                    sessionPaused ||
+                    sessionClosed ||
+                    !activeMotion ||
+                    !input.trim()
+                  }
+                  aria-disabled={
+                    sessionPaused ||
+                    sessionClosed ||
+                    !activeMotion ||
+                    !input.trim()
+                  }
+                  title={
+                    sessionClosed
+                      ? "Session closed"
+                      : sessionPaused
+                      ? "Session paused"
+                      : undefined
+                  }
+                >
+                  ➤
+                </button>
+              </form>
+            ) : (
+              <div className={"discussion-composer final-decision-panel "}>
+                {activeMotion?.decisionDetails ? (
+                  <div className="final-decision-fullcard">
+                    <h2 className="final-card-heading">
+                      Final Decision for “{activeMotion.title}”
+                    </h2>
+                    <div className="final-card-body">
+                      {editingDecision ? (
+                        <form
+                          className="decision-summary-form"
+                          onSubmit={handleSaveEditedDecision}
+                        >
+                          <label className="decision-label">Outcome</label>
+                          <div
+                            className="outcome-options"
+                            role="radiogroup"
+                            aria-label="Outcome options"
+                          >
+                            {["Passed", "Failed", "Tied", "Deferred"].map(
+                              (opt) => {
+                                const variant = opt.toLowerCase();
+                                const active = editDecisionOutcome === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    className={`outcome-pill ${variant}${
+                                      active ? " is-active" : ""
+                                    }`}
+                                    onClick={() => setEditDecisionOutcome(opt)}
+                                    aria-pressed={active}
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              }
+                            )}
+                          </div>
 
-            <form
-              className={
-                "discussion-composer " +
-                (showCloseDecisionModal ? "modal-background" : "")
-              }
-              onSubmit={handleSend}
-            >
-              {amIManager && activeMotion && (
-                <div className="composer-chair">
-                  <button
-                    type="button"
-                    className="chair-icon-btn"
-                    aria-haspopup="true"
-                    aria-expanded={showChairMenu}
-                    onClick={() => setShowChairMenu((s) => !s)}
-                    title="Chair controls"
-                  >
-                    ⚙
-                  </button>
-                  {showChairMenu && (
-                    <div className="chair-menu" role="menu">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          changeMotionState("discussion");
-                          setShowChairMenu(false);
-                        }}
-                      >
-                        Resume Discussion
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          changeMotionState("paused");
-                          setShowChairMenu(false);
-                        }}
-                      >
-                        Pause Discussion
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          changeMotionState("voting");
-                          setShowChairMenu(false);
-                        }}
-                      >
-                        Move to Vote
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!canChairClose || showCloseDecisionModal) return;
-                          // open modal to record final decision before closing
-                          handleOpenCloseModal();
-                        }}
-                        disabled={!canChairClose || showCloseDecisionModal}
-                        title={
-                          canChairClose && !showCloseDecisionModal
-                            ? "Close motion"
-                            : showCloseDecisionModal
-                            ? "Decision modal open"
-                            : "Close disabled — resume discussion first"
-                        }
-                      >
-                        Close Motion
-                      </button>
+                          <label className="decision-label">
+                            Chair's Summary
+                          </label>
+                          <textarea
+                            value={editDecisionSummary}
+                            onChange={(e) =>
+                              setEditDecisionSummary(e.target.value)
+                            }
+                            rows={4}
+                          />
+
+                          <label className="decision-label">
+                            Pros (one per line)
+                          </label>
+                          <textarea
+                            value={editDecisionPros}
+                            onChange={(e) =>
+                              setEditDecisionPros(e.target.value)
+                            }
+                            rows={3}
+                          />
+
+                          <label className="decision-label">
+                            Cons (one per line)
+                          </label>
+                          <textarea
+                            value={editDecisionCons}
+                            onChange={(e) =>
+                              setEditDecisionCons(e.target.value)
+                            }
+                            rows={3}
+                          />
+
+                          <div className="decision-summary-actions">
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={handleCancelEditDecision}
+                              disabled={savingEditDecision}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              className="btn-primary"
+                              disabled={savingEditDecision}
+                            >
+                              {savingEditDecision ? "Saving…" : "Save"}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="decision-card">
+                          <div className="final-outcome-row">
+                            <strong>Outcome:</strong>
+                            <div className="final-outcome">
+                              {(() => {
+                                const outcomeText =
+                                  activeMotion.decisionDetails?.outcome ||
+                                  computeOutcome(activeMotion?.votes || []);
+                                const cls = outcomeClassFromText(outcomeText);
+                                return (
+                                  <span className={`outcome-pill ${cls}`}>
+                                    {outcomeText}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </div>
+
+                          <div className="final-summary">
+                            <h4>Chair's Summary</h4>
+                            <div>
+                              {activeMotion.decisionDetails?.summary || (
+                                <em>No summary recorded.</em>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="final-pros-cons">
+                            <div>
+                              <h4>Pros</h4>
+                              {activeMotion.decisionDetails?.pros?.length >
+                              0 ? (
+                                <ul>
+                                  {activeMotion.decisionDetails.pros.map(
+                                    (p, i) => (
+                                      <li key={`fp-${i}`}>{p}</li>
+                                    )
+                                  )}
+                                </ul>
+                              ) : (
+                                <div className="empty-thread">
+                                  None recorded.
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <h4>Cons</h4>
+                              {activeMotion.decisionDetails?.cons?.length >
+                              0 ? (
+                                <ul>
+                                  {activeMotion.decisionDetails.cons.map(
+                                    (c, i) => (
+                                      <li key={`fc-${i}`}>{c}</li>
+                                    )
+                                  )}
+                                </ul>
+                              ) : (
+                                <div className="empty-thread">
+                                  None recorded.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="final-tally">
+                        <h4>Final Tally</h4>
+                        {(() => {
+                          const votes = activeMotion?.votes || [];
+                          const tally = computeTally(votes);
+                          // render the same vote-tally-panel used in Discussion, but non-interactive
+                          return (
+                            <div className="vote-tally-panel">
+                              <div className="vote-tally-inner">
+                                <div
+                                  className={
+                                    "vote-tally-choice " +
+                                    (false ? "is-active" : "")
+                                  }
+                                  aria-hidden={true}
+                                >
+                                  <div className="vote-tally-num">
+                                    {tally.yes}
+                                  </div>
+                                  <div className="vote-tally-label">Yes</div>
+                                </div>
+
+                                <div
+                                  className={
+                                    "vote-tally-choice " +
+                                    (false ? "is-active" : "")
+                                  }
+                                  aria-hidden={true}
+                                >
+                                  <div className="vote-tally-num">
+                                    {tally.no}
+                                  </div>
+                                  <div className="vote-tally-label">No</div>
+                                </div>
+
+                                <div
+                                  className={
+                                    "vote-tally-choice " +
+                                    (false ? "is-active" : "")
+                                  }
+                                  aria-hidden={true}
+                                >
+                                  <div className="vote-tally-num">
+                                    {tally.abstain}
+                                  </div>
+                                  <div className="vote-tally-label">
+                                    Abstain
+                                  </div>
+                                </div>
+
+                                <div className="vote-tally-state">
+                                  Final Tally
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Status indicator intentionally hidden in Final Decision view */}
+
+                      <div style={{ marginTop: 12, textAlign: "right" }}>
+                        {amIManager && !editingDecision && (
+                          <>
+                            <button
+                              type="button"
+                              className="decision-edit-btn"
+                              onClick={handleStartEditDecision}
+                            >
+                              Edit
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  sessionPaused
-                    ? "Session paused"
-                    : activeMotion
-                    ? `Write a comment for ${activeMotion.title}…`
-                    : "Select a motion to comment"
-                }
-                disabled={sessionPaused || !activeMotion}
-                aria-disabled={sessionPaused || !activeMotion}
-                title={sessionPaused ? "Session paused" : undefined}
-              />
-              <div className="composer-controls">
-                <div className="composer-stance">
-                  <button
-                    type="button"
-                    className={
-                      "stance-inline-btn " +
-                      (composerStance === "pro" ? "is-active" : "")
-                    }
-                    onClick={() => setComposerStance("pro")}
-                    aria-pressed={composerStance === "pro"}
-                    disabled={sessionPaused || !activeMotion}
-                    aria-disabled={sessionPaused || !activeMotion}
-                    aria-label="Pro stance"
-                    title="Pro stance"
-                  >
-                    <span className="stance-dot dot-pro" />
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      "stance-inline-btn " +
-                      (composerStance === "con" ? "is-active" : "")
-                    }
-                    onClick={() => setComposerStance("con")}
-                    aria-pressed={composerStance === "con"}
-                    disabled={sessionPaused || !activeMotion}
-                    aria-disabled={sessionPaused || !activeMotion}
-                    aria-label="Con stance"
-                    title="Con stance"
-                  >
-                    <span className="stance-dot dot-con" />
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      "stance-inline-btn " +
-                      (composerStance === "neutral" ? "is-active" : "")
-                    }
-                    onClick={() => setComposerStance("neutral")}
-                    aria-pressed={composerStance === "neutral"}
-                    disabled={sessionPaused || !activeMotion}
-                    aria-disabled={sessionPaused || !activeMotion}
-                    aria-label="Neutral stance"
-                    title="Neutral stance"
-                  >
-                    <span className="stance-dot dot-neutral" />
-                  </button>
-                </div>
+                  </div>
+                ) : (
+                  <div className="empty-thread">
+                    No final decision recorded.
+                  </div>
+                )}
               </div>
-              <button
-                type="submit"
-                className="send-btn"
-                aria-label="Send"
-                disabled={sessionPaused || !activeMotion || !input.trim()}
-                aria-disabled={sessionPaused || !activeMotion || !input.trim()}
-                title={sessionPaused ? "Session paused" : undefined}
-              >
-                ➤
-              </button>
-            </form>
+            )}
           </>
         ) : (
           <div className="no-motion-selected">
