@@ -16,7 +16,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       domain={domain}
       clientId={clientId}
       authorizationParams={{
-        redirect_uri: window.location.origin + "/discussion",
+        // After successful Auth0 login, send users to Create Committee page
+        redirect_uri: window.location.origin + "/create-committee",
         audience: import.meta.env.VITE_AUTH0_AUDIENCE,
       }}
       cacheLocation="localstorage"
