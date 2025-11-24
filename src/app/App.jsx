@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate, Outlet } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import Chat from "../pages/Chat";
 import EditProfile from "../pages/EditProfile";
@@ -6,27 +6,55 @@ import CreateCommittee from "../pages/CreateCommittee";
 import SignIn from "../pages/SignIn";
 import SignUp from "../pages/SignUp";
 import Home from "../pages/Home";
+import RequireAuth from "../components/RequireAuth";
+import NotFound from "../pages/NotFound";
 
 export default function App() {
-  const location = useLocation();
-  const hideNavbarOn = ["/", "/signup", "/signin"];
-  const showNavbar = !hideNavbarOn.includes(location.pathname);
+  // Layout that includes the navbar and renders nested routes via Outlet.
+  function MainLayout() {
+    return (
+      <>
+        <Navbar />
+        <main className="main-content">
+          <Outlet />
+        </main>
+      </>
+    );
+  }
 
   return (
-    <>
-      {showNavbar && <Navbar />}
+    <Routes>
+      {/* Routes wrapped by MainLayout will show the Navbar */}
+      <Route element={<MainLayout />}>
+        {/* Protected: discussion and committee chat require login */}
+        <Route
+          path="/discussion"
+          element={<RequireAuth><Chat /></RequireAuth>}
+        />
+        <Route
+          path="/committees/:id/chat"
+          element={<RequireAuth><Chat /></RequireAuth>}
+        />
 
-      <Routes>
-        <Route path="/" element={<Home />} />
+        {/* Creating committees and editing profile require login */}
+        <Route
+          path="/create-committee"
+          element={<RequireAuth><CreateCommittee /></RequireAuth>}
+        />
 
-        <Route path="/discussion" element={<Chat />} />
-        <Route path="/committees/:id/chat" element={<Chat />} />
-        <Route path="/create-committee" element={<CreateCommittee />} />
+        <Route
+          path="/edit-profile"
+          element={<RequireAuth><EditProfile /></RequireAuth>}
+        />
+      </Route>
 
-        <Route path="/edit-profile" element={<EditProfile />} />
-        <Route path="/signin" element={<SignIn />} />
-        <Route path="/signup" element={<SignUp />} />
-      </Routes>
-    </>
+  {/* Public routes (no navbar) */}
+  <Route path="/" element={<Home />} />
+  <Route path="/signin" element={<SignIn />} />
+  <Route path="/signup" element={<SignUp />} />
+
+      {/* Catch-all 404 for unknown routes (renders without navbar) */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 }
