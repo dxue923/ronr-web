@@ -383,20 +383,31 @@ START NEW CHAT PAGE CSS
 }
 
 .motion-list-item {
+  /* Fixed card height so all motion cards show the same size.
+     Layout uses column direction so the action row can sit below
+     the title/status. Buttons are anchored to the bottom via
+     `margin-top: auto` on the action row. */
   background: #f7f9ff;
   border: 1px solid transparent;
   border-radius: 10px;
-  padding: 0.5rem 0.6rem;
-  text-align: left;
+  padding: 0.6rem;
+  min-height: 56px; /* keep a compact baseline while allowing growth */
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  gap: 0.35rem; /* tighter spacing between motion cards */
+  align-items: stretch;
+  flex-direction: column; /* title at top, actions anchored to bottom */
+  gap: 0.375rem;
   transition: 0.12s ease-in-out;
+  overflow: visible; /* allow cards to expand to show full content */
+  position: relative; /* enable absolute-positioned edit icon */
 }
 
 .motion-list-item:hover {
   border-color: #d6def0;
+}
+
+/* Show pointer on hover so users know the card is clickable */
+.motion-list-item:hover {
+  cursor: pointer;
 }
 
 .motion-active {
@@ -409,7 +420,60 @@ START NEW CHAT PAGE CSS
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-top: 6px;
+}
+.motion-action-row.in-card {
+  margin-top: auto; /* push actions to the bottom inside the card */
+  width: 100%;
+  justify-content: flex-end; /* keep buttons right-aligned */
+  padding-top: 6px;
+}
+
+/* Hover-only edit icon inside the motion card for managers */
+.motion-edit-icon {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: transparent;
+  border: none;
+  font-size: 0.7rem; /* smaller glyph */
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #374151;
+  opacity: 0;
+  padding: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  z-index: 2;
+}
+.motion-edit-icon:hover {
+  background: #f4f7ff;
+  transform: translateY(-1px);
+}
+.motion-list-item:hover .motion-edit-icon,
+.motion-edit-icon:focus {
+  opacity: 1;
+}
+/* Action row shown under the card when manage mode is active */
+.motion-action-row.manage-under-card {
+  display: flex;
+  gap: 8px;
+  padding: 8px 6px 0 6px;
+  justify-content: flex-start; /* left align the buttons under the card info */
+}
+
+.motion-list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* prevent icon overlapping the status by reserving space on the right */
+.motion-row-content {
+  padding-right: 4px;
 }
 .motion-action-btn {
   font-size: 0.78rem;
@@ -442,8 +506,10 @@ START NEW CHAT PAGE CSS
 .motion-row-content {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: space-between; /* push status pill to the far right */
   gap: 0.5rem;
+  flex: 1 1 auto; /* allow row content to grow vertically when needed */
+  width: 100%;
 }
 .motion-row-content .motion-title {
   flex: 1 1 auto;
@@ -467,11 +533,14 @@ START NEW CHAT PAGE CSS
 }
 
 .motion-title {
-  font-weight: 400; /* use normal weight by default */
+  font-weight: 400;
   font-size: 0.9rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Allow full wrapping so taller cards can display all information */
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.12;
+  text-align: left; /* ensure left alignment */
 }
 
 /* small status pill under motion title */
@@ -1341,7 +1410,8 @@ START NEW CHAT PAGE CSS
 
 /* large vote tally box in discussion area */
 .vote-tally-panel {
-  margin: 0.6rem 0 0.6rem;
+  /* slightly larger vertical spacing and room for larger tally */
+  margin: 0.8rem 0 0.8rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1381,11 +1451,15 @@ START NEW CHAT PAGE CSS
   z-index: 1600;
   background: #ffffff;
   border-radius: 12px;
-  padding: 18px;
-  max-width: 820px;
-  width: calc(100% - 40px);
-  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.12);
-  margin: 24px auto 0; /* more breathing room above the decision box */
+  /* make the box a flex container so its child can be perfectly centered */
+  display: flex;
+  justify-content: center;
+  /* extra left padding to visually center the card within the panel */
+  padding: 24px 28px 24px 64px;
+  max-width: 1100px; /* allow a wider card for editing decisions */
+  width: min(96%, 1100px);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.14);
+  margin: 48px auto 0; /* more breathing room above the decision box */
 }
 /* When the summary sits directly after the vote tally, tighten the gap so
    the box sits closer but still below the tally. */
@@ -1398,12 +1472,11 @@ START NEW CHAT PAGE CSS
 .final-decision-box.floating {
   position: absolute;
   left: 50%;
-  /* push the floating box further down so edited/saved decisions sit lower
-     in the viewport and avoid overlapping the composer or vote tally. */
-  top: calc(60% + 80px);
-  transform: translate(-50%, -15%);
-  width: calc(100% - 40px);
-  max-width: 820px;
+  /* Center the floating card in the viewport for emphasis */
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(96%, 1100px);
+  max-width: 1100px;
   margin: 0; /* absolute positioning ignores margin, keep 0 */
   z-index: 1600;
 }
@@ -1449,16 +1522,17 @@ START NEW CHAT PAGE CSS
   align-items: center;
   background: #ffffff;
   border: 1px solid #e6e9ef;
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 14px;
+  /* increased padding to make box feel larger and more prominent */
+  padding: 16px 22px;
 }
 .vote-tally-choice {
   background: transparent;
   border: none;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 8px 12px; /* a bit more tappable area */
   border-radius: 10px;
-  min-width: 72px;
+  min-width: 100px; /* make choices wider so numbers/readouts breathe */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1479,22 +1553,44 @@ START NEW CHAT PAGE CSS
   min-width: 72px;
 }
 .vote-tally-num {
-  font-size: 1.35rem;
+  font-size: 1.8rem; /* larger numeric emphasis */
   font-weight: 700;
   color: #0f172a;
 }
 .vote-tally-label {
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   color: #6b7280;
 }
 .vote-tally-state {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: #374151;
-  padding-left: 12px;
+  padding-left: 16px;
   border-left: 1px solid #eef2f6;
   align-self: stretch;
   display: flex;
   align-items: center;
+}
+
+/* Responsive adjustments so the larger tally remains usable on small screens */
+@media (max-width: 720px) {
+  .vote-tally-inner {
+    padding: 10px 12px;
+    gap: 0.6rem;
+  }
+  .vote-tally-choice {
+    min-width: 72px;
+    padding: 6px 8px;
+  }
+  .vote-tally-num {
+    font-size: 1.25rem;
+  }
+  .vote-tally-label {
+    font-size: 0.78rem;
+  }
+  .vote-tally-state {
+    padding-left: 10px;
+    font-size: 0.82rem;
+  }
 }
 
 .log-list {
@@ -1526,9 +1622,21 @@ START NEW CHAT PAGE CSS
   font-size: 0.8rem;
 }
 
+/* hidden state for transient pills (fade out) */
+.decision-pill.is-hidden,
+.status-pill.is-hidden {
+  opacity: 0;
+  transition: opacity 600ms ease;
+  pointer-events: none;
+}
+.decision-pill,
+.status-pill {
+  transition: opacity 600ms ease;
+}
+
 /* ===== Decision Summary (Closed Motion) ===== */
 .decision-summary-form {
-  margin: 0.8rem 0 0.9rem;
+  margin: 0.8rem auto 0.9rem;
   background: #ffffff;
   border: 1px solid #e6e9ef;
   border-radius: 14px;
@@ -1536,6 +1644,8 @@ START NEW CHAT PAGE CSS
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: auto; /* allow centering via max-width and margin */
+  max-width: 880px;
 }
 .decision-summary-title {
   margin: 0 0 2px;
@@ -1685,8 +1795,9 @@ START NEW CHAT PAGE CSS
 .final-card-body > .final-summary,
 .final-card-body > .final-pros-cons,
 .final-card-body > .final-tally {
-  width: 100%;
-  max-width: 720px; /* constrain inner content for readability */
+  width: auto;
+  max-width: 980px; /* allow the input card to be larger when editing */
+  margin: 0 auto; /* center these children inside the final card body */
 }
 
 /* Outcome row: center the label and value */
@@ -1707,7 +1818,7 @@ START NEW CHAT PAGE CSS
   text-align: left;
 }
 
-/* Pros/Cons: keep columns centered as a group but allow list text to remain left-aligned for readability */
+/* /* Pros/Cons */
 .final-pros-cons {
   display: flex;
   gap: 24px;
@@ -1892,10 +2003,6 @@ START NEW CHAT PAGE CSS
 .btn-secondary:hover {
   background: #eef2f7;
 }
-
-/* When an editor modal is open, keep background elements visible but subdued
-   and non-interactive. Applied to panels like the composer to keep them in
-   the visual background while the modal is the primary focus. */
 .modal-background {
   opacity: 0.45;
   filter: blur(0.6px);
@@ -1990,7 +2097,7 @@ START NEW CHAT PAGE CSS
   transition: transform 160ms ease, box-shadow 160ms ease,
     background-color 160ms ease, border-color 160ms ease;
   position: relative;
-  padding-left: 18px; /* room for swatch */
+  padding: 6px 12px; /* ensure symmetric left/right padding */
 }
 
 /* remove swatch dot: pills are neutral by default; variant colors apply only when active or saved */
