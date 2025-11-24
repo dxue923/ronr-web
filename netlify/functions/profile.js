@@ -1,208 +1,171 @@
 // netlify/functions/profile.js
-// Profile API that syncs basic fields from Auth0 into data.json/profile[]
+// Profile API — GET (sync) + POST (edit fields)
 
-const fs = require("fs");
-const path = require("path");
-const jwt = require("jsonwebtoken");
-const jwks = require("jwks-rsa");
+import fs from "fs";
+import path from "path";
+import jwt from "jsonwebtoken";
+import jwksClient from "jwks-rsa";
 
-// store right next to this function
-const DATA = path.join(__dirname, "data.json");
-
-// Auth0 envs (optional in dev)
 const DOMAIN = process.env.AUTH0_DOMAIN;
-const AUD = process.env.AUTH0_AUDIENCE;
+const AUDIENCE = process.env.AUTH0_AUDIENCE;
+const IS_NETLIFY_DEV = process.env.NETLIFY_DEV === "true";
 
-console.log("[profile] init — DOMAIN =", DOMAIN, "AUD =", AUD);
-
-// JWKS client (only if DOMAIN set)
 const client =
   DOMAIN &&
-  jwks({
+  jwksClient({
     jwksUri: `https://${DOMAIN}/.well-known/jwks.json`,
   });
 
-const getKey = (header, cb) => {
-  if (!client) return cb(new Error("JWKS client not configured"));
+function getKey(header, callback) {
+  if (!client) return callback(new Error("JWKS client not configured"));
   client.getSigningKey(header.kid, (err, key) => {
-    if (err) return cb(err);
-    cb(null, key.getPublicKey());
+    if (err) return callback(err);
+    callback(null, key.getPublicKey());
   });
-};
+}
 
-// verify token, or decode in dev
-const verify = (authHeader) =>
-  new Promise((resolve, reject) => {
-    if (!authHeader) return reject("no auth header");
-    const token = authHeader.split(" ")[1];
-    if (!token) return reject("no bearer token");
+const DATA_PATH = path.join(process.cwd(), "netlify", "functions", "data.json");
 
-    // dev fallback
-    if (!DOMAIN || !AUD) {
-      console.warn("[profile] missing DOMAIN/AUDIENCE — decode fallback");
-      return resolve(jwt.decode(token) || {});
-    }
+function readData() {
+  try {
+    return JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
+  } catch {
+    return { profile: [] };
+  }
+}
 
+function writeData(data) {
+  fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2), "utf-8");
+}
+
+// Decode token in dev, verify in prod
+function getClaims(authHeader = "") {
+  if (!authHeader.startsWith("Bearer ")) {
+    throw new Error("Invalid Authorization header");
+  }
+  const token = authHeader.slice(7);
+
+  if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
+    const decoded = jwt.decode(token);
+    if (!decoded) throw new Error("Could not decode token");
+    return Promise.resolve(decoded);
+  }
+
+  return new Promise((resolve, reject) => {
     jwt.verify(
       token,
       getKey,
       {
-        audience: AUD,
-        issuer: `https://${DOMAIN}/`,
         algorithms: ["RS256"],
+        audience: AUDIENCE,
+        issuer: `https://${DOMAIN}/`,
       },
       (err, decoded) => {
-        if (err) return reject(err.message || err);
+        if (err) return reject(err);
         resolve(decoded);
       }
     );
   });
+}
 
-function readData() {
+// Base profile
+function mapAuth0(decoded) {
+  const {
+    sub = "dev-user",
+    email = "",
+    name = "",
+    nickname = "",
+    picture = "",
+  } = decoded;
+
+  const username = nickname || email || "user";
+
+  return {
+    id: sub,
+    username,
+    name: name || username,
+    email,
+    avatarUrl: picture || "",
+  };
+}
+
+export async function handler(event) {
   try {
-    if (fs.existsSync(DATA)) {
-      return JSON.parse(fs.readFileSync(DATA, "utf8"));
+    const authHeader =
+      event.headers.authorization || event.headers.Authorization || "";
+    const claims = await getClaims(authHeader);
+    const tokenProfile = mapAuth0(claims);
+
+    const data = readData();
+    if (!Array.isArray(data.profile)) data.profile = [];
+
+    let idx = data.profile.findIndex((p) => p.id === tokenProfile.id);
+
+    // Create first profile
+    if (idx === -1) {
+      data.profile.push(tokenProfile);
+      idx = data.profile.length - 1;
+      writeData(data);
     }
-  } catch (e) {
-    console.error("[profile] readData error:", e);
-  }
-  return {
-    profile: [],
-    committees: [],
-    committeeMembers: [],
-    motions: [],
-    comments: [],
-  };
-}
 
-function writeData(obj) {
-  try {
-    fs.writeFileSync(DATA, JSON.stringify(obj, null, 2));
-  } catch (e) {
-    console.error("[profile] writeData error:", e);
-  }
-}
+    const existing = data.profile[idx];
 
-// take claims from Auth0 and map to our shape
-function buildProfileFromToken(userId, claims) {
-  return {
-    id: userId,
-    username: claims.nickname || "you",
-    name: claims.name || "You",
-    email: claims.email || "",
-    bio: "",
-    avatarUrl: claims.picture || "",
-    memberships: [],
-  };
-}
+    // ------------ GET ------------
+    if (event.httpMethod === "GET") {
+      const merged = {
+        ...tokenProfile,
+        ...existing,
+      };
+      data.profile[idx] = merged;
+      writeData(data);
 
-// fill missing local fields from the token, but don't wipe local edits
-function backfillProfile(existing, claims) {
-  const patched = { ...existing };
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      };
+    }
 
-  if (!patched.username && claims.nickname) patched.username = claims.nickname;
-  if (!patched.name && claims.name) patched.name = claims.name;
-  if (!patched.email && claims.email) patched.email = claims.email;
-  if (!patched.avatarUrl && claims.picture) patched.avatarUrl = claims.picture;
+    // ------------ POST (editable fields) ------------
+    if (event.httpMethod === "POST") {
+      const body = JSON.parse(event.body || "{}");
 
-  return patched;
-}
+      const allowed = {};
+      if (typeof body.username === "string") allowed.username = body.username;
+      if (typeof body.name === "string") allowed.name = body.name;
+      if (typeof body.avatarUrl === "string")
+        allowed.avatarUrl = body.avatarUrl;
 
-exports.handler = async (event) => {
-  const { httpMethod: method, headers, body } = event;
+      if (Object.keys(allowed).length === 0) {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "No valid fields to update" }),
+        };
+      }
 
-  // CORS
-  if (method === "OPTIONS") {
-    return {
-      statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,PUT,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    };
-  }
+      const updated = {
+        ...existing,
+        ...allowed,
+      };
 
-  // Auth
-  let claims;
-  try {
-    claims = await verify(headers.authorization);
+      data.profile[idx] = updated;
+      writeData(data);
+
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      };
+    }
+
+    return { statusCode: 405, body: "Method Not Allowed" };
   } catch (err) {
+    console.error("[profile] error", err);
     return {
       statusCode: 401,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({
-        error: "Unauthorized",
-        reason: err,
-        haveDomain: !!DOMAIN,
-        haveAudience: !!AUD,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Unauthorized", message: err.message }),
     };
   }
-
-  const userId = claims.sub || claims.user_id || "dev-user";
-
-  // load data.json
-  const data = readData();
-  if (!Array.isArray(data.profile)) {
-    data.profile = [];
-  }
-
-  // find existing profile
-  const idx = data.profile.findIndex((p) => p.id === userId);
-
-  let currentProfile;
-  if (idx === -1) {
-    // first time: build from token
-    currentProfile = buildProfileFromToken(userId, claims);
-    data.profile.push(currentProfile);
-    writeData(data);
-  } else {
-    // existing: backfill any empty fields from token
-    const updated = backfillProfile(data.profile[idx], claims);
-    data.profile[idx] = updated;
-    currentProfile = updated;
-    // we can write here too, but to reduce writes you could skip
-    writeData(data);
-  }
-
-  if (method === "GET") {
-    return {
-      statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(currentProfile),
-    };
-  }
-
-  if (method === "PUT") {
-    const incoming = JSON.parse(body || "{}");
-    const merged = { ...currentProfile, ...incoming };
-
-    // write back to correct index
-    const i = data.profile.findIndex((p) => p.id === userId);
-    if (i === -1) {
-      data.profile.push(merged);
-    } else {
-      data.profile[i] = merged;
-    }
-    writeData(data);
-
-    return {
-      statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(merged),
-    };
-  }
-
-  return {
-    statusCode: 405,
-    headers: { "Access-Control-Allow-Origin": "*" },
-    body: JSON.stringify({ error: "Method not allowed" }),
-  };
-};
+}
