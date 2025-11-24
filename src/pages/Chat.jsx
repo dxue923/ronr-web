@@ -53,6 +53,24 @@ function RoleBadge({ role }) {
   return <span className={`role-badge role-${role}`}>{map[role] || role}</span>;
 }
 
+function SendIcon() {
+  return (
+    <svg
+      viewBox="0 2 24 24"
+      width="24"
+      height="24"
+      fill="none"
+      stroke="white"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <line x1="12" y1="22" x2="12" y2="8" />
+      <polyline points="8 12 12 8 16 12" />
+    </svg>
+  );
+}
+
 export default function Chat() {
   const { id } = useParams(); // committee id
   const committee = findCommitteeById(id);
@@ -1392,7 +1410,7 @@ export default function Chat() {
                       : undefined
                   }
                 >
-                  ➤
+                  <SendIcon />
                 </button>
               </form>
             ) : (
