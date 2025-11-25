@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Navigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 
 export default function SignUp() {
@@ -13,6 +14,11 @@ export default function SignUp() {
       });
     }
   }, [isLoading, isAuthenticated, loginWithRedirect]);
+
+  // If already authenticated, go to create-committee
+  if (!isLoading && isAuthenticated) {
+    return <Navigate to="/create-committee" replace />;
+  }
 
   return null;
 }

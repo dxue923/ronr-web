@@ -1,8 +1,15 @@
 import React from "react";
 import "../assets/styles/index.css";
 import { Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function Home() {
+  const { isAuthenticated } = useAuth0();
+
+  // If the user is already signed in, send sign-up/get-started links to create-committee
+  const signupTarget = isAuthenticated ? "/create-committee" : "/signup";
+  const getStartedTarget = isAuthenticated ? "/create-committee" : "/signup";
+
   return (
     <div className="home-page">
       <header className="home-header">
@@ -11,7 +18,7 @@ export default function Home() {
           <Link to="/signin" className="btn btn-login">
             Log In
           </Link>
-          <Link to="/signup" className="btn btn-signup">
+          <Link to={signupTarget} className="btn btn-signup">
             Sign Up
           </Link>
         </div>
@@ -24,7 +31,7 @@ export default function Home() {
           </h2>
 
           <div className="home-cta fade-in-delay-2">
-            <Link to="/signup" className="btn btn-primary">
+            <Link to={getStartedTarget} className="btn btn-primary">
               Get Started
             </Link>
           </div>
