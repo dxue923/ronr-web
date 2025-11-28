@@ -215,36 +215,6 @@ a.btn-primary:focus {
   }
 }
 
-/* ==================================================
-   NOT FOUND (404) - reuse home look but center content
-================================================== */
-.not-found-page {
-  min-height: 100vh; /* ensure full viewport */
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(to bottom, #ffffff, #c6e1e8, #2358bb);
-  color: #212529;
-}
-
-.notfound-main {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  padding: 0 10%;
-}
-
-.not-found-page .home-hero {
-  text-align: center;
-  max-width: 900px;
-}
-
-.not-found-page .home-description {
-  margin: 0;
-  color: #0f172a;
-  font-size: clamp(1.6rem, 3vw, 2.4rem);
-  font-weight: 600;
-}
-
 /* Left icon rail */
 
 .left-rail {
@@ -398,6 +368,47 @@ START NEW CHAT PAGE CSS
   flex-shrink: 0;
 }
 
+/* Meeting toggle button that flips between Start and End */
+.btn-meeting-toggle {
+  border: 1px solid #d6def0;
+  background: #f7f9ff;
+  color: #1c3874;
+  border-radius: 9px;
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease,
+    transform 140ms ease, box-shadow 140ms ease, opacity 180ms ease;
+}
+.btn-meeting-toggle:hover {
+  background: #eaf0ff;
+}
+.btn-meeting-toggle.is-ending {
+  background: #fff1f2;
+  color: #991b1b;
+  border-color: rgba(220, 38, 38, 0.2);
+}
+.btn-meeting-toggle.is-ending:hover {
+  background: #fee2e2;
+}
+.btn-meeting-toggle.is-starting {
+  background: #eaf0ff;
+  color: #1c3874;
+}
+.btn-meeting-toggle.flip-anim {
+  animation: flipFade 220ms ease;
+}
+@keyframes flipFade {
+  from {
+    opacity: 0.1;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* motions list */
 .motion-list {
   display: flex;
@@ -487,6 +498,54 @@ START NEW CHAT PAGE CSS
 .motion-edit-icon:focus {
   opacity: 1;
 }
+/* Kebab manage icon shown on hover for each motion card */
+.motion-kebab {
+  position: absolute;
+  top: 2px;
+  right: 4px; /* move closer to right edge */
+  width: 22px; /* smaller overall hit area */
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #374151;
+  opacity: 0;
+  pointer-events: none;
+  padding: 2px;
+  border-radius: 4px;
+  transition: opacity 150ms ease, transform 120ms ease, background 120ms ease;
+  z-index: 4;
+}
+.motion-list-item:hover .motion-kebab,
+.motion-list-item:focus-within .motion-kebab {
+  opacity: 1;
+  pointer-events: auto;
+}
+.motion-kebab:hover {
+  background: #f4f7ff;
+  transform: translateY(-1px);
+}
+
+.motion-kebab svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Modal delete button style */
+.btn-danger {
+  background: #fff1f2;
+  color: #991b1b;
+  border: 1px solid rgba(220, 38, 38, 0.12);
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:hover {
+  background: #fee2e2;
+}
 /* Action row shown under the card when manage mode is active */
 .motion-action-row.manage-under-card {
   display: flex;
@@ -494,11 +553,37 @@ START NEW CHAT PAGE CSS
   padding: 8px 6px 0 6px;
   justify-content: flex-start; /* left align the buttons under the card info */
 }
+.motion-action-row.manage-internal {
+  display: flex;
+  gap: 6px; /* smaller gap */
+  align-items: center;
+  justify-content: flex-end; /* keep buttons right-aligned within their area */
+  padding-top: 6px;
+  padding-right: 12px; /* nudge left from the edge */
+}
+.motion-action-row.manage-internal .motion-action-btn {
+  padding: 4px 8px; /* smaller footprint */
+  font-size: 0.72rem; /* slightly smaller text */
+  border-radius: 6px;
+  min-width: 48px;
+}
 
 .motion-list-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Divider between root motion sections (parents). Applied only to parent rows except the first in each section */
+.motion-list-row.motion-root-divider {
+  border-top: 1px solid #dfe5ee;
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+/* make each motion card a positioning context so we can center the status pill */
+.motion-list-item {
+  position: relative;
 }
 
 /* prevent icon overlapping the status by reserving space on the right */
@@ -536,22 +621,65 @@ START NEW CHAT PAGE CSS
 .motion-row-content {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* push status pill to the far right */
+  justify-content: flex-start;
   gap: 0.5rem;
+  flex-wrap: wrap;
   flex: 1 1 auto; /* allow row content to grow vertically when needed */
   width: 100%;
+  padding-right: 100px; /* reserve room for pill (adjust if pill size changes) */
 }
+
 .motion-row-content .motion-title {
   flex: 1 1 auto;
   min-width: 0; /* allow flex child to shrink/wrap inside flex container */
   display: block;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  /* prefer wrapping at word boundaries; only break words if necessary */
+  overflow-wrap: break-word;
+  word-break: normal;
+  text-align: left;
 }
-.motion-row-content .status-pill {
-  flex-shrink: 0;
-  margin-left: 0.5rem;
+
+/* position the status pill at the center-right of the motion card */
+.motion-list-item .status-pill {
+  position: absolute;
+  right: 20px; /* nudged left from the edge */
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  white-space: nowrap;
+}
+
+/* On small screens, keep normal flow so the pill doesn't overlap content */
+@media (max-width: 720px) {
+  .motion-list-item .status-pill {
+    position: static;
+    transform: none;
+    margin-left: 0.5rem;
+    margin-top: 0.25rem;
+  }
+  .motion-row-content .motion-title {
+    max-width: 100%;
+  }
+}
+@media (max-width: 720px) {
+  .motion-row-content {
+    padding-right: 12px; /* reduce reserved space so titles can use width */
+  }
+  .motion-row-content .motion-title,
+  .motion-row-content .sub-title,
+  .motion-main-title {
+    /* prefer word-boundary wrapping but allow breaks anywhere when necessary */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+    white-space: normal;
+  }
+  /* ensure the pill sits below the title and doesn't overlap on narrow viewports */
+  .motion-list-item .status-pill {
+    display: inline-block;
+    margin-top: 0.35rem;
+  }
 }
 
 /* Keep action buttons compact on small screens */
@@ -563,14 +691,26 @@ START NEW CHAT PAGE CSS
 }
 
 .motion-title {
-  font-weight: 400;
+  font-weight: 600;
   font-size: 0.9rem;
   /* Allow full wrapping so taller cards can display all information */
   display: block;
   white-space: normal;
-  overflow-wrap: anywhere;
+  /* prefer wrapping at word boundaries; only break words if necessary */
+  overflow-wrap: break-word;
   line-height: 1.12;
   text-align: left; /* ensure left alignment */
+}
+
+/* Closed motions should not display bold titles */
+.motion-list-item.motion-closed-item .motion-title {
+  font-weight: 400;
+}
+.motions-section-header
+  ~ .motion-list-row
+  .motion-list-item.motion-closed-item
+  .motion-title {
+  font-weight: 600;
 }
 
 /* small status pill under motion title */
@@ -581,22 +721,49 @@ START NEW CHAT PAGE CSS
   font-size: 0.68rem;
   text-transform: capitalize;
   width: fit-content;
+  transition: opacity 200ms ease;
 }
 .status-discussion {
-  background: #e0f2fe; /* light aqua-blue */
-  color: #075985; /* deep sky blue for contrast */
+  background: #d8e6ff; /* soft powder-blue */
+  color: #0b3b66; /* dark blue for contrast */
 }
 .status-paused {
   background: #fff4da;
   color: #7f5b00;
 }
 .status-voting {
-  background: #e4fff1;
-  color: #007944;
+  background: #cff7ed; /* seafoam-blue */
+  color: #0a5f4d; /* dark seafoam for contrast */
+}
+.status-postponed {
+  background: #e3dbff; /* lavender-blue */
+  color: #2b0b4a; /* dark lavendar/indigo for contrast */
 }
 .status-closed {
-  background: #f3f4f6;
+  background: #eef0f4; /* cool light gray */
   color: #4b5563;
+}
+
+/* Resumed temporary status pill (blue/teal) with 10s blink */
+.status-resumed {
+  background: #0ea5e9; /* teal/blue */
+  color: #ffffff;
+  animation: resumedBlink 1s ease-in-out 0s 10 alternate;
+}
+
+@keyframes resumedBlink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* optional: withdrawn state */
+.status-withdrawn {
+  background: #f4e7ff;
+  color: #3b1a56;
 }
 
 /* participants under the motions */
@@ -963,7 +1130,8 @@ START NEW CHAT PAGE CSS
 
 .motion-desc {
   margin: 0.25rem 0 0;
-  font-size: 0.74rem;
+  font-size: 0.95rem; /* increased for better readability in header */
+  line-height: 1.3;
   color: #56606f;
 }
 
@@ -1248,8 +1416,8 @@ START NEW CHAT PAGE CSS
 
 .send-btn svg {
   display: block;
-   max-width: 22px;
-  max-height: 22px;
+  max-width: 28px;
+  max-height: 28px;
   width: auto;
   height: auto;
 }
@@ -1352,6 +1520,281 @@ START NEW CHAT PAGE CSS
 }
 .chair-menu button:hover {
   background: #f4f7fb;
+}
+
+/* Chair menu small divider and section label */
+.chair-menu-divider {
+  height: 1px;
+  background: #edf0f4;
+  margin: 6px 0;
+}
+.chair-menu-section-title {
+  font-size: 0.7rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+}
+
+/* Submotion button/menu in the motion header (composer area) */
+.motion-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  position: relative; /* anchor the absolute menu */
+}
+.submotion-btn {
+  background: #f7f9ff;
+  border: 1px solid #d6def0;
+  color: #1c3874;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  box-shadow: 0 2px 6px rgba(35, 88, 187, 0.04);
+}
+.submotion-btn:hover {
+  background: #eaf0ff;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(35, 88, 187, 0.08);
+}
+.submotion-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.submotion-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(35, 88, 187, 0.12);
+}
+.submotion-menu {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  background: #ffffff;
+  border: 1px solid #e6e9ef;
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(2, 6, 23, 0.12);
+  padding: 6px;
+  display: flex;
+  .submotion-btn .submotion-btn-icon {
+    display: inline-block;
+    color: #475569;
+  }
+  .submotion-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+    border: none;
+    background: transparent;
+    color: #475569;
+    cursor: pointer;
+    padding: 0;
+  }
+  .submotion-toggle-btn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* child submotion marker + connector line */
+
+  /* child submotion marker + connector line */
+  .motion-list-item.motion-sub {
+    position: relative;
+    padding-left: 26px;
+  }
+  .motion-list-item.motion-sub::before {
+    /* small round marker */
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 12px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e6eef8;
+    border: 1px solid #c7d2fe;
+  }
+  .motion-list-item.motion-sub::after {
+    /* vertical connector to parent */
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: -12px;
+    height: calc(100% + 12px);
+    width: 2px;
+    background: #e5e7eb;
+  }
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  z-index: 1400;
+}
+.submotion-menu button {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+.submotion-menu button:hover {
+  background: #eef4ff;
+}
+
+/* Special motions banner in thread header */
+.special-banner {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff7ed; /* soft amber */
+  border: 1px solid #ffe4c7;
+  color: #92400e;
+  font-size: 0.82rem;
+}
+
+/* hide submotion toggle unless the parent motion card is hovered or focused */
+.submotion-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-in-out;
+}
+
+.motion-list-item:hover .submotion-toggle-btn,
+.motion-list-item:focus-within .submotion-toggle-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Position the toggle absolutely for parent (non-sub) motions so the title
+   can sit flush left by default. When the parent is hovered/focused the
+   title receives left padding to make room for the toggle. */
+.motion-list-item:not(.motion-sub) {
+  position: relative;
+}
+
+.motion-list-item:not(.motion-sub) .submotion-toggle-btn {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  margin-right: 0; /* no layout gap when absolute */
+}
+
+.submotion-toggle-btn svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.motion-list-item:not(.motion-sub) .motion-row-content {
+  padding-left: 0; /* keep title flush left by default */
+  transition: padding-left 150ms ease-in-out;
+}
+
+/* Only shift title when the parent motion actually has submotions (toggle will appear)
+   so motions without submotions do not get extra hover margin. */
+.motion-list-item:not(.motion-sub).has-submotions:hover .motion-row-content,
+.motion-list-item:not(.motion-sub).has-submotions:focus-within
+  .motion-row-content {
+  padding-left: 36px; /* make room for the visible toggle */
+}
+
+/* Submotion label shown inline in motion list */
+.motion-sub-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.motion-sub-label .sub-type {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #374151;
+}
+.motion-sub-label .sub-title {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+.motion-sub-label .sub-parent {
+  font-size: 0.72rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* Slight indentation for submotions to convey hierarchy */
+.motion-list-item.motion-sub {
+  position: relative;
+  padding-left: 18px; /* leave space for the caret */
+}
+.motion-list-item.motion-sub::before {
+  content: "↳";
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+/* Left vertical indicator for parent motions that have submotions */
+.motion-list-item:not(.motion-sub).has-submotions::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: rgba(55, 65, 81, 0.22); /* darker so it's visible */
+  border-radius: 2px;
+  transition: opacity 140ms ease, transform 140ms ease;
+  opacity: 1;
+  pointer-events: none;
+  z-index: 0; /* sit behind inline content */
+}
+
+/* Hide the line when hovering/focusing the parent so only the toggle is visible */
+.motion-list-item:not(.motion-sub).has-submotions:hover::before,
+.motion-list-item:not(.motion-sub).has-submotions:focus-within::before {
+  opacity: 0;
+}
+
+/* Ensure content sits above the left indicator */
+.motion-list-item .motion-row-content {
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 720px) {
+  .motion-header-actions {
+    margin-top: 6px;
+  }
+  .submotion-menu {
+    top: 42px;
+    left: auto;
+    right: 0;
+    min-width: 140px;
+  }
 }
 
 /* visually indicate disabled state for chair/menu and motion manage buttons */
@@ -1529,8 +1972,8 @@ START NEW CHAT PAGE CSS
   justify-content: center;
   /* extra left padding to visually center the card within the panel */
   padding: 24px 28px 24px 64px;
-  max-width: 1100px; /* allow a wider card for editing decisions */
-  width: min(96%, 1100px);
+  max-width: 1400px; /* allow a wider card for editing decisions */
+  width: min(96%, 1400px);
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.14);
   margin: 48px auto 0; /* more breathing room above the decision box */
 }
@@ -1548,8 +1991,8 @@ START NEW CHAT PAGE CSS
   /* Center the floating card in the viewport for emphasis */
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(96%, 1100px);
-  max-width: 1100px;
+  width: min(96%, 1400px);
+  max-width: 1400px;
   margin: 0; /* absolute positioning ignores margin, keep 0 */
   z-index: 1600;
 }
@@ -1718,7 +2161,7 @@ START NEW CHAT PAGE CSS
   flex-direction: column;
   gap: 10px;
   width: auto; /* allow centering via max-width and margin */
-  max-width: 880px;
+  max-width: 1200px;
 }
 .decision-summary-title {
   margin: 0 0 2px;
@@ -1844,6 +2287,49 @@ START NEW CHAT PAGE CSS
   border: 1px solid #e2e8f0;
 }
 
+/* Propose overturn button styling */
+.final-overturn-row {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start; /* keep near summary/outcome */
+}
+.propose-overturn-btn {
+  background: transparent;
+  border: 1px dashed #cbd5e1;
+  color: #1f3c88;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.propose-overturn-btn:hover {
+  background: #f2f6ff;
+  border-style: solid;
+}
+
+.propose-overturn-btn[disabled],
+.propose-overturn-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-color: #e6eef9;
+  color: #6b7280;
+  background: transparent;
+}
+
+.propose-overturn-btn.is-ineligible {
+  opacity: 0.6;
+  border-color: #e6eef9;
+  color: #6b7280;
+  background: transparent;
+}
+
+.overturn-hint {
+  margin-left: 12px;
+  font-size: 0.82rem;
+  color: #56606f;
+  align-self: center;
+}
+
 /* Make the Final Decision card scrollable when content is tall */
 .final-decision-fullcard {
   display: flex;
@@ -1869,8 +2355,26 @@ START NEW CHAT PAGE CSS
 .final-card-body > .final-pros-cons,
 .final-card-body > .final-tally {
   width: auto;
-  max-width: 980px; /* allow the input card to be larger when editing */
+  max-width: 1280px; /* allow the input card to be larger when editing */
   margin: 0 auto; /* center these children inside the final card body */
+}
+
+/* Larger styling specifically when editing the final decision summary */
+.final-card-body > .decision-summary-form.is-editing {
+  max-width: 1400px;
+  padding: 22px 24px 24px;
+  border-radius: 14px;
+}
+.final-card-body > .decision-summary-form.is-editing .decision-summary-title {
+  font-size: 1.2rem;
+}
+.final-card-body > .decision-summary-form.is-editing .decision-label {
+  font-size: 1.05rem;
+}
+.final-card-body > .decision-summary-form.is-editing textarea {
+  font-size: 1rem;
+  padding: 14px;
+  min-height: 160px;
 }
 
 /* Outcome row: center the label and value */
@@ -1917,7 +2421,7 @@ START NEW CHAT PAGE CSS
 /* Decision card that sits inside the final panel and uses a distinct background */
 .decision-card {
   width: auto; /* don't stretch to full width; allow centering */
-  max-width: 760px;
+  max-width: 1100px;
   background: #f8fafc; /* subtle off-white / cool tint */
   border-radius: 12px;
   padding: 18px;
@@ -2145,11 +2649,7 @@ START NEW CHAT PAGE CSS
   border-color: #ef4444; /* red */
   background: #ffebee; /* slightly stronger red background */
 }
-.outcome-pill.tied.is-active {
-  border-color: #f59e0b; /* amber */
-  background: #fff7ed; /* slightly stronger amber background */
-}
-.outcome-pill.deferred.is-active {
+.outcome-pill.referred.is-active {
   border-color: #7c3aed; /* purple */
   background: #f5f3ff; /* slightly stronger purple background */
 }
@@ -2193,17 +2693,8 @@ START NEW CHAT PAGE CSS
   color: #7f1a1a; /* darker red text */
   border-color: #fecaca;
 }
-.outcome-pill.tied.is-active,
-.final-outcome .outcome-pill.tied {
-  box-shadow: 0 18px 36px rgba(149, 115, 22, 0.08),
-    0 6px 12px rgba(2, 6, 23, 0.06);
-  outline: 3px solid rgba(245, 158, 11, 0.12);
-  background: #fffbeb; /* soft yellow background */
-  color: #92400e; /* darker yellow text */
-  border-color: #fde68a;
-}
-.outcome-pill.deferred.is-active,
-.final-outcome .outcome-pill.deferred {
+.outcome-pill.referred.is-active,
+.final-outcome .outcome-pill.referred {
   box-shadow: 0 18px 36px rgba(55, 48, 163, 0.08),
     0 6px 12px rgba(2, 6, 23, 0.06);
   outline: 3px solid rgba(59, 130, 246, 0.12);
@@ -2215,8 +2706,7 @@ START NEW CHAT PAGE CSS
 /* Variant classes are neutral by default; colors apply only when active or for saved outcome */
 .outcome-pill.passed,
 .outcome-pill.failed,
-.outcome-pill.tied,
-.outcome-pill.deferred {
+.outcome-pill.referred {
   background: #f3f4f6; /* neutral grey */
   color: #374151; /* neutral text */
   border-color: #e6e9ef;
@@ -2262,9 +2752,31 @@ START NEW CHAT PAGE CSS
     margin-bottom: 0.6rem;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
+  .unfinished-badge {
+    display: inline-block;
+    margin-left: 8px;
+    background: #f59e0b;
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    vertical-align: middle;
+  }
   .toggle-left-panel-btn:hover {
     background: #f2f6ff;
   }
+}
+
+/* Temporary 'Resumed' notification chip (blue/teal) */
+.resumed-badge {
+  display: inline-block;
+  margin-left: 8px;
+  background: #0ea5e9; /* teal/blue */
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
 }
 
 @media (max-width: 720px) {
