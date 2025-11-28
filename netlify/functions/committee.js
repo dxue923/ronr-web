@@ -3,6 +3,8 @@
 
 import { connectToDatabase } from "../../db/mongoose.js";
 import Committee from "../../models/Committee.js";
+import Motion from "../../models/Motions.js";       // motions to cascade delete
+import Discussion from "../../models/Discussion.js"; // NEW: to delete related discussions
 
 // Convert Mongo document to client shape (id instead of _id)
 function toClient(doc) {
@@ -89,9 +91,10 @@ export async function handler(event) {
         };
       }
 
-      const deleted = await Committee.findByIdAndDelete(committeeId);
+      // First delete the committee itself
+      const deletedCommittee = await Committee.findByIdAndDelete(committeeId);
 
-      if (!deleted) {
+      if (!deletedCommittee) {
         return {
           statusCode: 404,
           headers: { "Content-Type": "application/json" },
@@ -99,10 +102,32 @@ export async function handler(event) {
         };
       }
 
+      // Find all motions for this committee so we know which discussions to delete
+      const motionsToDelete = await Motion.find({ committeeId })
+        .select("_id")
+        .lean();
+
+      const motionIds = motionsToDelete.map((m) => m._id);
+
+      let deletedDiscussions = 0;
+      if (motionIds.length > 0) {
+        const discussionResult = await Discussion.deleteMany({
+          motionId: { $in: motionIds },
+        });
+        deletedDiscussions = discussionResult.deletedCount || 0;
+      }
+
+      // Cascade delete: remove all motions associated with this committee
+      const motionResult = await Motion.deleteMany({ committeeId });
+
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: `Deleted ${committeeId}` }),
+        body: JSON.stringify({
+          message: `Deleted committee ${committeeId} and its associated motions & discussions`,
+          deletedMotions: motionResult.deletedCount || 0,
+          deletedDiscussions,
+        }),
       };
     }
 
