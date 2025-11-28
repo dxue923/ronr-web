@@ -1,5 +1,7 @@
-// netlify/functions/profile.js
-// Profile API — GET (sync) + POST (edit fields) using MongoDB
+// netlify/functions/profileMemberships.js
+// Manage memberships inside the current user's Profile:
+// POST   -> join committee or change role
+// DELETE -> leave committee
 
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
@@ -25,7 +27,7 @@ function getKey(header, callback) {
   });
 }
 
-// Decode token in dev, verify in prod
+// Same token handling as profile.js
 function getClaims(authHeader = "") {
   if (!authHeader.startsWith("Bearer ")) {
     throw new Error("Invalid Authorization header");
@@ -55,7 +57,6 @@ function getClaims(authHeader = "") {
   });
 }
 
-// Base profile from Auth0 claims
 function mapAuth0(decoded) {
   const {
     sub = "dev-user",
@@ -68,7 +69,7 @@ function mapAuth0(decoded) {
   const username = nickname || email || "user";
 
   return {
-    id: sub, // will become _id in Mongo
+    id: sub,
     username,
     name: name || username,
     email,
@@ -76,30 +77,30 @@ function mapAuth0(decoded) {
   };
 }
 
-// Helper: convert Mongo doc to client-safe object (id instead of _id)
-function toClient(doc) {
-  if (!doc) return null;
-  const obj = doc.toObject ? doc.toObject() : { ...doc };
+// Helper: convert Profile doc to client shape (id instead of _id)
+function toClient(profileDoc) {
+  if (!profileDoc) return null;
+  const obj = profileDoc.toObject ? profileDoc.toObject() : { ...profileDoc };
   obj.id = obj._id;
   delete obj._id;
   delete obj.__v;
   return obj;
 }
 
-export async function handler(event) {
+export const handler = async (event) => {
   try {
-    // 1) Auth
+    const method = event.httpMethod || "GET";
+
+    // Auth
     const authHeader =
       event.headers.authorization || event.headers.Authorization || "";
     const claims = await getClaims(authHeader);
     const tokenProfile = mapAuth0(claims);
 
-    // 2) DB
     await connectToDatabase();
 
-    // Ensure profile exists or create it ONE TIME from Auth0 data
+    // Ensure profile exists
     let profileDoc = await Profile.findById(tokenProfile.id);
-
     if (!profileDoc) {
       profileDoc = await Profile.create({
         _id: tokenProfile.id,
@@ -110,54 +111,102 @@ export async function handler(event) {
         memberships: [],
       });
     }
-    // NOTE: we are NOT overwriting avatarUrl from token anymore
-    // If you still want to keep email in sync, you could optionally:
-    // profileDoc.email = tokenProfile.email || profileDoc.email;
-    // await profileDoc.save();
 
-    // ------------ GET ------------
-    if (event.httpMethod === "GET") {
-      const clientProfile = toClient(profileDoc);
+    // ---------- POST: join or update role ----------
+    if (method === "POST") {
+      const body = JSON.parse(event.body || "{}");
+      const committeeId = (body.committeeId || "").toString().trim();
+      const role = (body.role || "member").toString();
+
+      if (!committeeId) {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "committeeId is required" }),
+        };
+      }
+
+      const memberships = profileDoc.memberships || [];
+      const idx = memberships.findIndex(
+        (m) => m.committeeId === committeeId
+      );
+
+      if (idx === -1) {
+        // join new committee
+        memberships.push({
+          committeeId,
+          role,
+          joinedAt: new Date().toISOString(),
+        });
+      } else {
+        // update role for existing membership
+        memberships[idx].role = role;
+      }
+
+      profileDoc.memberships = memberships;
+      await profileDoc.save();
 
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(clientProfile),
+        body: JSON.stringify(toClient(profileDoc)),
       };
     }
 
-    // ------------ POST (editable fields) ------------
-    if (event.httpMethod === "POST") {
-      const body = JSON.parse(event.body || "{}");
+    // ---------- DELETE: leave committee ----------
+    if (method === "DELETE") {
+      const params = event.queryStringParameters || {};
+      const committeeIdParam = (params.committeeId || "").toString().trim();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const committeeIdBody = (body.committeeId || "").toString().trim();
 
-      if (typeof body.username === "string") profileDoc.username = body.username;
-      if (typeof body.name === "string") profileDoc.name = body.name;
-      if (typeof body.avatarUrl === "string")
-        profileDoc.avatarUrl = body.avatarUrl;
+      const committeeId = committeeIdParam || committeeIdBody;
+
+      if (!committeeId) {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "committeeId is required" }),
+        };
+      }
+
+      const beforeCount = profileDoc.memberships.length;
+      profileDoc.memberships = profileDoc.memberships.filter(
+        (m) => m.committeeId !== committeeId
+      );
+
+      if (profileDoc.memberships.length === beforeCount) {
+        return {
+          statusCode: 404,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Membership not found" }),
+        };
+      }
 
       await profileDoc.save();
 
-      const clientProfile = toClient(profileDoc);
-
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(clientProfile),
+        body: JSON.stringify({
+          message: `Left committee ${committeeId}`,
+          profile: toClient(profileDoc),
+        }),
       };
     }
 
-    // Any other method
+    // No GET here; use /profile GET to see memberships
     return {
       statusCode: 405,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   } catch (err) {
-    console.error("[profile] error", err);
+    console.error("[profileMemberships] error", err);
     return {
       statusCode: 401,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ error: "Unauthorized", message: err.message }),
     };
   }
-}
+};

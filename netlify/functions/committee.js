@@ -1,35 +1,32 @@
 // netlify/functions/committee.js
-// Manage committees (GET all/one, POST new, DELETE one)
+// Manage committees (GET all/one, POST new, DELETE one) using MongoDB
 
-import fs from "fs";
-import path from "path";
+import { connectToDatabase } from "../../db/mongoose.js";
+import Committee from "../../models/Committee.js";
+
+// Convert Mongo document to client shape (id instead of _id)
+function toClient(doc) {
+  if (!doc) return null;
+  const obj = doc.toObject ? doc.toObject() : { ...doc };
+  obj.id = obj._id;
+  delete obj._id;
+  delete obj.__v;
+  return obj;
+}
 
 export async function handler(event) {
-  const filePath = path.join(
-    process.cwd(),
-    "netlify",
-    "functions",
-    "data.json"
-  );
-
-  const readData = () => JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  const writeData = (data) =>
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-
   try {
     const method = event.httpMethod || "GET";
+    await connectToDatabase();
 
     // ---------- GET ----------
     if (method === "GET") {
       const params = event.queryStringParameters || {};
       const committeeId = params.id || null;
 
-      const data = readData();
-      const committees = Array.isArray(data.committees) ? data.committees : [];
-
       // GET one
       if (committeeId) {
-        const found = committees.find((c) => c.id === committeeId);
+        const found = await Committee.findById(committeeId);
         if (!found) {
           return {
             statusCode: 404,
@@ -40,15 +37,16 @@ export async function handler(event) {
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(found),
+          body: JSON.stringify(toClient(found)),
         };
       }
 
       // GET all
+      const docs = await Committee.find().sort({ createdAt: 1 });
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(committees),
+        body: JSON.stringify(docs.map(toClient)),
       };
     }
 
@@ -65,22 +63,16 @@ export async function handler(event) {
         };
       }
 
-      const data = readData();
-      if (!Array.isArray(data.committees)) data.committees = [];
-
-      const newCommittee = {
-        id: body.id || `committee-${Date.now()}`,
+      const doc = await Committee.create({
+        _id: body.id || `committee-${Date.now()}`,
         name,
         createdAt: new Date().toISOString(),
-      };
-
-      data.committees.push(newCommittee);
-      writeData(data);
+      });
 
       return {
         statusCode: 201,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newCommittee),
+        body: JSON.stringify(toClient(doc)),
       };
     }
 
@@ -97,20 +89,15 @@ export async function handler(event) {
         };
       }
 
-      const data = readData();
-      const committees = Array.isArray(data.committees) ? data.committees : [];
-      const exists = committees.some((c) => c.id === committeeId);
+      const deleted = await Committee.findByIdAndDelete(committeeId);
 
-      if (!exists) {
+      if (!deleted) {
         return {
           statusCode: 404,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ error: "Committee not found" }),
         };
       }
-
-      data.committees = committees.filter((c) => c.id !== committeeId);
-      writeData(data);
 
       return {
         statusCode: 200,
