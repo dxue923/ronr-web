@@ -1,21 +1,40 @@
 // netlify/functions/discussion.js
-// Manage comments (GET all/one, POST new)
 
-import fs from "fs";
-import path from "path";
+import mongoose from "mongoose";
+import Discussion from "../../models/Discussion.js";
+import Motion from "../../models/Motions.js";
+
+const VALID_POSITIONS = ["pro", "con", "neutral"];
+
+let isConnected = false;
+
+async function connectToDatabase() {
+  if (isConnected) return;
+
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error("MONGODB_URI is not set in environment variables");
+  }
+
+  await mongoose.connect(uri, {
+    dbName: process.env.MONGODB_DB || undefined,
+  });
+
+  isConnected = true;
+}
+
+function serializeComment(doc) {
+  if (!doc) return null;
+  const obj = { ...doc };
+  obj.id = obj._id;
+  delete obj._id;
+  return obj;
+}
 
 export async function handler(event) {
-  const filePath = path.join(
-    process.cwd(),
-    "netlify",
-    "functions",
-    "data.json"
-  );
-  const readData = () => JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  const writeData = (data) =>
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-
   try {
+    await connectToDatabase();
+
     const method = event.httpMethod || "GET";
 
     // ---------- GET ----------
@@ -24,26 +43,29 @@ export async function handler(event) {
       const commentId = params.id || null;
       const motionId = params.motionId || null;
 
-      const data = readData();
-      const comments = Array.isArray(data.comments) ? data.comments : [];
-
       if (commentId) {
-        const found = comments.find((c) => c.id === commentId);
-        return found
-          ? {
-              statusCode: 200,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(found),
-            }
-          : {
-              statusCode: 404,
-              body: JSON.stringify({ error: "Comment not found" }),
-            };
+        const comment = await Discussion.findById(commentId).lean();
+        if (!comment) {
+          return {
+            statusCode: 404,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Comment not found" }),
+          };
+        }
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(serializeComment(comment)),
+        };
       }
 
-      const result = motionId
-        ? comments.filter((c) => c.motionId === motionId)
-        : comments;
+      const query = {};
+      if (motionId) query.motionId = motionId;
+
+      const comments = await Discussion.find(query)
+        .sort({ createdAt: 1 })
+        .lean();
+      const result = comments.map(serializeComment);
 
       return {
         statusCode: 200,
@@ -55,43 +77,130 @@ export async function handler(event) {
     // ---------- POST ----------
     if (method === "POST") {
       const body = JSON.parse(event.body || "{}");
-      const motionId = String(body.motionId || "").trim();
-      const author = String(body.author || "").trim();
-      const text = String(body.text || "").trim();
 
-      if (!motionId || !author || !text) {
+      const motionId = String(body.motionId || "").trim();
+      const authorId = String(body.authorId || body.author || "").trim();
+      const text = String(body.text || "").trim();
+      let position = String(body.position || "").trim().toLowerCase();
+
+      if (!motionId || !authorId || !text) {
         return {
           statusCode: 400,
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            error: "motionId, author, and text are required",
+            error: "motionId, authorId, and text are required",
           }),
         };
       }
 
-      const data = readData();
-      if (!Array.isArray(data.comments)) data.comments = [];
+      // Ensure the motion exists
+      const motionExists = await Motion.findById(motionId).lean();
+      if (!motionExists) {
+        return {
+          statusCode: 404,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: `Motion ${motionId} does not exist` }),
+        };
+      }
 
-      const newComment = {
-        id: "msg-" + Date.now(),
+      if (!VALID_POSITIONS.includes(position)) {
+        position = "neutral";
+      }
+
+      const commentId = "msg-" + Date.now().toString();
+
+      const newCommentDoc = await Discussion.create({
+        _id: commentId,
         motionId,
-        author,
+        authorId,
         text,
-        createdAt: new Date().toISOString(),
-      };
+        position,
+      });
 
-      data.comments.push(newComment);
-      writeData(data);
+      const plain = newCommentDoc.toObject({ versionKey: false });
+      const serialized = serializeComment(plain);
 
       return {
         statusCode: 201,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newComment),
+        body: JSON.stringify(serialized),
+      };
+    }
+
+    // ---------- DELETE ----------
+    if (method === "DELETE") {
+      const params = event.queryStringParameters || {};
+      const commentId = params.id ? String(params.id).trim() : "";
+      const motionId = params.motionId ? String(params.motionId).trim() : "";
+
+      // Case 1: delete a single comment by id
+      if (commentId) {
+        const comment = await Discussion.findById(commentId);
+        if (!comment) {
+          return {
+            statusCode: 404,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Comment not found" }),
+          };
+        }
+
+        await Discussion.findByIdAndDelete(commentId);
+
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            success: true,
+            scope: "single",
+            deletedId: commentId,
+            deletedCount: 1,
+          }),
+        };
+      }
+
+      // Case 2: delete all comments for a motion
+      if (motionId) {
+        // Optional: ensure the motion exists first
+        const motionExists = await Motion.findById(motionId).lean();
+        if (!motionExists) {
+          return {
+            statusCode: 404,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: `Motion ${motionId} does not exist` }),
+          };
+        }
+
+        const result = await Discussion.deleteMany({ motionId });
+
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            success: true,
+            scope: "motion",
+            motionId,
+            deletedCount: result.deletedCount || 0,
+          }),
+        };
+      }
+
+      // Case 3: delete ALL comments
+      const result = await Discussion.deleteMany({});
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          success: true,
+          scope: "all",
+          deletedCount: result.deletedCount || 0,
+        }),
       };
     }
 
     // ---------- Fallback ----------
     return {
       statusCode: 405,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   } catch (err) {
@@ -99,7 +208,10 @@ export async function handler(event) {
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Failed to process discussion" }),
+      body: JSON.stringify({
+        error: "Failed to process discussion",
+        details: err.message,
+      }),
     };
   }
 }
