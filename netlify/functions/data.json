@@ -26,6 +26,11 @@
       "id": "committee-1763403920699",
       "name": "test",
       "createdAt": "2025-11-17T18:25:20.699Z"
+    },
+    {
+      "id": "committee-1764303798928",
+      "name": "work correctly!",
+      "createdAt": "2025-11-28T04:23:18.928Z"
     }
   ],
   "committeeMembers": [
@@ -46,6 +51,20 @@
       "name": "Member 2",
       "role": "member",
       "committeeId": "committee-1"
+    },
+    {
+      "id": "cm-1764303799113",
+      "userId": "you",
+      "name": "You",
+      "role": "owner",
+      "committeeId": "committee-1764303798928"
+    },
+    {
+      "id": "cm-1764303799138",
+      "userId": "cutie1",
+      "name": "cutie#1",
+      "role": "member",
+      "committeeId": "committee-1764303798928"
     }
   ],
   "motions": [
@@ -83,7 +102,104 @@
       "author": "dev-user",
       "text": "meow meow",
       "createdAt": "2025-11-17T20:17:29.843Z"
+    },
+    {
+      "id": "msg-1764307506433",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "hi",
+      "createdAt": "2025-11-28T05:25:06.433Z"
+    },
+    {
+      "id": "msg-1764307541837",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "hello",
+      "createdAt": "2025-11-28T05:25:41.837Z"
+    },
+    {
+      "id": "msg-1764307549649",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "eew?",
+      "createdAt": "2025-11-28T05:25:49.649Z"
+    },
+    {
+      "id": "msg-1764307891527",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "h",
+      "createdAt": "2025-11-28T05:31:31.527Z"
+    },
+    {
+      "id": "msg-1764307893733",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "hi",
+      "createdAt": "2025-11-28T05:31:33.733Z"
+    },
+    {
+      "id": "msg-1764307903676",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "ll",
+      "createdAt": "2025-11-28T05:31:43.676Z"
+    },
+    {
+      "id": "msg-1764307906387",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "p",
+      "createdAt": "2025-11-28T05:31:46.387Z"
+    },
+    {
+      "id": "msg-1764307939137",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "yay",
+      "createdAt": "2025-11-28T05:32:19.137Z"
+    },
+    {
+      "i": "msg-1764307943868",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "ok",
+      "createdAt": "2025-11-28T05:32:23.868Z"
+    },
+    {
+      "id": "msg-1764308065556",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "?",
+      "createdAt": "2025-11-28T05:34:25.556Z"
+    },
+    {
+      "id": "msg-1764387818906",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "hi",
+      "createdAt": "2025-11-29T03:43:38.906Z",
+      "stance": null,
+      "avatarUrl": null
+    },
+    {
+      "id": "msg-1764387825520",
+      "motionId": "59ffbfb1-1c2a-4e97-a7ba-679cb0e61754",
+      "author": "you",
+      "text": "yay!",
+      "createdAt": "2025-11-29T03:43:45.520Z",
+      "stance": null,
+      "avatarUrl": null
+    },
+    {
+      "id": "msg-1764388240993",
+      "motionId": "0c526cca-a698-4d59-9d1c-9eee03a1b2ce",
+      "author": "you",
+      "text": "hi, brb",
+      "createdAt": "2025-11-29T03:50:40.993Z",
+      "stance": null,
+      "avatarUrl": null
     }
   ],
-  "activeCommitteeId": "committee-1763403920699"
+  "activeCommitteeId": "committee-1763057544731"
 }

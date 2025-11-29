@@ -55,9 +55,14 @@ export async function handler(event) {
     // ---------- POST ----------
     if (method === "POST") {
       const body = JSON.parse(event.body || "{}");
+
       const motionId = String(body.motionId || "").trim();
       const author = String(body.author || "").trim();
       const text = String(body.text || "").trim();
+
+      // ✨ minimal additions:
+      const stance = body.stance || null;
+      const avatarUrl = body.avatarUrl || null;
 
       if (!motionId || !author || !text) {
         return {
@@ -77,6 +82,9 @@ export async function handler(event) {
         author,
         text,
         createdAt: new Date().toISOString(),
+
+        stance,
+        avatarUrl,
       };
 
       data.comments.push(newComment);
@@ -89,7 +97,6 @@ export async function handler(event) {
       };
     }
 
-    // ---------- Fallback ----------
     return {
       statusCode: 405,
       body: JSON.stringify({ error: "Method Not Allowed" }),

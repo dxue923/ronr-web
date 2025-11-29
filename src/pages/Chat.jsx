@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ROLE } from "../utils/permissions";
 import "../assets/styles/index.css";
+import { createComment, fetchComments } from "../api/discussion";
 
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
@@ -353,6 +354,26 @@ export default function Chat() {
       (v.choice || "").toString().toLowerCase() === "yes"
   );
   const [showFinalOverlay, setShowFinalOverlay] = useState(false);
+  useEffect(() => {
+    if (!activeMotion) return;
+
+    async function loadComments() {
+      try {
+        const comments = await fetchComments({ motionId: activeMotion.id });
+
+        // Put fetched comments into the active motion
+        setMotions((prev) =>
+          prev.map((m) =>
+            m.id === activeMotion.id ? { ...m, messages: comments } : m
+          )
+        );
+      } catch (err) {
+        console.error("Failed to load comments:", err);
+      }
+    }
+
+    loadComments();
+  }, [activeMotionId]);
 
   // auto-show final decision overlay when a motion with decisionDetails becomes active
   useEffect(() => {
@@ -601,34 +622,47 @@ export default function Chat() {
     persistMembers(next);
   };
 
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e && e.preventDefault();
 
     if (!input.trim() || !activeMotion) return;
-    if (meetingRecessed) return; // no discussion during recess
-    if ((activeMotion.state || "discussion") === "postponed") return; // disable comments for postponed
+    if (meetingRecessed) return;
+    if ((activeMotion.state || "discussion") === "postponed") return;
 
-    const updated = motions.map((m) => {
-      if (m.id !== activeMotion.id) return m;
-      const msgs = m.messages || [];
-      return {
-        ...m,
-        messages: [
-          ...msgs,
-          {
-            id: Date.now().toString(),
-            authorId: me.id,
-            authorName: me.name,
-            text: input.trim(),
-            time: new Date().toISOString(),
-            stance: composerStance,
-          },
-        ],
+    try {
+      // 1. SEND TO API
+      const apiComment = await createComment({
+        motionId: activeMotion.id,
+        author: me.username,
+        text: input.trim(),
+      });
+      const normalized = {
+        id: apiComment.id,
+        authorId: me.id,
+        authorName: me.name,
+        text: apiComment.text,
+        time: apiComment.createdAt,
+        stance: composerStance,
       };
-    });
-    setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
-    setInput("");
+      // 2. MERGE API COMMENT INTO LOCAL STATE
+      const updated = motions.map((m) => {
+        if (m.id !== activeMotion.id) return m;
+        const msgs = m.messages || [];
+        return {
+          ...m,
+          messages: [...msgs, normalized],
+        };
+      });
+
+      setMotions(updated);
+      saveMotionsForCommittee(committee.id, updated);
+
+      // 3. CLEAR INPUT
+      setInput("");
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      alert("Could not send message — try again.");
+    }
   };
 
   // change stance of an individual message
@@ -1192,6 +1226,7 @@ export default function Chat() {
       // ignore storage errors (e.g., disabled localStorage)
     }
   };
+
   useEffect(() => {
     try {
       const am = activeMotion;
@@ -1642,14 +1677,8 @@ export default function Chat() {
     return map;
   };
 
-  // Build children map from the full motions list so submotions remain
-  // attached to their parent regardless of the parent's or child's state.
   const childrenMap = buildChildrenMap(motions || []);
 
-  // Render a text string with discretionary break opportunities so long
-  // titles can wrap before overlapping the status pill. We insert <wbr/>
-  // after common delimiters (hyphen, slash, dot, etc.) and as a fallback
-  // split very long unbroken tokens to avoid character-by-character breaks.
   const renderBreakable = (text) => {
     if (!text && text !== 0) return text;
     const s = String(text);
@@ -1668,8 +1697,7 @@ export default function Chat() {
           </span>
         );
       }
-      // long uninterrupted token: insert <wbr/> frequently as a graceful fallback
-      // (use a lower threshold and smaller chunk size so very long words break on narrow screens)
+
       if (tok.length > 14) {
         const parts = [];
         for (let j = 0; j < tok.length; j += 12) {

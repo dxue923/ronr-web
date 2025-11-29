@@ -1,7 +1,6 @@
-// src/api/Discussion.js
+const DISCUSSION_ENDPOINT = "/.netlify/functions/discussion";
 
-const DISCUSSION_ENDPOINT = "/.netlify/functions/discussion"; // base function URL
-
+// shared fetch helper
 async function callDiscussion(endpoint = "", options = {}) {
   const res = await fetch(`${DISCUSSION_ENDPOINT}${endpoint}`, {
     headers: { "Content-Type": "application/json" },
@@ -18,23 +17,25 @@ async function callDiscussion(endpoint = "", options = {}) {
   return res.json();
 }
 
-// get all comments, or all for a motion
-export async function getCommentsForMotion(motionId) {
-  const q = motionId ? `?motionId=${encodeURIComponent(motionId)}` : "";
-  return callDiscussion(q, { method: "GET" });
+export async function fetchComments({ motionId, id } = {}) {
+  let query = "";
+  if (motionId) query = `?motionId=${encodeURIComponent(motionId)}`;
+  else if (id) query = `?id=${encodeURIComponent(id)}`;
+
+  return callDiscussion(query, { method: "GET" });
 }
 
-// get a single comment by id
-export async function getCommentById(commentId) {
-  return callDiscussion(`?id=${encodeURIComponent(commentId)}`, {
-    method: "GET",
-  });
-}
-
-// create a new comment
-export async function createComment({ motionId, author, text }) {
+export async function createComment({
+  motionId,
+  author,
+  text,
+  stance,
+  avatarUrl,
+}) {
   return callDiscussion("", {
     method: "POST",
-    body: JSON.stringify({ motionId, author, text }),
+    body: JSON.stringify({ motionId, author, text, stance, avatarUrl }),
   });
 }
+
+export default { fetchComments, createComment };

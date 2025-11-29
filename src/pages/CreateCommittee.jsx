@@ -3,8 +3,18 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "../assets/styles/index.css";
 import { ROLE } from "../utils/permissions";
-
-/* ---------- storage helpers ---------- */
+import {
+  getCommittees,
+  createCommittee,
+  deleteCommittee,
+} from "../api/committee";
+import { setActiveCommittee } from "../api/activeCommittee";
+import {
+  createMember as apiCreateMember,
+  deleteMember as apiDeleteMember,
+  fetchMembers,
+} from "../api/committeeMembers";
+/* ---------- storage helpers (still used for members/roles) ---------- */
 function loadCommittees() {
   try {
     return JSON.parse(localStorage.getItem("committees") || "[]");
@@ -57,10 +67,79 @@ export default function CreateCommittee() {
   const currentUser = getCurrentUser();
 
   /* ---------- committees list ---------- */
+  // start from whatever is in localStorage (keeps existing behavior)
   const [committees, setCommittees] = useState(() => loadCommittees());
+
+  // keep localStorage in sync with state
   useEffect(() => {
     saveCommittees(committees);
   }, [committees]);
+
+  // one-time sync from API -> merge into local committees
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncFromApi() {
+      try {
+        const remote = await getCommittees(); // [{id,name,createdAt}]
+        const local = loadCommittees();
+
+        const localById = new Map(local.map((c) => [c.id, c]));
+        const remoteIds = new Set(remote.map((c) => c.id));
+        const merged = remote.map((c) => {
+          const existing = localById.get(c.id);
+
+          let createdAtMs = existing?.createdAt;
+          if (createdAtMs == null) {
+            createdAtMs = Date.parse(c.createdAt) || Date.now();
+          }
+
+          if (existing) {
+            // keep local members/owner/settings, but trust server for name/timestamp
+            return {
+              ...existing,
+              name: c.name ?? existing.name,
+              createdAt: createdAtMs,
+            };
+          }
+
+          // committee exists on server but not locally -> create a basic local shell
+          return {
+            id: c.id,
+            name: c.name || "Untitled committee",
+            ownerId: currentUser.username,
+            createdAt: createdAtMs,
+            members: [
+              {
+                name: currentUser.name,
+                username: currentUser.username,
+                role: ROLE.OWNER,
+                avatarUrl: currentUser.avatarUrl || "",
+              },
+            ],
+            settings: {},
+          };
+        });
+
+        // keep any purely local committees (e.g., created before API existed)
+        local.forEach((c) => {
+          if (!remoteIds.has(c.id)) merged.push(c);
+        });
+
+        if (!cancelled) {
+          setCommittees(merged);
+        }
+      } catch (err) {
+        console.error("Failed to load committees from API", err);
+        // fall back silently to localStorage contents
+      }
+    }
+
+    syncFromApi();
+    return () => {
+      cancelled = true;
+    };
+  }, []); // currentUser is effectively constant for this component
 
   const sortedCommittees = useMemo(
     () => [...committees].sort((a, b) => b.createdAt - a.createdAt),
@@ -80,6 +159,7 @@ export default function CreateCommittee() {
   // always start with self in stagedMembers
   const [stagedMembers, setStagedMembers] = useState(() => [
     {
+      memberId: null,
       name: currentUser.name,
       username: currentUser.username,
       role: ROLE.OWNER,
@@ -136,6 +216,7 @@ export default function CreateCommittee() {
     setMemberRoleInput(ROLE.MEMBER);
     setStagedMembers([
       {
+        memberId: null,
         name: currentUser.name,
         username: currentUser.username,
         role: ROLE.OWNER,
@@ -152,10 +233,17 @@ export default function CreateCommittee() {
     setShowForm(false);
   };
 
-  const gotoChat = (id) => navigate(`/committees/${id}/chat`);
+  const gotoChat = async (id) => {
+    try {
+      await setActiveCommittee(id);
+    } catch (err) {
+      console.error("Failed to set active committee", err);
+    }
+    navigate(`/committees/${id}/chat`);
+  };
 
   /* ---------- staged members ops ---------- */
-  const addMember = () => {
+  const addMember = async () => {
     const raw = memberInput.trim();
     if (!raw) return;
 
@@ -188,35 +276,74 @@ export default function CreateCommittee() {
           ? { ...m, role: ROLE.MEMBER }
           : m
       );
-      setStagedMembers([
-        ...demoted,
-        {
-          name: raw,
-          username: slug,
-          role: ROLE.OWNER,
-          avatarUrl: "",
-        },
-      ]);
+
+      const newMember = {
+        memberId: null,
+        name: raw,
+        username: slug,
+        role: ROLE.OWNER,
+        avatarUrl: "",
+      };
+
+      setStagedMembers([...demoted, newMember]);
       setStagedOwnerId(slug);
       setMemberInput("");
       setMemberRoleInput(ROLE.MEMBER);
       setLastAddedId(slug);
+
+      // if editing an existing committee, mirror to API
+      if (isEditing && editingId) {
+        try {
+          const created = await apiCreateMember({
+            userId: slug,
+            name: raw,
+            role: ROLE.OWNER,
+            committeeId: editingId,
+          });
+          setStagedMembers((prev) =>
+            prev.map((m) =>
+              m.username === slug ? { ...m, memberId: created.id } : m
+            )
+          );
+        } catch (err) {
+          console.error("Failed to create owner member", err);
+        }
+      }
       return;
     }
 
     // normal add
-    setStagedMembers((prev) => [
-      ...prev,
-      {
-        name: raw,
-        username: slug,
-        role: chosenRole,
-        avatarUrl: "",
-      },
-    ]);
+    const newMember = {
+      memberId: null,
+      name: raw,
+      username: slug,
+      role: chosenRole,
+      avatarUrl: "",
+    };
+
+    setStagedMembers((prev) => [...prev, newMember]);
     setMemberInput("");
     setMemberRoleInput(ROLE.MEMBER);
     setLastAddedId(slug);
+
+    // if editing an existing committee, mirror to API
+    if (isEditing && editingId) {
+      try {
+        const created = await apiCreateMember({
+          userId: slug,
+          name: raw,
+          role: chosenRole,
+          committeeId: editingId,
+        });
+        setStagedMembers((prev) =>
+          prev.map((m) =>
+            m.username === slug ? { ...m, memberId: created.id } : m
+          )
+        );
+      } catch (err) {
+        console.error("Failed to create member", err);
+      }
+    }
   };
 
   const removeStaged = (username) => {
@@ -224,6 +351,16 @@ export default function CreateCommittee() {
       alert("Transfer ownership before removing the current owner.");
       return;
     }
+
+    const target = stagedMembers.find((m) => m.username === username);
+
+    if (isEditing && target?.memberId) {
+      apiCreateMember; // just to keep eslint from removing import if not used elsewhere
+      apiDeleteMember(target.memberId).catch((err) => {
+        console.error("Failed to delete committee member", err);
+      });
+    }
+
     setStagedMembers((prev) => prev.filter((m) => m.username !== username));
   };
 
@@ -242,7 +379,7 @@ export default function CreateCommittee() {
   }, [lastAddedId]);
 
   /* ---------- normalize + create/save/delete ---------- */
-  const normalizeForSave = (name) => {
+  const normalizeForSave = (name, overrides = {}) => {
     const base = stagedMembers || [];
 
     const hasOwnerRow = base.some(
@@ -261,27 +398,68 @@ export default function CreateCommittee() {
         ];
 
     return {
-      id: isEditing ? editingId : uid(),
+      id: overrides.id || (isEditing ? editingId : uid()),
       name,
       ownerId: stagedOwnerId,
-      createdAt: isEditing
-        ? committees.find((c) => c.id === editingId)?.createdAt || Date.now()
-        : Date.now(),
+      createdAt:
+        overrides.createdAt ??
+        (isEditing
+          ? committees.find((c) => c.id === editingId)?.createdAt || Date.now()
+          : Date.now()),
       members,
-      settings: {},
+      settings: overrides.settings || {},
     };
   };
 
-  const handleCreate = () => {
+  // CREATE -> call API, then merge API data with local members/roles
+  const handleCreate = async () => {
     const name = committeeName.trim();
     if (!name) return;
 
-    const payload = normalizeForSave(name);
-    const next = [payload, ...committees];
-    saveCommittees(next);
-    setCommittees(next);
-    clearForm();
-    navigate(`/committees/${payload.id}/chat`);
+    try {
+      // create committee on server
+      const created = await createCommittee({ name });
+      const createdAtMs = Date.parse(created.createdAt) || Date.now();
+
+      const fullCommittee = normalizeForSave(created.name || name, {
+        id: created.id,
+        createdAt: createdAtMs,
+      });
+
+      const next = [fullCommittee, ...committees];
+      setCommittees(next);
+
+      // create all members on server (best effort; UI still works even if this fails)
+      try {
+        await Promise.all(
+          (fullCommittee.members || []).map((m) =>
+            apiCreateMember({
+              userId: m.username,
+              name: m.name,
+              role: m.role,
+              committeeId: fullCommittee.id,
+            }).catch((err) => {
+              console.error("Failed to create member", m.username, err);
+            })
+          )
+        );
+      } catch (err) {
+        console.error("Failed to create some members", err);
+      }
+
+      // set active committee
+      try {
+        await setActiveCommittee(fullCommittee.id);
+      } catch (err) {
+        console.error("Failed to set active committee", err);
+      }
+
+      clearForm();
+      navigate(`/committees/${fullCommittee.id}/chat`);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Failed to create committee.");
+    }
   };
 
   const handleSave = () => {
@@ -300,12 +478,12 @@ export default function CreateCommittee() {
 
     const updated = normalizeForSave(name);
     const next = committees.map((c) => (c.id === editingId ? updated : c));
-    saveCommittees(next);
     setCommittees(next);
     clearForm();
   };
 
-  const handleDelete = () => {
+  // DELETE -> call API, then update local state
+  const handleDelete = async () => {
     if (!isEditing) return;
     const existing = committees.find((c) => c.id === editingId);
     if (!existing) return;
@@ -321,8 +499,17 @@ export default function CreateCommittee() {
     );
     if (!ok) return;
 
+    try {
+      await deleteCommittee(editingId);
+    } catch (err) {
+      console.error(err);
+      alert(
+        err.message ||
+          "Failed to delete committee on the server. It will be removed locally."
+      );
+    }
+
     const next = committees.filter((c) => c.id !== editingId);
-    saveCommittees(next);
     setCommittees(next);
     clearForm();
   };
@@ -331,20 +518,46 @@ export default function CreateCommittee() {
     setShowForm(true);
     setEditingId(committee.id);
     setCommitteeName(committee.name || "");
-    setStagedOwnerId(committee.ownerId || "");
+    setStagedOwnerId(committee.ownerId || currentUser.username);
 
-    const cloned = (committee.members || []).map((m) => ({
+    const localMembers = (committee.members || []).map((m) => ({
+      memberId: m.memberId || null,
       name: m.name,
       username: m.username || m.id || m.name,
       role: resolveMemberRole(m, committee),
       avatarUrl: m.avatarUrl || "",
     }));
-
-    const map = new Map();
-    cloned.forEach((m) => map.set(norm(m.username), m));
-    setStagedMembers([...map.values()]);
+    setStagedMembers(localMembers);
     setMemberRoleInput(ROLE.MEMBER);
     setLastAddedId(null);
+
+    (async () => {
+      try {
+        const remote = await fetchMembers({ committeeId: committee.id });
+        if (!Array.isArray(remote) || remote.length === 0) return;
+
+        const mapped = remote.map((m) => ({
+          memberId: m.id,
+          name: m.name || m.userId,
+          username: m.userId,
+          role: m.role,
+          avatarUrl: "",
+        }));
+
+        const ownerFromRemote = mapped.find((m) => m.role === ROLE.OWNER);
+        if (ownerFromRemote) {
+          setStagedOwnerId(ownerFromRemote.username);
+        }
+
+        setStagedMembers(mapped);
+      } catch (err) {
+        console.error(
+          "Failed to fetch members for committee",
+          committee.id,
+          err
+        );
+      }
+    })();
   };
 
   /* ---------- group by role for display ---------- */
@@ -376,12 +589,8 @@ export default function CreateCommittee() {
               className="add-committee-btn"
               onClick={() => {
                 setShowForm((prev) => {
-                  // if we are closing it, just close
-                  if (prev) {
-                    return false;
-                  }
-                  // opening -> blank form
-                  resetToBlankCommittee();
+                  if (prev) return false; // closing
+                  resetToBlankCommittee(); // opening -> blank form
                   return true;
                 });
               }}
