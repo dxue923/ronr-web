@@ -3,7 +3,6 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "../assets/styles/index.css";
 import { ROLE } from "../utils/permissions";
-import AuthDebug from "../components/AuthDebug.jsx";
 
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
@@ -368,18 +367,6 @@ export default function CreateCommittee() {
         showForm ? "show-form" : "hide-form"
       }`}
     >
-      {/* Auth debug overlay – TEMPORARY */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 8,
-          right: 8,
-          zIndex: 9999,
-          pointerEvents: "none",
-        }}
-      >
-        <AuthDebug />
-      </div>
       {/* LEFT: Your Committees */}
       <aside className="side-panel pane">
         <div className="card">
