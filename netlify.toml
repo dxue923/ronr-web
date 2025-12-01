@@ -2,3 +2,9 @@
   command = "npm run build"
   publish = "dist"
   functions = "netlify/functions"
+
+# Single-page app rewrite: always serve index.html, let React Router handle routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
