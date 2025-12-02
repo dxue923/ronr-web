@@ -32,9 +32,14 @@ export async function getCommentById(commentId) {
 }
 
 // create a new comment
-export async function createComment({ motionId, author, text }) {
+export async function createComment({ motionId, authorId, text, position }) {
   return callDiscussion("", {
     method: "POST",
-    body: JSON.stringify({ motionId, author, text }),
+    body: JSON.stringify({
+      motionId,
+      authorId,
+      text,
+      position,
+    }),
   });
 }

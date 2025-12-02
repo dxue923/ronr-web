@@ -2,7 +2,21 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ROLE } from "../utils/permissions";
+import { getCommentsForMotion, createComment } from "../api/discussion";
+import { joinCommittee } from "../api/profileMemberships";
+import {
+  getCommittee as apiGetCommittee,
+  updateCommittee as apiUpdateCommittee,
+} from "../api/committee";
+import {
+  fetchMotions,
+  createMotion as apiCreateMotion,
+  updateMotionStatus,
+  castMotionVote,
+  updateMotion,
+} from "../api/motions";
 import "../assets/styles/index.css";
+import { getMeeting } from "../api/meetings";
 
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
@@ -48,12 +62,18 @@ function yyyyMmDd(d = new Date()) {
 /* ---------- current user ---------- */
 function getCurrentUser() {
   try {
-    const p = JSON.parse(localStorage.getItem("profileData") || "{}");
-    const username = (p.username || p.name || "you").toString().trim();
-    const name = (p.name || p.username || "You").toString().trim();
+    const activeEmail = localStorage.getItem("activeProfileEmail") || "";
+    const key = activeEmail ? `profileData:${activeEmail}` : "profileData";
+    const p = JSON.parse(localStorage.getItem(key) || "{}") || {};
+    let username = (p.username || p.name || p.email || "").toString().trim();
+    let name = (p.name || p.displayName || p.username || "").toString().trim();
+    if (!username && name) username = name;
+    if (!name && username) name = username;
+    if (!username) username = "guest";
+    if (!name) name = "Guest";
     return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
   } catch (e) {
-    return { id: "you", username: "you", name: "You", avatarUrl: "" };
+    return { id: "guest", username: "guest", name: "Guest", avatarUrl: "" };
   }
 }
 
@@ -89,19 +109,80 @@ function SendIcon() {
 
 export default function Chat() {
   const [submotionCollapsed, setSubmotionCollapsed] = React.useState({});
+  const [submotionMenuOpen, setSubmotionMenuOpen] = useState(false);
 
   const toggleSubmotions = (parentId, ev) => {
     if (ev && ev.stopPropagation) ev.stopPropagation();
     setSubmotionCollapsed((s) => ({ ...s, [parentId]: !s[parentId] }));
   };
   const { id } = useParams(); // committee id
-  const committee = findCommitteeById(id);
-  const [motions, setMotions] = useState(() =>
-    committee ? loadMotionsForCommittee(committee.id) : []
-  );
+  const [committee, setCommittee] = useState(() => findCommitteeById(id));
+  const [committeeError, setCommitteeError] = useState("");
+  const [committeeLoading, setCommitteeLoading] = useState(false);
+
+  // If committee isn't found locally, fetch from backend
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (committee) return;
+      if (!id) return;
+      setCommitteeLoading(true);
+      setCommitteeError("");
+      try {
+        const remote = await apiGetCommittee(id);
+        if (cancelled) return;
+        if (remote && remote.id) {
+          setCommittee(remote);
+          // Also persist into localStorage for legacy helpers
+          try {
+            const list = loadCommittees();
+            const exists = list.some((c) => c.id === remote.id);
+            const next = exists
+              ? list.map((c) => (c.id === remote.id ? remote : c))
+              : [remote, ...list];
+            saveCommittees(next);
+          } catch (e) {}
+        } else {
+          setCommitteeError("Committee not found");
+        }
+      } catch (err) {
+        if (!cancelled)
+          setCommitteeError(err.message || "Failed to load committee");
+      } finally {
+        if (!cancelled) setCommitteeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, committee]);
+
+  // Close submotion menu on outside click or Escape
+  useEffect(() => {
+    if (!submotionMenuOpen) return;
+    const handleDocClick = (e) => {
+      const wrapper = document.querySelector(".submotion-kebab-wrapper");
+      if (!wrapper) return;
+      if (!wrapper.contains(e.target)) {
+        setSubmotionMenuOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === "Escape") setSubmotionMenuOpen(false);
+    };
+    document.addEventListener("click", handleDocClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("click", handleDocClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [submotionMenuOpen]);
+  const [motions, setMotions] = useState([]);
   const [activeMotionId, setActiveMotionId] = useState(
     () => motions[0]?.id || null
   );
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [commentsError, setCommentsError] = useState("");
   const [input, setInput] = useState("");
   const toggleCarryOverForMotion = (motionId) => {
     if (!amIManager) return;
@@ -124,6 +205,7 @@ export default function Chat() {
     saveMotionsForCommittee(committee.id, updated);
   };
   const scrollRef = useRef(null);
+  const composerInputRef = useRef(null);
   const [showManagePanel, setShowManagePanel] = useState(false);
   const [memberInput, setMemberInput] = useState("");
   const [newMemberRole, setNewMemberRole] = useState("member");
@@ -166,8 +248,17 @@ export default function Chat() {
     initialMotionsCollapsed
   );
   const me = getCurrentUser();
-  // stance selection for composer
+  const authToken = (() => {
+    try {
+      return localStorage.getItem("authToken") || null;
+    } catch {
+      return null;
+    }
+  })();
+  // stance selection for composer (submission stance)
   const [composerStance, setComposerStance] = useState("neutral");
+  // visual highlight stance (neutral highlighted by default)
+  const [composerStanceVisual, setComposerStanceVisual] = useState("neutral");
   // view tab for middle column: 'discussion' | 'final'
   const [viewTab, setViewTab] = useState("discussion");
   // per-motion remembered tabs (remember last-opened tab per motion)
@@ -194,8 +285,8 @@ export default function Chat() {
   // submotion helpers: target motion and type ('revision' | 'postpone')
   const [submotionTarget, setSubmotionTarget] = useState(null);
   const [submotionType, setSubmotionType] = useState(null);
-  // postpone submotion choices
-  const [postponeOption, setPostponeOption] = useState("next_meeting");
+  // postpone submotion choice simplified to specific date/time only
+  const [postponeOption, setPostponeOption] = useState("specific");
   const [postponeDateTime, setPostponeDateTime] = useState("");
   // Meeting tracking for unfinished business (scoped per committee, with legacy fallback)
   const [currentMeetingId, setCurrentMeetingId] = useState(() =>
@@ -240,8 +331,7 @@ export default function Chat() {
         null
       : null
   );
-  // small flip animation when the meeting button toggles
-  const [meetingFlipAnim, setMeetingFlipAnim] = useState(false);
+  // meeting toggle UI removed
   // responsive: split layout when viewport <= 1199px
   const [isSplit, setIsSplit] = useState(
     typeof window !== "undefined" ? window.innerWidth <= 1199 : false
@@ -363,10 +453,66 @@ export default function Chat() {
     }
   }, [activeMotion?.id, activeMotion?.decisionDetails]);
 
-  // ensure we have motions in state if ls changes
+  // Load motions from backend for this committee
   useEffect(() => {
     if (!committee) return;
-    setMotions(loadMotionsForCommittee(committee.id));
+    (async () => {
+      try {
+        const remote = await fetchMotions(committee.id);
+        const mapped = (remote || []).map((m) => {
+          // reconstruct local state & meta so submotions remain attached after reload
+          const state =
+            m.status === "paused"
+              ? "paused"
+              : m.status === "postponed"
+              ? "postponed"
+              : m.status === "referred"
+              ? "referred"
+              : m.status === "closed" ||
+                m.status === "passed" ||
+                m.status === "failed"
+              ? "closed"
+              : "discussion";
+          const meta = { ...(m.meta || {}) };
+          // Support both new canonical fields (type/parentMotionId) and legacy meta.submotionOf
+          const isSub =
+            (m.type === "submotion" && m.parentMotionId) ||
+            !!meta.submotionOf ||
+            !!meta.parentMotionId;
+          if (isSub) {
+            meta.kind = "sub";
+            meta.parentMotionId =
+              m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+            // if a submotionType was provided in meta, normalize to subType for UI code
+            if (meta.submotionType && !meta.subType)
+              meta.subType = meta.submotionType;
+          }
+          // Overturn motions: ensure grouping works after reload
+          // (stored as meta.overturnOf when proposed locally)
+          return {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            state,
+            messages: [],
+            decisionLog: [],
+            votes: [],
+            meta,
+            decisionDetails: m.decisionDetails || undefined,
+          };
+        });
+        setMotions(mapped);
+        // set initial active motion
+        setActiveMotionId(mapped[0]?.id || null);
+      } catch (err) {
+        console.error("Failed to load motions", err);
+        try {
+          const local = loadMotionsForCommittee(committee.id);
+          setMotions(local);
+          setActiveMotionId(local[0]?.id || null);
+        } catch {}
+      }
+    })();
   }, [committee?.id]);
 
   // ensure members collapsed state follows resize (expand on wide screens)
@@ -405,12 +551,7 @@ export default function Chat() {
     } catch (e) {}
   }, [motionsCollapsed, committee?.id]);
 
-  // animate the meeting toggle button briefly when state changes
-  useEffect(() => {
-    setMeetingFlipAnim(true);
-    const t = setTimeout(() => setMeetingFlipAnim(false), 280);
-    return () => clearTimeout(t);
-  }, [meetingActive]);
+  // meeting toggle animation removed
 
   // persist meeting state (per-committee), also write legacy keys for compatibility
   useEffect(() => {
@@ -471,27 +612,56 @@ export default function Chat() {
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [activeMotion]);
+  }, [activeMotion?.messages]);
 
   // ensure we scroll to the most recent messages when returning to Discussion view
   useEffect(() => {
     if (viewTab !== "discussion") return;
     if (!scrollRef.current) return;
-    // schedule after render/layout to ensure correct scrollHeight
     const t = setTimeout(() => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, 0);
     return () => clearTimeout(t);
-  }, [viewTab, activeMotion?.id]);
+  }, [viewTab, activeMotion?.id, activeMotion?.messages]);
 
-  if (!committee) {
-    return (
-      <div className="discussion-shell">
-        <p>Committee not found.</p>
-        <Link to="/">Back</Link>
-      </div>
-    );
-  }
+  // fetch remote comments when active motion changes
+  useEffect(() => {
+    if (!activeMotionId) return;
+    let cancelled = false;
+    async function loadComments() {
+      setLoadingComments(true);
+      setCommentsError("");
+      try {
+        const remote = await getCommentsForMotion(activeMotionId);
+        if (cancelled) return;
+        const mapped = (remote || []).map((c) => ({
+          id: c.id,
+          authorId: c.authorId,
+          authorName: c.authorId,
+          text: c.text,
+          time: c.createdAt || new Date().toISOString(),
+          stance: c.position || "neutral",
+        }));
+        setMotions((prev) =>
+          prev.map((m) =>
+            m.id === activeMotionId ? { ...m, messages: mapped } : m
+          )
+        );
+      } catch (err) {
+        if (!cancelled)
+          setCommentsError(err.message || "Failed to load comments");
+      } finally {
+        if (!cancelled) setLoadingComments(false);
+      }
+    }
+    loadComments();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMotionId]);
+
+  // Avoid early return before hooks complete to maintain consistent hook order.
+  const committeeUnavailable = !committee;
 
   // temp members on the committee
 
@@ -511,13 +681,15 @@ export default function Chat() {
         </div>
       );
   }
-  const members = committee.memberships ||
-    committee.members || [
-      {
-        id: committee.ownerId || committee.owner || "owner",
-        name: committee.ownerName || "Owner",
-      },
-    ];
+  const members = committeeUnavailable
+    ? []
+    : committee.memberships ||
+      committee.members || [
+        {
+          id: committee?.ownerId || committee?.owner || "owner",
+          name: committee?.ownerName || "Owner",
+        },
+      ];
 
   // persist members to committee in localStorage and trigger re-render
   const persistMembers = (nextMembers) => {
@@ -537,39 +709,41 @@ export default function Chat() {
   );
   const myRole =
     myMembership?.role ||
-    (committee.ownerId === me.id || committee.owner === me.id
+    (committee?.ownerId === me.id || committee?.owner === me.id
       ? ROLE.OWNER
       : ROLE.MEMBER);
   const amIManager = myRole === ROLE.CHAIR || myRole === ROLE.OWNER;
 
-  // Implicit daily meeting auto-start: first time chair opens committee page that day
+  // Load meeting status from backend per-committee
   useEffect(() => {
-    if (!committee || !amIManager) return;
-    const today = yyyyMmDd(new Date());
-    // Start a new meeting if none active for today
-    if (!meetingActive) {
-      setPreviousMeetingId(currentMeetingId || null);
-      setCurrentMeetingId(String(Date.now()));
-      setCurrentMeetingDate(today);
-      setCurrentMeetingSeq((s) => (Number.isFinite(s) ? s + 1 : 1));
-      setMeetingActive(true);
-      return;
-    }
-    // If active but date is from a prior day, roll to a new meeting id
-    if (meetingActive && currentMeetingDate && currentMeetingDate !== today) {
-      setPreviousMeetingId(currentMeetingId || null);
-      setCurrentMeetingId(String(Date.now()));
-      setCurrentMeetingDate(today);
-      setCurrentMeetingSeq((s) => (Number.isFinite(s) ? s + 1 : 1));
-    }
-  }, [committee?.id, amIManager]);
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!committee?.id) return;
+        const m = await getMeeting(committee.id);
+        if (cancelled || !m) return;
+        setMeetingActive(!!m.active);
+        setCurrentMeetingSeq(Number(m.seq || 0));
+        setCurrentMeetingId(m.id || currentMeetingId);
+        setCurrentMeetingDate(
+          m.date || m.startedAt?.slice(0, 10) || currentMeetingDate
+        );
+      } catch (err) {
+        // keep local state if backend fetch fails
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [committee?.id]);
 
   const handleAddMember = () => {
     const raw = memberInput.trim();
     if (!raw) return;
     const id = raw
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
+      // allow letters, numbers, underscores, dots, and hyphens
+      .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "");
     const name = raw;
     const exists = (members || []).some(
@@ -584,6 +758,39 @@ export default function Chat() {
     const newMember = { id, name, role: newMemberRole || "member" };
     const next = [...(members || []), newMember];
     persistMembers(next);
+    // Update committee members on the server
+    (async () => {
+      try {
+        if (committee?.id) {
+          const payloadMembers = next.map((m) => ({
+            username: m.id || m.name,
+            name: m.name,
+            role: (m.role || "member").toString().toLowerCase(),
+            avatarUrl: m.avatarUrl || "",
+          }));
+          await apiUpdateCommittee(committee.id, {
+            name: committee.name,
+            ownerId: committee.ownerId || committee.owner,
+            members: payloadMembers,
+            settings: committee.settings || {},
+          });
+        }
+      } catch (err) {
+        console.warn("committee update failed", err);
+      }
+      try {
+        // Also set membership role on the server for the current user context
+        if (committee?.id) {
+          await joinCommittee(
+            committee.id,
+            (newMemberRole || "member").toLowerCase(),
+            authToken || undefined
+          );
+        }
+      } catch (err) {
+        console.warn("membership role update failed", err);
+      }
+    })();
     setMemberInput("");
     setNewMemberRole("member");
   };
@@ -595,41 +802,107 @@ export default function Chat() {
   }, [activeMotionId]);
 
   const handleRemoveMember = (memberId) => {
-    const ownerId = committee.ownerId || committee.owner;
+    const ownerId = committee?.ownerId || committee?.owner;
     if (ownerId && memberId === ownerId) return; // cannot remove owner
     const next = (members || []).filter((m) => m.id !== memberId);
     persistMembers(next);
   };
 
-  const handleSend = (e) => {
-    e && e.preventDefault();
-
-    if (!input.trim() || !activeMotion) return;
-    if (meetingRecessed) return; // no discussion during recess
-    if ((activeMotion.state || "discussion") === "postponed") return; // disable comments for postponed
-
-    const updated = motions.map((m) => {
-      if (m.id !== activeMotion.id) return m;
-      const msgs = m.messages || [];
-      return {
-        ...m,
-        messages: [
-          ...msgs,
-          {
-            id: Date.now().toString(),
-            authorId: me.id,
-            authorName: me.name,
-            text: input.trim(),
-            time: new Date().toISOString(),
-            stance: composerStance,
-          },
-        ],
-      };
-    });
-    setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
-    setInput("");
+  const handleSend = async (e) => {
+    return handleSendWithStance(e);
   };
+
+  const handleSendWithStance = async (e, selectedStance) => {
+    e && e.preventDefault();
+    if (!input.trim() || !activeMotion) return;
+    if (meetingRecessed) return;
+    if ((activeMotion.state || "discussion") === "postponed") return;
+    const text = input.trim();
+    const stanceToUse = (
+      selectedStance ||
+      composerStance ||
+      "neutral"
+    ).toLowerCase();
+    setInput("");
+    try {
+      const payload = {
+        motionId: activeMotion.id,
+        authorId: me.id,
+        text,
+        position: stanceToUse,
+      };
+      try {
+        console.debug("createComment payload", payload);
+      } catch {}
+      const created = await createComment(payload);
+      const newMsg = {
+        id: created.id || Date.now().toString(),
+        authorId: created.authorId || me.id,
+        authorName: me.name,
+        text: created.text || text,
+        time: created.createdAt || new Date().toISOString(),
+        stance: created.position || stanceToUse || "neutral",
+      };
+      setMotions((prev) =>
+        prev.map((m) =>
+          m.id === activeMotion.id
+            ? { ...m, messages: [...(m.messages || []), newMsg] }
+            : m
+        )
+      );
+      // keep visual highlight as current selection; default remains neutral
+      // restore focus to composer for rapid entry
+      try {
+        if (composerInputRef.current) composerInputRef.current.focus();
+      } catch {}
+    } catch (err) {
+      try {
+        console.error("createComment error", err);
+      } catch {}
+      console.warn("Remote comment create failed; falling back to local", err);
+      const fallbackMsg = {
+        id: Date.now().toString(),
+        authorId: me.id,
+        authorName: me.name,
+        text,
+        time: new Date().toISOString(),
+        stance: stanceToUse,
+      };
+      setMotions((prev) =>
+        prev.map((m) =>
+          m.id === activeMotion.id
+            ? { ...m, messages: [...(m.messages || []), fallbackMsg] }
+            : m
+        )
+      );
+      setCommentsError(err.message || "Failed to send remotely; saved locally");
+      // keep visual highlight as current selection; default remains neutral
+      // restore focus to composer on failure too
+      try {
+        if (composerInputRef.current) composerInputRef.current.focus();
+      } catch {}
+    }
+  };
+
+  // Allow Enter to send when focus is on stance pills toggled via Tab
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key !== "Enter") return;
+      const el = document.activeElement;
+      if (!el) return;
+      try {
+        const hasClass = el.classList && el.classList.contains("stance-pill");
+        const isStance = hasClass || el.getAttribute("data-role") === "stance";
+        if (isStance) {
+          e.preventDefault();
+          // trigger send without requiring focus on textarea
+          handleSend();
+        }
+      } catch {}
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleSend]);
 
   // change stance of an individual message
   const handleChangeMessageStance = (messageId, nextStance) => {
@@ -660,6 +933,11 @@ export default function Chat() {
       alert("Select an active motion to create a submotion.");
       return;
     }
+    // Restrict postpone submotions to main/root motions only
+    if (type === "postpone" && target.meta && target.meta.kind === "sub") {
+      alert("Postponement submotions are only allowed for main motions.");
+      return;
+    }
     setEditingMotionId(null);
     setSubmotionTarget(target);
     setSubmotionType(type);
@@ -685,8 +963,8 @@ export default function Chat() {
       setNewMotionDesc("Proposed change: ");
     } else if (type === "postpone") {
       setNewMotionDesc(`This is a postponement of "${target.title}".`);
-      // reset postpone option fields when opening a postpone submotion
-      setPostponeOption("next_meeting");
+      // reset postpone option to specific date/time
+      setPostponeOption("specific");
       setPostponeDateTime("");
     } else if (type === "refer") {
       // Prefill a minimal refer description; detailed fields collected in modal
@@ -707,7 +985,7 @@ export default function Chat() {
     setShowAddModal(true);
   };
 
-  const handleCreateMotion = (e) => {
+  const handleCreateMotion = async (e) => {
     e && e.preventDefault();
     const title = newMotionTitle.trim();
     if (!title) return;
@@ -749,40 +1027,124 @@ export default function Chat() {
         : submotionTarget
         ? { submotionOf: submotionTarget.id, submotionType }
         : undefined;
-
+      let created;
+      const user = getCurrentUser();
+      try {
+        // Prepare payload for API: include submotion or overturn metadata so backend can persist hierarchy
+        let apiType;
+        let apiParentId;
+        const apiMeta = {};
+        if (submotionTarget && submotionType) {
+          apiType = "submotion";
+          apiParentId = submotionTarget.id;
+          apiMeta.submotionType = submotionType;
+        }
+        if (overturnTarget) {
+          apiMeta.overturnOf = overturnTarget.id;
+        }
+        if (submotionType === "postpone") {
+          // only support specific date/time for postpone
+          if (postponeDateTime) {
+            try {
+              apiMeta.resumeAt = new Date(postponeDateTime).toISOString();
+            } catch {
+              apiMeta.resumeAt = postponeDateTime;
+            }
+          }
+        } else if (submotionType === "refer" && referDestId) {
+          const dest = (allCommittees || []).find((c) => c.id === referDestId);
+          apiMeta.referDetails = {
+            destinationCommitteeId: referDestId,
+            destinationCommitteeName: dest?.name || referDestId,
+            requiresSecond: true,
+            debatable: true,
+            amendable: true,
+          };
+        }
+        created = await apiCreateMotion({
+          title,
+          description: desc,
+          committeeId: committee.id,
+          type: apiType,
+          parentMotionId: apiParentId,
+          meta: Object.keys(apiMeta).length > 0 ? apiMeta : undefined,
+          createdBy: {
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            avatarUrl: user.avatarUrl,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to create motion remotely", err);
+        // fallback local
+        const nowIso = new Date().toISOString();
+        created = {
+          id: crypto.randomUUID
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2, 10),
+          title,
+          description: desc,
+          status: "in-progress",
+          createdAt: nowIso,
+          createdById: user?.id || "",
+          createdByName: user?.name || "",
+          createdByUsername: user?.username || "",
+          createdByAvatarUrl: user?.avatarUrl || "",
+        };
+      }
       const newMotion = {
-        id: crypto.randomUUID
-          ? crypto.randomUUID()
-          : Math.random().toString(36).slice(2, 10),
-        title,
-        description: desc,
-        state: "discussion",
+        id: created.id,
+        title: created.title || title,
+        description: created.description || desc,
+        state:
+          created.status === "paused"
+            ? "paused"
+            : created.status === "postponed"
+            ? "postponed"
+            : created.status === "referred"
+            ? "referred"
+            : created.status === "closed" ||
+              created.status === "passed" ||
+              created.status === "failed"
+            ? "closed"
+            : "discussion",
         messages: [],
         decisionLog: [],
-        // normalize meta for submotions to a consistent internal shape
-        meta: meta
-          ? {
-              ...(meta.submotionOf ? {} : meta),
-              // if we used the older submotion shape, convert it
-              ...(meta.submotionOf
-                ? {
-                    kind: "sub",
-                    subType: meta.submotionType,
-                    parentMotionId: meta.submotionOf,
-                  }
-                : {}),
-              // allow explicit meta.kind/subType/parentMotionId
-              ...(meta.kind ? meta : {}),
-              // Refer submotion default attributes per RONR
-              ...(submotionType === "refer"
-                ? {
-                    requiresSecond: true,
-                    debatable: true,
-                    amendable: true,
-                  }
-                : {}),
+        meta: (() => {
+          if (overturnTarget) {
+            return { overturnOf: overturnTarget.id };
+          }
+          if (submotionTarget && submotionType) {
+            const m = {
+              kind: "sub",
+              subType: submotionType,
+              parentMotionId: submotionTarget.id,
+            };
+            if (submotionType === "postpone") {
+              if (postponeDateTime) {
+                try {
+                  m.resumeAt = new Date(postponeDateTime).toISOString();
+                } catch {
+                  m.resumeAt = postponeDateTime;
+                }
+              }
+            } else if (submotionType === "refer" && referDestId) {
+              const dest = (allCommittees || []).find(
+                (c) => c.id === referDestId
+              );
+              m.referDetails = {
+                destinationCommitteeId: referDestId,
+                destinationCommitteeName: dest?.name || referDestId,
+                requiresSecond: true,
+                debatable: true,
+                amendable: true,
+              };
             }
-          : undefined,
+            return m;
+          }
+          return undefined;
+        })(),
       };
       // If this is a postpone submotion, record the parent's current state
       if (
@@ -792,25 +1154,13 @@ export default function Chat() {
         newMotion.meta.kind === "sub"
       ) {
         newMotion.meta.parentPreviousState = submotionTarget.state;
-        // record the chair's chosen postpone option and optional date/time
-        newMotion.meta.postponeOption = postponeOption;
-        if (postponeOption === "specific" && postponeDateTime) {
+        // record the chosen resume date/time only
+        if (postponeDateTime) {
           try {
             newMotion.meta.resumeAt = new Date(postponeDateTime).toISOString();
           } catch (err) {
             newMotion.meta.resumeAt = postponeDateTime;
           }
-        } else if (postponeOption === "after_unfinished") {
-          // explicit structured info for 'after unfinished business' position
-          newMotion.meta.postponeInfo = {
-            type: "agendaPosition",
-            position: "afterUnfinishedBusiness",
-            meetingId: currentMeetingId,
-          };
-          // ensure resumeAt is not set for this agenda position
-          delete newMotion.meta.resumeAt;
-        } else {
-          newMotion.meta.resumeAt = postponeOption;
         }
       } else if (
         submotionTarget &&
@@ -837,7 +1187,6 @@ export default function Chat() {
       }
       const updated = [newMotion, ...motions];
       setMotions(updated);
-      saveMotionsForCommittee(committee.id, updated);
       setActiveMotionId(newMotion.id);
       setMotionView("discussion", newMotion.id);
       setShowAddModal(false);
@@ -857,7 +1206,7 @@ export default function Chat() {
     setOverturnTarget(null);
     setSubmotionTarget(null);
     setSubmotionType(null);
-    setPostponeOption("next_meeting");
+    setPostponeOption("specific");
     setPostponeDateTime("");
   };
 
@@ -869,12 +1218,11 @@ export default function Chat() {
     // If editing a postpone submotion, prefill postpone controls
     try {
       const meta = motion.meta || {};
-      if (meta.kind === "sub" && meta.subType === "postpone") {
+      if (meta && meta.kind === "sub" && meta.subType === "postpone") {
         setSubmotionType("postpone");
         const parent =
           motions.find((mm) => mm.id === meta.parentMotionId) || null;
         setSubmotionTarget(parent);
-        if (meta.postponeOption) setPostponeOption(meta.postponeOption);
         if (meta.resumeAt) {
           const parsed = Date.parse(meta.resumeAt);
           if (!isNaN(parsed)) {
@@ -887,9 +1235,7 @@ export default function Chat() {
             setPostponeOption("specific");
           } else {
             setPostponeDateTime("");
-            setPostponeOption(
-              meta.resumeAt || meta.postponeOption || "next_meeting"
-            );
+            setPostponeOption("specific");
           }
         } else {
           setPostponeDateTime("");
@@ -906,9 +1252,16 @@ export default function Chat() {
   const handleDeleteMotion = (motionId) => {
     const ok = window.confirm("Delete this motion? This cannot be undone.");
     if (!ok) return false;
+    try {
+      const url = new URL(
+        "/.netlify/functions/motions",
+        window.location.origin
+      );
+      url.searchParams.set("id", motionId);
+      fetch(url.toString(), { method: "DELETE" }).catch(() => {});
+    } catch (e) {}
     const updated = motions.filter((m) => m.id !== motionId);
     setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
     if (activeMotionId === motionId) {
       const nextActive = updated[0]?.id || null;
       setActiveMotionId(nextActive);
@@ -917,7 +1270,7 @@ export default function Chat() {
     return true;
   };
 
-  const changeMotionState = (next) => {
+  const changeMotionState = async (next) => {
     if (!activeMotion) return;
     if (meetingRecessed) return; // cannot change motion during recess
     const updated = motions.map((m) => {
@@ -942,94 +1295,27 @@ export default function Chat() {
       };
     });
     setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
-  };
-
-  // Start a meeting: create a new meeting id, set today's date, mark active
-  const handleStartMeeting = () => {
-    if (!amIManager) return;
-    const newId = String(Date.now());
-    const newSeq = (currentMeetingSeq || 0) + 1;
-    setPreviousMeetingId(currentMeetingId || null);
-    setCurrentMeetingId(newId);
-    setCurrentMeetingDate(yyyyMmDd(new Date()));
-    setCurrentMeetingSeq(newSeq);
-    setMeetingActive(true);
-
-    // Normalize and lift any motions postponed to "next meeting"
+    // sync to backend status
     try {
-      const updated = (motions || []).map((m) => {
-        if ((m.state || "").toString() !== "postponed") return m;
-        const meta = m.meta ? { ...m.meta } : {};
-        const info = meta.postponeInfo;
-        const isNextMeetingInfo =
-          info &&
-          ((info.type === "meeting" &&
-            Number(info.targetMeetingSeq) === Number(newSeq)) ||
-            (info.type === "agendaPosition" &&
-              info.position === "next_meeting"));
-        const isLegacyNext =
-          !info &&
-          (meta.resumeAt === "next_meeting" ||
-            meta.postponeOption === "next_meeting");
-
-        if (!isNextMeetingInfo && !isLegacyNext) return m;
-
-        // If legacy shape, convert to explicit meeting target for this new meeting
-        if (!info || info.type !== "meeting") {
-          meta.postponeInfo = {
-            type: "meeting",
-            targetMeetingSeq: Number(newSeq),
-          };
-        }
-        const prevState = meta.postponePrevState;
-        const restoreState = ["discussion", "voting", "paused"].includes(
-          prevState
-        )
-          ? prevState
-          : "discussion";
-        delete meta.postponeInfo;
-        delete meta.postponePrevState;
-        if (meta.resumeAt === "next_meeting") delete meta.resumeAt;
-        if (meta.postponeOption === "next_meeting") delete meta.postponeOption;
-        meta.postponementLiftedAt = new Date().toISOString();
-        return { ...m, state: restoreState, decisionNote: undefined, meta };
-      });
-      setMotions(updated);
-      saveMotionsForCommittee(committee.id, updated);
-    } catch (e) {
-      // ignore
+      const status =
+        next === "paused"
+          ? "paused"
+          : next === "postponed"
+          ? "postponed"
+          : next === "referred"
+          ? "referred"
+          : next === "closed"
+          ? "closed"
+          : "in-progress";
+      await updateMotionStatus(activeMotion.id, status);
+    } catch (err) {
+      console.warn("Failed to update motion status", err);
     }
   };
 
-  // End a meeting: mark ongoing motions to carry over; stop meeting
-  const handleEndMeeting = () => {
-    if (!amIManager) return;
-    // Mark eligible motions as carry-over (unfinished business)
-    const updated = (motions || []).map((m) => {
-      const st = (m.state || "discussion").toString();
-      const eligible = [
-        "discussion",
-        "paused",
-        "voting",
-        "in_progress",
-      ].includes(st);
-      const excluded = st === "postponed" || st === "closed";
-      if (eligible && !excluded) {
-        return { ...m, carryOver: true, meetingId: currentMeetingId };
-      }
-      return m;
-    });
-    setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
+  // start/end meeting handlers removed with the toggle UI
 
-    // finalize meeting flags
-    setMeetingActive(false);
-    setPreviousMeetingId(currentMeetingId || null);
-    // keep currentMeetingId until next start; date stays as last meeting date
-  };
-
-  const handleSaveDecisionSummary = (e) => {
+  const handleSaveDecisionSummary = async (e) => {
     e && e.preventDefault();
     if (!activeMotion || activeMotion.state !== "closed") return;
     if (!amIManager) return;
@@ -1071,6 +1357,15 @@ export default function Chat() {
         : m
     );
 
+    // Persist decision details to backend
+    try {
+      await updateMotion(activeMotion.id, {
+        decisionDetails: detail,
+      });
+    } catch (err) {
+      console.warn("Failed to persist decision details", err);
+    }
+
     // If this was a submotion, apply its effect to the parent (postpone or refer)
     try {
       const am = activeMotion;
@@ -1088,28 +1383,26 @@ export default function Chat() {
         updated = updated.map((m) => {
           if (m.id !== parentId) return m;
           if (passed && isPostponeSub) {
-            // compute structured postpone info to attach to parent if available
+            // compute structured postpone info for specific date/time only
             const parentMeta = m.meta ? { ...m.meta } : {};
-            if (meta.postponeInfo) {
+            if (meta.postponeInfo && meta.postponeInfo.type === "dateTime") {
               parentMeta.postponeInfo = meta.postponeInfo;
-            } else if (meta.postponeOption === "specific" && meta.resumeAt) {
+            } else if (meta.resumeAt) {
               parentMeta.postponeInfo = { type: "dateTime", at: meta.resumeAt };
-            } else if (meta.postponeOption) {
-              if (meta.postponeOption === "next_meeting") {
-                parentMeta.postponeInfo = {
-                  type: "meeting",
-                  targetMeetingSeq: (currentMeetingSeq || 0) + 1,
-                };
-              } else {
-                parentMeta.postponeInfo = {
-                  type: "agendaPosition",
-                  position: meta.postponeOption,
-                  meetingId: currentMeetingId,
-                };
-              }
             }
             // capture previous state for later lifting
             parentMeta.postponePrevState = m.state;
+            // Persist postpone effect to backend (fire-and-forget)
+            (async () => {
+              try {
+                await updateMotion(parentId, {
+                  meta: parentMeta,
+                  status: "postponed",
+                });
+              } catch (err) {
+                console.warn("Failed to persist postpone effect", err);
+              }
+            })();
             return {
               ...m,
               state: "postponed",
@@ -1123,7 +1416,7 @@ export default function Chat() {
               meta?.referDetails?.destinationCommitteeName ||
               "destination committee";
             const originId = committee.id;
-            const originName = committee.name || originId;
+            const originName = (committee && committee.name) || originId;
             const parentMeta = m.meta ? { ...m.meta } : {};
             parentMeta.referInfo = {
               toCommitteeId: destId,
@@ -1161,7 +1454,17 @@ export default function Chat() {
                 saveMotionsForCommittee(destId, nextList);
               }
             } catch (e) {}
-            // Close in the source committee for record-keeping
+            // Persist refer effect to backend (fire-and-forget)
+            (async () => {
+              try {
+                await updateMotion(parentId, {
+                  meta: parentMeta,
+                  status: "referred",
+                });
+              } catch (err) {
+                console.warn("Failed to persist refer effect", err);
+              }
+            })();
             return {
               ...m,
               state: "closed",
@@ -1182,7 +1485,6 @@ export default function Chat() {
     }
 
     setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
     setSavingDecision(false);
     // notify other windows/clients to highlight the Final Decision tab
     try {
@@ -1214,23 +1516,10 @@ export default function Chat() {
         if (m.id === parentId) {
           if (passed && isPostponeSub) {
             const parentMeta = m.meta ? { ...m.meta } : {};
-            if (meta.postponeInfo) {
+            if (meta.postponeInfo && meta.postponeInfo.type === "dateTime") {
               parentMeta.postponeInfo = meta.postponeInfo;
-            } else if (meta.postponeOption === "specific" && meta.resumeAt) {
+            } else if (meta.resumeAt) {
               parentMeta.postponeInfo = { type: "dateTime", at: meta.resumeAt };
-            } else if (meta.postponeOption) {
-              if (meta.postponeOption === "next_meeting") {
-                parentMeta.postponeInfo = {
-                  type: "meeting",
-                  targetMeetingSeq: (currentMeetingSeq || 0) + 1,
-                };
-              } else {
-                parentMeta.postponeInfo = {
-                  type: "agendaPosition",
-                  position: meta.postponeOption,
-                  meetingId: currentMeetingId,
-                };
-              }
             }
             parentMeta.postponePrevState = m.state;
             return {
@@ -1246,7 +1535,7 @@ export default function Chat() {
               meta?.referDetails?.destinationCommitteeName ||
               "destination committee";
             const originId = committee.id;
-            const originName = committee.name || originId;
+            const originName = (committee && committee.name) || originId;
             const parentMeta = m.meta ? { ...m.meta } : {};
             parentMeta.referInfo = {
               toCommitteeId: destId,
@@ -1331,7 +1620,7 @@ export default function Chat() {
     setSavingEditDecision(false);
   };
 
-  const handleSaveEditedDecision = (e) => {
+  const handleSaveEditedDecision = async (e) => {
     e && e.preventDefault();
     if (!activeMotion || !activeMotion.decisionDetails) return;
     const summary = editDecisionSummary.trim();
@@ -1390,7 +1679,7 @@ export default function Chat() {
                 ...m,
                 state: "postponed",
                 decisionNote: "Postponed by submotion",
-                resumeAt: meta.resumeAt || meta.postponeOption,
+                resumeAt: meta.resumeAt,
               };
             } else {
               const prev = meta.parentPreviousState || m.state;
@@ -1408,8 +1697,16 @@ export default function Chat() {
       // ignore
     }
 
+    // Persist edited decision details
+    try {
+      await updateMotion(activeMotion.id, {
+        decisionDetails: updated.find((m) => m.id === activeMotion.id)
+          ?.decisionDetails,
+      });
+    } catch (err) {
+      console.warn("Failed to persist edited decision details", err);
+    }
     setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
     setSavingEditDecision(false);
     setEditingDecision(false);
   };
@@ -1589,23 +1886,31 @@ export default function Chat() {
   const canChairClose = activeMotion && activeMotion.state !== "closed";
 
   // handle user voting (everyone can vote while motion is in 'voting')
-  const handleVote = (choice) => {
+  const handleVote = async (choice) => {
     if (!activeMotion || activeMotion.state !== "voting") return;
     if (meetingRecessed || activeMotion.state === "referred") return;
-    const updated = motions.map((m) => {
-      if (m.id !== activeMotion.id) return m;
-      const votes = Array.isArray(m.votes) ? [...m.votes] : [];
-      // remove existing vote by this user
-      const filtered = votes.filter((v) => v.voterId !== me.id);
-      // add new vote
-      filtered.push({
-        voterId: me.id,
-        choice: (choice || "").toString().toLowerCase(),
-      });
-      return { ...m, votes: filtered };
-    });
-    setMotions(updated);
-    saveMotionsForCommittee(committee.id, updated);
+    try {
+      const updatedDoc = await castMotionVote(activeMotion.id, choice, me.id);
+      // reflect aggregate counts in UI while keeping local per-user record for isMine checks
+      setMotions((prev) =>
+        prev.map((m) => {
+          if (m.id !== activeMotion.id) return m;
+          const votes = Array.isArray(m.votes) ? [...m.votes] : [];
+          const filtered = votes.filter((v) => v.voterId !== me.id);
+          filtered.push({
+            voterId: me.id,
+            choice: String(choice).toLowerCase(),
+          });
+          return {
+            ...m,
+            votes: filtered,
+            tally: updatedDoc.votes || { yes: 0, no: 0, abstain: 0 },
+          };
+        })
+      );
+    } catch (err) {
+      console.warn("Failed to cast vote", err);
+    }
   };
 
   // group motions for UI sections: active (not closed) and concluded (closed)
@@ -1777,109 +2082,7 @@ export default function Chat() {
     } catch (err) {}
   }, [motions, previousMeetingId, currentMeetingId, unfinishedRoots]);
 
-  // Lift postponed motions that were scheduled for "After unfinished business"
-  // once all unfinished items have concluded (unfinishedRoots becomes empty).
-  useEffect(() => {
-    if (!committee) return;
-    if (unfinishedRoots.length !== 0) return; // only trigger when section is now empty
-    setMotions((prev) => {
-      let changed = false;
-      const next = (prev || []).map((m) => {
-        const info = m.meta && m.meta.postponeInfo;
-        if (
-          m.state === "postponed" &&
-          info &&
-          info.type === "agendaPosition" &&
-          info.position === "afterUnfinishedBusiness"
-        ) {
-          changed = true;
-          const prevState = m.meta && m.meta.postponePrevState;
-          const restoreState = ["discussion", "voting", "paused"].includes(
-            prevState
-          )
-            ? prevState
-            : "discussion";
-          const newMeta = { ...m.meta };
-          delete newMeta.postponeInfo;
-          delete newMeta.postponePrevState;
-          newMeta.postponementLiftedAt = new Date().toISOString();
-          return {
-            ...m,
-            state: restoreState,
-            decisionNote: undefined,
-            meta: newMeta,
-          };
-        }
-        return m;
-      });
-      if (changed) {
-        try {
-          saveMotionsForCommittee(committee.id, next);
-        } catch (e) {}
-        return next;
-      }
-      return prev;
-    });
-  }, [unfinishedRoots.length, committee]);
-
-  // Lift postponed motions scheduled for the next meeting when this meeting starts
-  useEffect(() => {
-    if (!committee) return;
-    if (!meetingActive) return;
-    if (!Number.isFinite(currentMeetingSeq)) return;
-    setMotions((prev) => {
-      let changed = false;
-      const next = (prev || []).map((m) => {
-        const meta = m.meta || {};
-        const info = meta.postponeInfo;
-        const liftByMeeting =
-          m.state === "postponed" &&
-          info &&
-          info.type === "meeting" &&
-          Number(info.targetMeetingSeq) === Number(currentMeetingSeq);
-        const liftByAgendaNext =
-          m.state === "postponed" &&
-          info &&
-          info.type === "agendaPosition" &&
-          info.position === "next_meeting";
-        const liftLegacy =
-          m.state === "postponed" &&
-          !info &&
-          (meta.resumeAt === "next_meeting" ||
-            meta.postponeOption === "next_meeting");
-        if (liftByMeeting || liftByAgendaNext || liftLegacy) {
-          changed = true;
-          const prevState = meta.postponePrevState;
-          const restoreState = ["discussion", "voting", "paused"].includes(
-            prevState
-          )
-            ? prevState
-            : "discussion";
-          const newMeta = { ...meta };
-          delete newMeta.postponeInfo;
-          delete newMeta.postponePrevState;
-          if (newMeta.resumeAt === "next_meeting") delete newMeta.resumeAt;
-          if (newMeta.postponeOption === "next_meeting")
-            delete newMeta.postponeOption;
-          newMeta.postponementLiftedAt = new Date().toISOString();
-          return {
-            ...m,
-            state: restoreState,
-            decisionNote: undefined,
-            meta: newMeta,
-          };
-        }
-        return m;
-      });
-      if (changed) {
-        try {
-          saveMotionsForCommittee(committee.id, next);
-        } catch (e) {}
-        return next;
-      }
-      return prev;
-    });
-  }, [committee, meetingActive, currentMeetingSeq]);
+  // Removed lifting for the next meeting; only date/time-based lifting remains
 
   // Lift postponed motions scheduled for a specific date/time when reached
   useEffect(() => {
@@ -1994,57 +2197,17 @@ export default function Chat() {
               />
               {submotionType === "postpone" && (
                 <div style={{ marginTop: 12 }}>
-                  <label className="decision-label">Postpone until</label>
-                  <div className="outcome-options" role="radiogroup">
-                    <button
-                      type="button"
-                      className={`outcome-pill ${
-                        postponeOption === "next_meeting" ? "is-active" : ""
-                      }`}
-                      onClick={() => setPostponeOption("next_meeting")}
-                    >
-                      Next meeting
-                    </button>
-                    <button
-                      type="button"
-                      className={`outcome-pill ${
-                        postponeOption === "after_unfinished" ? "is-active" : ""
-                      }`}
-                      onClick={() => setPostponeOption("after_unfinished")}
-                    >
-                      After unfinished business
-                    </button>
-                    <button
-                      type="button"
-                      className={`outcome-pill ${
-                        postponeOption === "later_this_meeting"
-                          ? "is-active"
-                          : ""
-                      }`}
-                      onClick={() => setPostponeOption("later_this_meeting")}
-                    >
-                      Later in this meeting
-                    </button>
-                    <button
-                      type="button"
-                      className={`outcome-pill ${
-                        postponeOption === "specific" ? "is-active" : ""
-                      }`}
-                      onClick={() => setPostponeOption("specific")}
-                    >
-                      Specify a date/time
-                    </button>
+                  <label className="decision-label">
+                    Specify resume date/time
+                  </label>
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      type="datetime-local"
+                      value={postponeDateTime}
+                      onChange={(e) => setPostponeDateTime(e.target.value)}
+                      aria-label="Specify resume date and time"
+                    />
                   </div>
-                  {postponeOption === "specific" && (
-                    <div style={{ marginTop: 8 }}>
-                      <input
-                        type="datetime-local"
-                        value={postponeDateTime}
-                        onChange={(e) => setPostponeDateTime(e.target.value)}
-                        aria-label="Specify resume date and time"
-                      />
-                    </div>
-                  )}
                 </div>
               )}
               {submotionType === "refer" && (
@@ -2137,24 +2300,8 @@ export default function Chat() {
       {/* LEFT: motions + participants */}
       <aside className="discussion-left">
         <div className="discussion-left-header">
-          <h2>{committee.name || "Committee"}</h2>
-          {amIManager && (
-            <button
-              type="button"
-              onClick={meetingActive ? handleEndMeeting : handleStartMeeting}
-              className={`btn-meeting-toggle ${
-                meetingActive ? "is-ending" : "is-starting"
-              } ${meetingFlipAnim ? "flip-anim" : ""}`}
-              title={
-                meetingActive
-                  ? "A meeting is open — click to end it"
-                  : "Click to start a meeting"
-              }
-              style={{ marginRight: 8 }}
-            >
-              {meetingActive ? "🟥 End Meeting" : "Start Meeting"}
-            </button>
-          )}
+          <h2>{(committee && committee.name) || "Committee"}</h2>
+          {/* chair start/end meeting toggle removed */}
           <button onClick={handleAddMotion} className="primary-icon-btn">
             +
           </button>
@@ -2188,12 +2335,7 @@ export default function Chat() {
                   )}
                   {unfinishedRoots.map((m, idx) => (
                     <React.Fragment key={m.id}>
-                      <div
-                        className={
-                          "motion-list-row " +
-                          (idx > 0 ? "motion-root-divider" : "")
-                        }
-                      >
+                      <div className={"motion-list-row"}>
                         <div
                           className={
                             "motion-list-item " +
@@ -2291,25 +2433,28 @@ export default function Chat() {
                             <span className="motion-title">
                               {renderBreakable(m.title)}
                             </span>
-                            {isResumedRecently(m) ? (
-                              <span
-                                className="status-pill status-resumed"
-                                title="Resumed from postponement"
-                              >
-                                Resumed
-                              </span>
-                            ) : (
-                              <span
-                                className={`status-pill status-${
-                                  m.state || "discussion"
-                                }`}
-                              >
-                                {motionStatusLabel(m)}
+                            {!isSplit &&
+                              (isResumedRecently(m) ? (
+                                <span
+                                  className="status-pill status-resumed"
+                                  title="Resumed from postponement"
+                                >
+                                  Resumed
+                                </span>
+                              ) : (
+                                <span
+                                  className={`status-pill status-${
+                                    m.state || "discussion"
+                                  }`}
+                                >
+                                  {motionStatusLabel(m)}
+                                </span>
+                              ))}
+                            {isSplit && (
+                              <span className="badge unfinished-badge">
+                                Unfinished
                               </span>
                             )}
-                            <span className="badge unfinished-badge">
-                              Unfinished
-                            </span>
                           </div>
 
                           <button
@@ -2569,12 +2714,7 @@ export default function Chat() {
                   )}
                   {otherActiveRoots.map((m, idx) => (
                     <React.Fragment key={m.id}>
-                      <div
-                        className={
-                          "motion-list-row " +
-                          (idx > 0 ? "motion-root-divider" : "")
-                        }
-                      >
+                      <div className={"motion-list-row"}>
                         <div
                           className={
                             "motion-list-item " +
@@ -3552,8 +3692,35 @@ export default function Chat() {
                   title={
                     membersCollapsed ? "Show participants" : "Hide participants"
                   }
+                  aria-label={
+                    membersCollapsed
+                      ? "Expand participants"
+                      : "Collapse participants"
+                  }
                 >
-                  {membersCollapsed ? "▴" : "▾"}
+                  {membersCollapsed ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M9 6l6 6-6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M6 9l6 6 6-6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
                 </button>
                 {amIManager && (
                   <button
@@ -3561,8 +3728,18 @@ export default function Chat() {
                     onClick={() => setShowManagePanel((s) => !s)}
                     aria-expanded={showManagePanel}
                     title="Manage participants"
+                    aria-label="Manage participants"
                   >
-                    ⋮
+                    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
+                        fill="currentColor"
+                      />
+                      <path
+                        d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                        fill="currentColor"
+                      />
+                    </svg>
                   </button>
                 )}
               </div>
@@ -3579,7 +3756,8 @@ export default function Chat() {
                           handleAddMember();
                         }
                       }}
-                      placeholder="Add participant"
+                      placeholder="Add by username"
+                      aria-label="Add participant by username"
                     />
                     <select
                       className="member-role-select"
@@ -3617,7 +3795,7 @@ export default function Chat() {
                     </div>
                     {showManagePanel &&
                       amIManager &&
-                      p.id !== (committee.ownerId || committee.owner) && (
+                      p.id !== (committee?.ownerId || committee?.owner) && (
                         <button
                           type="button"
                           className="remove-member-btn"
@@ -3705,71 +3883,73 @@ export default function Chat() {
                           type="button"
                           className="submotion-btn"
                           aria-haspopup="true"
+                          aria-expanded={submotionMenuOpen ? "true" : "false"}
                           title={
                             meetingRecessed
                               ? "Disabled — meeting in recess"
-                              : "More actions"
+                              : submotionMenuOpen
+                              ? "Close submotion menu"
+                              : "Open submotion menu"
                           }
                           disabled={meetingRecessed}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (meetingRecessed) return;
-                            const menu =
-                              document.getElementById("submotion-menu");
-                            if (menu) {
-                              menu.style.display =
-                                menu.style.display === "block"
-                                  ? "none"
-                                  : "block";
-                            }
+                            setSubmotionMenuOpen((o) => !o);
                           }}
                         >
                           ⋮
                         </button>
-                        <div
-                          id="submotion-menu"
-                          className="submotion-menu"
-                          role="menu"
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleOpenSubmotion("revision", activeMotion)
-                            }
-                            title={
-                              meetingRecessed
-                                ? "Disabled — meeting in recess"
-                                : "Propose an amendment"
-                            }
-                            disabled={
-                              meetingRecessed ||
-                              (activeMotion.state || "discussion") ===
-                                "postponed"
-                            }
+                        {submotionMenuOpen && (
+                          <div
+                            className="submotion-menu"
+                            role="menu"
+                            aria-label="Submotion actions"
                           >
-                            Amend
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleOpenSubmotion("refer", activeMotion)
-                            }
-                            title={
-                              meetingRecessed
-                                ? "Disabled — meeting in recess"
-                                : "Refer to committee"
-                            }
-                            disabled={
-                              meetingRecessed ||
-                              (activeMotion.state || "discussion") ===
-                                "voting" ||
-                              (activeMotion.state || "discussion") ===
-                                "postponed"
-                            }
-                          >
-                            Refer to Committee
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                handleOpenSubmotion("revision", activeMotion);
+                                setSubmotionMenuOpen(false);
+                              }}
+                              title={
+                                meetingRecessed
+                                  ? "Disabled — meeting in recess"
+                                  : "Propose an amendment"
+                              }
+                              disabled={
+                                meetingRecessed ||
+                                (activeMotion.state || "discussion") ===
+                                  "postponed"
+                              }
+                            >
+                              Amend
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                handleOpenSubmotion("refer", activeMotion);
+                                setSubmotionMenuOpen(false);
+                              }}
+                              title={
+                                meetingRecessed
+                                  ? "Disabled — meeting in recess"
+                                  : "Refer to committee"
+                              }
+                              disabled={
+                                meetingRecessed ||
+                                (activeMotion.state || "discussion") ===
+                                  "voting" ||
+                                (activeMotion.state || "discussion") ===
+                                  "postponed"
+                              }
+                            >
+                              Refer to Committee
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -3832,54 +4012,68 @@ export default function Chat() {
 
             {viewTab === "discussion" && !otcClosed && (
               <div className="discussion-thread" ref={scrollRef}>
-                {(activeMotion.messages || []).map((msg) => {
-                  const isMine = msg.authorId === me.id;
-                  return (
-                    <div
-                      key={msg.id}
-                      className={"message-row " + (isMine ? "mine" : "")}
-                    >
-                      {/* top line: name + chosen stance */}
-                      <div className="message-header">
-                        <span className="message-author">{msg.authorName}</span>
-                        {msg.stance ? (
-                          <span
-                            className="stance-dot-wrapper"
-                            title={msg.stance}
-                          >
-                            <span
-                              className={
-                                "stance-dot " +
-                                (msg.stance === "pro"
-                                  ? "dot-pro"
-                                  : msg.stance === "con"
-                                  ? "dot-con"
-                                  : "dot-neutral")
-                              }
-                            />
-                          </span>
-                        ) : null}
-                      </div>
-
-                      {/* stance options moved to composer; inline controls removed */}
-
-                      {/* actual text bubble */}
-                      <div className="message-bubble">{msg.text}</div>
-
-                      {/* time */}
-                      <div className="message-time">
-                        {new Date(msg.time).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {(activeMotion.messages || []).length === 0 && (
-                  <p className="empty-thread">No discussion yet.</p>
+                {loadingComments && (
+                  <p className="empty-thread">Loading discussion...</p>
                 )}
+                {commentsError && !loadingComments && (
+                  <p className="empty-thread">{commentsError}</p>
+                )}
+                {!loadingComments &&
+                  !commentsError &&
+                  (activeMotion.messages || []).map((msg) => {
+                    const isMine = msg.authorId === me.id;
+                    return (
+                      <div
+                        key={msg.id}
+                        className={"message-row " + (isMine ? "mine" : "")}
+                      >
+                        {/* top line: name + chosen stance */}
+                        <div className="message-header">
+                          <span className="message-author">
+                            {msg.authorName}
+                          </span>
+                          {msg.stance ? (
+                            <span
+                              className="stance-dot-wrapper"
+                              title={msg.stance}
+                            >
+                              <span
+                                className={
+                                  "stance-dot " +
+                                  (msg.stance === "pro"
+                                    ? "dot-pro"
+                                    : msg.stance === "con"
+                                    ? "dot-con"
+                                    : "dot-neutral")
+                                }
+                              />
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* stance options moved to composer; inline controls removed */}
+
+                        {/* actual text bubble */}
+                        <div className="message-bubble" style={{}}>
+                          {msg.text}
+                        </div>
+
+                        {/* time */}
+                        <div className="message-time">
+                          {new Date(msg.time).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {!loadingComments &&
+                  !commentsError &&
+                  (activeMotion.messages || []).length === 0 && (
+                    <p className="empty-thread">No discussion yet.</p>
+                  )}
               </div>
             )}
 
@@ -3926,7 +4120,7 @@ export default function Chat() {
                 <div className="vote-tally-panel">
                   {(() => {
                     const votes = activeMotion?.votes || [];
-                    const tally = computeTally(votes);
+                    const tally = activeMotion?.tally || computeTally(votes);
                     const myVote = votes.find(
                       (v) => v.voterId === me.id
                     )?.choice;
@@ -4090,34 +4284,30 @@ export default function Chat() {
                             >
                               Move to Vote
                             </button>
-                            {/* Special Motions (meeting-level, immediate, no discussion) */}
-                            <div className="chair-menu-divider" />
-                            <div className="chair-menu-section-title">
-                              Special Motions
-                            </div>
-                            {meetingRecessed ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMeetingRecessed(false);
-                                  setShowChairMenu(false);
-                                }}
-                                title="Resume meeting from recess"
-                              >
-                                Resume Meeting
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMeetingRecessed(true);
-                                  setShowChairMenu(false);
-                                }}
-                                title="Recess the meeting"
-                              >
-                                Recess
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!canChairClose) return;
+                                handleCloseMotionNow(activeMotion?.id);
+                                setShowChairMenu(false);
+                              }}
+                              disabled={
+                                meetingRecessed ||
+                                !(isDiscussion || isPaused || isVoting)
+                              }
+                              title={
+                                meetingRecessed
+                                  ? "Disabled — meeting in recess"
+                                  : isVoting
+                                  ? "Close motion (cancel vote/kill)"
+                                  : isDiscussion || isPaused
+                                  ? "Close motion"
+                                  : "Close disabled"
+                              }
+                            >
+                              Close Motion
+                            </button>
+                            {/* Special motions title will be shown below Postpone */}
                             {(() => {
                               const isSub = !!(
                                 activeMotion &&
@@ -4183,17 +4373,73 @@ export default function Chat() {
                                       End Objection Vote (decide by tally)
                                     </button>
                                   )}
+                                  {!(
+                                    activeMotion &&
+                                    activeMotion.meta &&
+                                    activeMotion.meta.kind === "sub"
+                                  ) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        try {
+                                          setShowChairMenu(false);
+                                        } catch (err) {}
+                                        handleOpenSubmotion(
+                                          "postpone",
+                                          activeMotion
+                                        );
+                                      }}
+                                      disabled={isVoting || meetingRecessed}
+                                      title={
+                                        meetingRecessed
+                                          ? "Disabled — meeting in recess"
+                                          : isVoting
+                                          ? "Disabled — voting in progress"
+                                          : "Create a postponement submotion"
+                                      }
+                                    >
+                                      Postpone Decision
+                                    </button>
+                                  )}
                                 </>
                               );
                             })()}
+                            {/* Special Motions */}
+                            <div className="chair-menu-divider" />
+                            <div className="chair-menu-section-title">
+                              Special Motions
+                            </div>
+                            {/* Recess / Resume */}
+                            {meetingRecessed ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMeetingRecessed(false);
+                                  setShowChairMenu(false);
+                                }}
+                                title="Resume meeting from recess"
+                              >
+                                Resume Meeting
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMeetingRecessed(true);
+                                  setShowChairMenu(false);
+                                }}
+                                title="Recess the meeting"
+                              >
+                                Recess
+                              </button>
+                            )}
+                            {/* Adjourn Meeting last */}
                             <button
                               type="button"
                               onClick={() => {
-                                // Adjourn meeting: advance meeting ids and mark ONLY the
-                                // active motion's root + its submotions as unfinished.
                                 try {
-                                  const prevId = currentMeetingId; // meeting we are ending
-                                  const nextId = String(Date.now()); // new meeting id
+                                  const prevId = currentMeetingId;
+                                  const nextId = String(Date.now());
                                   setPreviousMeetingId(prevId);
                                   setCurrentMeetingId(nextId);
                                   try {
@@ -4206,7 +4452,6 @@ export default function Chat() {
                                       nextId
                                     );
                                   } catch (err) {}
-
                                   const targetRootId = (() => {
                                     if (
                                       activeMotion &&
@@ -4220,7 +4465,6 @@ export default function Chat() {
                                       ? activeMotion.id
                                       : null;
                                   })();
-
                                   if (targetRootId) {
                                     setMotions((old) => {
                                       const updated = (old || []).map((m) => {
@@ -4229,7 +4473,7 @@ export default function Chat() {
                                           "discussion",
                                           "voting",
                                           "paused",
-                                        ]; // ongoing states
+                                        ];
                                         const isInGroup =
                                           m.id === targetRootId ||
                                           (m.meta &&
@@ -4245,7 +4489,7 @@ export default function Chat() {
                                           return {
                                             ...m,
                                             carryOver: true,
-                                            meetingId: prevId, // associate with concluded meeting
+                                            meetingId: prevId,
                                           };
                                         }
                                         return m;
@@ -4261,67 +4505,11 @@ export default function Chat() {
                                       return updated;
                                     });
                                   }
-                                } catch (err) {
-                                  // ignore errors to keep UI responsive
-                                }
+                                } catch (err) {}
                                 setShowChairMenu(false);
                               }}
                             >
                               Adjourn Meeting
-                            </button>
-                            {!(
-                              activeMotion &&
-                              activeMotion.meta &&
-                              activeMotion.meta.kind === "sub" &&
-                              activeMotion.meta.subType === "postpone"
-                            ) && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    try {
-                                      setShowChairMenu(false);
-                                    } catch (err) {}
-                                    handleOpenSubmotion(
-                                      "postpone",
-                                      activeMotion
-                                    );
-                                  }}
-                                  disabled={isVoting || meetingRecessed}
-                                  title={
-                                    meetingRecessed
-                                      ? "Disabled — meeting in recess"
-                                      : isVoting
-                                      ? "Disabled — voting in progress"
-                                      : "Create a postponement submotion"
-                                  }
-                                >
-                                  Postpone Decision
-                                </button>
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!canChairClose) return;
-                                handleCloseMotionNow(activeMotion?.id);
-                                setShowChairMenu(false);
-                              }}
-                              disabled={
-                                meetingRecessed ||
-                                !(isDiscussion || isPaused || isVoting)
-                              }
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : isVoting
-                                  ? "Close motion (cancel vote/kill)"
-                                  : isDiscussion || isPaused
-                                  ? "Close motion"
-                                  : "Close disabled"
-                              }
-                            >
-                              Close Motion
                             </button>
                           </div>
                         )}
@@ -4329,6 +4517,7 @@ export default function Chat() {
                     );
                   })()}
                 <input
+                  ref={composerInputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder={
@@ -4379,9 +4568,20 @@ export default function Chat() {
                       type="button"
                       className={
                         "stance-inline-btn " +
-                        (composerStance === "pro" ? "is-active" : "")
+                        (composerStanceVisual === "pro" ? "is-active" : "")
                       }
-                      onClick={() => setComposerStance("pro")}
+                      onClick={() => {
+                        setComposerStanceVisual("pro");
+                      }}
+                      onFocus={() => {
+                        setComposerStanceVisual("pro");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSendWithStance(e, "pro");
+                        }
+                      }}
                       aria-pressed={composerStance === "pro"}
                       disabled={
                         sessionPaused ||
@@ -4410,9 +4610,20 @@ export default function Chat() {
                       type="button"
                       className={
                         "stance-inline-btn " +
-                        (composerStance === "con" ? "is-active" : "")
+                        (composerStanceVisual === "con" ? "is-active" : "")
                       }
-                      onClick={() => setComposerStance("con")}
+                      onClick={() => {
+                        setComposerStanceVisual("con");
+                      }}
+                      onFocus={() => {
+                        setComposerStanceVisual("con");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSendWithStance(e, "con");
+                        }
+                      }}
                       aria-pressed={composerStance === "con"}
                       disabled={
                         sessionPaused ||
@@ -4441,9 +4652,20 @@ export default function Chat() {
                       type="button"
                       className={
                         "stance-inline-btn " +
-                        (composerStance === "neutral" ? "is-active" : "")
+                        (composerStanceVisual === "neutral" ? "is-active" : "")
                       }
-                      onClick={() => setComposerStance("neutral")}
+                      onClick={() => {
+                        setComposerStanceVisual("neutral");
+                      }}
+                      onFocus={() => {
+                        setComposerStanceVisual("neutral");
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleSendWithStance(e, "neutral");
+                        }
+                      }}
                       aria-pressed={composerStance === "neutral"}
                       disabled={
                         sessionPaused ||
@@ -4691,7 +4913,8 @@ export default function Chat() {
                         <h4>Final Tally</h4>
                         {(() => {
                           const votes = activeMotion?.votes || [];
-                          const tally = computeTally(votes);
+                          const tally =
+                            activeMotion?.tally || computeTally(votes);
                           // render the same vote-tally-panel used in Discussion, but non-interactive
                           return (
                             <div className="vote-tally-panel">
@@ -4866,7 +5089,7 @@ export default function Chat() {
           <div className="member-list">
             <div className="member-list-header">
               <h3>Participants</h3>
-              {/* collapse toggle visible on narrow screens */}
+              {/* collapse toggle always visible */}
               <button
                 className="participants-collapse-toggle"
                 onClick={() => setMembersCollapsed((s) => !s)}
@@ -4874,8 +5097,35 @@ export default function Chat() {
                 title={
                   membersCollapsed ? "Show participants" : "Hide participants"
                 }
+                aria-label={
+                  membersCollapsed
+                    ? "Expand participants"
+                    : "Collapse participants"
+                }
               >
-                {membersCollapsed ? "▴" : "▾"}
+                {membersCollapsed ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M9 6l6 6-6 6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M6 9l6 6 6-6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
               </button>
               {amIManager && (
                 <button
@@ -4883,8 +5133,18 @@ export default function Chat() {
                   onClick={() => setShowManagePanel((s) => !s)}
                   aria-expanded={showManagePanel}
                   title="Manage participants"
+                  aria-label="Manage participants"
                 >
-                  ⋮
+                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                      fill="currentColor"
+                    />
+                  </svg>
                 </button>
               )}
             </div>
@@ -4902,7 +5162,8 @@ export default function Chat() {
                         handleAddMember();
                       }
                     }}
-                    placeholder="Add participant"
+                    placeholder="Add by username"
+                    aria-label="Add participant by username"
                   />
                   <select
                     className="member-role-select"
@@ -4940,7 +5201,7 @@ export default function Chat() {
                   </div>
                   {showManagePanel &&
                     amIManager &&
-                    p.id !== (committee.ownerId || committee.owner) && (
+                    p.id !== (committee?.ownerId || committee?.owner) && (
                       <button
                         type="button"
                         className="remove-member-btn"

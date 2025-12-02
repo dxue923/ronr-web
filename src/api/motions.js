@@ -35,7 +35,18 @@ export async function fetchMotion(id) {
 }
 
 // POST a new motion
-export async function createMotion({ title, description = "", committeeId }) {
+export async function createMotion({
+  title,
+  description = "",
+  committeeId,
+  type,
+  parentMotionId,
+  meta,
+  createdBy,
+  createdById,
+  createdByName,
+  createdByUsername,
+}) {
   if (!title || !title.trim()) throw new Error("Motion title is required");
 
   const payload = {
@@ -43,6 +54,14 @@ export async function createMotion({ title, description = "", committeeId }) {
     description: description.trim(),
   };
   if (committeeId) payload.committeeId = committeeId;
+  if (type) payload.type = type;
+  if (parentMotionId) payload.parentMotionId = parentMotionId;
+  if (meta && typeof meta === "object") payload.meta = meta;
+  // Optional creator metadata pass-through
+  if (createdBy && typeof createdBy === "object") payload.createdBy = createdBy;
+  if (createdById) payload.createdById = createdById;
+  if (createdByName) payload.createdByName = createdByName;
+  if (createdByUsername) payload.createdByUsername = createdByUsername;
 
   const res = await fetch(BASE_URL, {
     method: "POST",
@@ -92,7 +111,7 @@ export async function updateMotionStatus(id, status) {
 }
 
 // PATCH: cast a vote on a motion
-export async function castMotionVote(id, vote) {
+export async function castMotionVote(id, vote, voterId) {
   if (!id) throw new Error("Motion id is required");
   if (!vote) throw new Error("Vote is required");
   const normalizedVote = String(vote).toLowerCase();
@@ -103,7 +122,7 @@ export async function castMotionVote(id, vote) {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ id, vote: normalizedVote }),
+    body: JSON.stringify({ id, vote: normalizedVote, voterId }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -113,6 +132,30 @@ export async function castMotionVote(id, vote) {
   return data; // updated motion
 }
 
+// PATCH: save decision details and/or meta updates
+export async function updateMotion(id, { status, decisionDetails, meta } = {}) {
+  if (!id) throw new Error("Motion id is required");
+  const body = { id };
+  if (status) body.status = status;
+  if (decisionDetails) body.decisionDetails = decisionDetails;
+  if (meta) body.meta = meta;
+
+  const res = await fetch(BASE_URL, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Failed to update motion: ${res.status}`);
+  }
+  return data;
+}
+
 // Optional default export
 const motionsApi = {
   fetchMotions,
@@ -120,6 +163,7 @@ const motionsApi = {
   createMotion,
   updateMotionStatus,
   castMotionVote,
+  updateMotion,
 };
 
 export default motionsApi;

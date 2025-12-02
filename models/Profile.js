@@ -15,8 +15,14 @@ const membershipSchema = new mongoose.Schema(
 
 const profileSchema = new mongoose.Schema({
   _id: String, // Auth0 user id: "google-oauth2|..."
-  username: String,
-  name: String,
+  username: {
+    type: String,
+    trim: true,
+  },
+  name: {
+    type: String,
+    trim: true,
+  },
   email: String,
   avatarUrl: String,
   memberships: {
@@ -24,6 +30,9 @@ const profileSchema = new mongoose.Schema({
     default: [],
   },
 });
+
+// Unique index for username (case sensitive by default). Use a separate migration step in production if needed.
+profileSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 export default mongoose.models.Profile ||
   mongoose.model("Profile", profileSchema);

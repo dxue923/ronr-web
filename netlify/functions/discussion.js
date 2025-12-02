@@ -1,31 +1,15 @@
 // netlify/functions/discussion.js
+// Handles discussion comments (list/create/delete). Uses shared mongoose connection helper.
 
-import mongoose from "mongoose";
 import Discussion from "../../models/Discussion.js";
 import Motion from "../../models/Motions.js";
+import { connectToDatabase } from "../../db/mongoose.js";
 
 const VALID_POSITIONS = ["pro", "con", "neutral"];
 
-let isConnected = false;
-
-async function connectToDatabase() {
-  if (isConnected) return;
-
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("MONGODB_URI is not set in environment variables");
-  }
-
-  await mongoose.connect(uri, {
-    dbName: process.env.MONGODB_DB || undefined,
-  });
-
-  isConnected = true;
-}
-
 function serializeComment(doc) {
   if (!doc) return null;
-  const obj = { ...doc };
+  const obj = doc.toObject ? doc.toObject({ versionKey: false }) : { ...doc };
   obj.id = obj._id;
   delete obj._id;
   return obj;
@@ -33,9 +17,21 @@ function serializeComment(doc) {
 
 export async function handler(event) {
   try {
-    await connectToDatabase();
+    try {
+      await connectToDatabase();
+    } catch (e) {
+      console.error("Discussion: DB connection failed", e);
+      return {
+        statusCode: 503,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "Database unavailable",
+          details: e.message || String(e),
+        }),
+      };
+    }
 
-    const method = event.httpMethod || "GET";
+    const method = (event.httpMethod || "GET").toUpperCase();
 
     // ---------- GET ----------
     if (method === "GET") {
@@ -43,6 +39,7 @@ export async function handler(event) {
       const commentId = params.id || null;
       const motionId = params.motionId || null;
 
+      // single comment
       if (commentId) {
         const comment = await Discussion.findById(commentId).lean();
         if (!comment) {
@@ -59,6 +56,7 @@ export async function handler(event) {
         };
       }
 
+      // all comments (optionally filtered by motion)
       const query = {};
       if (motionId) query.motionId = motionId;
 
@@ -76,12 +74,23 @@ export async function handler(event) {
 
     // ---------- POST ----------
     if (method === "POST") {
-      const body = JSON.parse(event.body || "{}");
+      let body = {};
+      try {
+        body = JSON.parse(event.body || "{}");
+      } catch {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Invalid JSON body" }),
+        };
+      }
 
       const motionId = String(body.motionId || "").trim();
       const authorId = String(body.authorId || body.author || "").trim();
       const text = String(body.text || "").trim();
-      let position = String(body.position || "").trim().toLowerCase();
+      let position = String(body.position || "")
+        .trim()
+        .toLowerCase();
 
       if (!motionId || !authorId || !text) {
         return {
@@ -93,13 +102,15 @@ export async function handler(event) {
         };
       }
 
-      // Ensure the motion exists
+      // Strictly enforce that the motion exists
       const motionExists = await Motion.findById(motionId).lean();
       if (!motionExists) {
         return {
           statusCode: 404,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: `Motion ${motionId} does not exist` }),
+          body: JSON.stringify({
+            error: `Motion ${motionId} does not exist`,
+          }),
         };
       }
 
@@ -117,8 +128,7 @@ export async function handler(event) {
         position,
       });
 
-      const plain = newCommentDoc.toObject({ versionKey: false });
-      const serialized = serializeComment(plain);
+      const serialized = serializeComment(newCommentDoc);
 
       return {
         statusCode: 201,
@@ -160,13 +170,14 @@ export async function handler(event) {
 
       // Case 2: delete all comments for a motion
       if (motionId) {
-        // Optional: ensure the motion exists first
         const motionExists = await Motion.findById(motionId).lean();
         if (!motionExists) {
           return {
             statusCode: 404,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ error: `Motion ${motionId} does not exist` }),
+            body: JSON.stringify({
+              error: `Motion ${motionId} does not exist`,
+            }),
           };
         }
 
@@ -184,15 +195,12 @@ export async function handler(event) {
         };
       }
 
-      // Case 3: delete ALL comments
-      const result = await Discussion.deleteMany({});
+      // No id or motionId -> treat as bad request (instead of nuking ALL)
       return {
-        statusCode: 200,
+        statusCode: 400,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          success: true,
-          scope: "all",
-          deletedCount: result.deletedCount || 0,
+          error: "id or motionId is required to delete comments",
         }),
       };
     }
@@ -210,7 +218,7 @@ export async function handler(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         error: "Failed to process discussion",
-        details: err.message,
+        details: err.message || String(err),
       }),
     };
   }
