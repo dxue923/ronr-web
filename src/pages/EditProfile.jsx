@@ -47,9 +47,15 @@ export default function EditProfile() {
 
       setLoading(true);
       try {
-        const token = await getAccessTokenSilently().catch(() => null);
+        const token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          },
+        }).catch(() => null);
+
         if (!token) throw new Error("Unable to get auth token");
         const profile = await fetchProfile(token);
+
         if (cancelled) return;
         setFormData({
           name: profile.name || profile.username || "",
@@ -151,13 +157,19 @@ export default function EditProfile() {
 
     setSaving(true);
     try {
-      const token = await getAccessTokenSilently().catch(() => null);
+      const token = await getAccessTokenSilently({
+        authorizationParams: {
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+        },
+      }).catch(() => null);
+
       if (!token) throw new Error("Missing auth token");
       const updated = await updateProfile(token, {
         name: payload.name,
         username: payload.username,
         avatarUrl: payload.avatarUrl,
       });
+
       setFormData((prev) => ({
         ...prev,
         name: updated.name || prev.name,
