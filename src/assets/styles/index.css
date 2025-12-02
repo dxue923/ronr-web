@@ -365,6 +365,17 @@ START NEW CHAT PAGE CSS
   flex-shrink: 0;
 }
 
+/* Small variant for icon buttons */
+.primary-icon-btn.small {
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* meeting toggle styles removed */
 
 /* motions list */
@@ -372,6 +383,58 @@ START NEW CHAT PAGE CSS
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* Motion section header layout: space between title and actions */
+.motions-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* Utility spacing */
+.mt-8 {
+  margin-top: 8px;
+}
+.mt-12 {
+  margin-top: 12px;
+}
+.mb-6 {
+  margin-bottom: 6px;
+}
+.mb-8 {
+  margin-bottom: 8px;
+}
+
+/* Text helpers */
+.text-muted {
+  color: #6b7280;
+}
+.text-muted-small {
+  color: #374151;
+  font-size: 0.9rem;
+}
+.text-right {
+  text-align: right;
+}
+
+/* Layout helpers */
+.center-flex {
+  display: flex;
+  justify-content: center;
+}
+
+/* Outcome options wrapping */
+.outcome-wrap {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Modal note variant */
+.modal-note-muted {
+  font-size: 0.85rem;
+  color: #4b5563;
 }
 
 /* left column now scrolls; let list expand naturally */
@@ -1363,10 +1426,10 @@ START NEW CHAT PAGE CSS
 }
 
 .send-btn {
-  width: 40px;
-  height: 40px; /* fixed square so button remains circular */
-  min-width: 40px;
-  min-height: 40px;
+  width: 30px;
+  height: 30px; /* fixed square so button remains circular */
+  min-width: 30px;
+  min-height: 30px;
   border: none;
   border-radius: 50%; /* always circular */
   background: #2358bb;
