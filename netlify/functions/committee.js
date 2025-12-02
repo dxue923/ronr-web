@@ -3,8 +3,11 @@
 
 import { connectToDatabase } from "../../db/mongoose.js";
 import Committee from "../../models/Committee.js";
-import Motion from "../../models/Motions.js";       // motions to cascade delete
+import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // NEW: to delete related discussions
+
+console.log("Committee typeof:", typeof Committee);
+console.log("Committee keys:", Committee && Object.keys(Committee));
 
 // Convert Mongo document to client shape (id instead of _id)
 function toClient(doc) {
