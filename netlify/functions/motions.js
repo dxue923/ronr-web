@@ -417,9 +417,21 @@ export async function handler(event) {
             }),
           };
         }
-        // allow minimal validation
+        // compute supermajority lock from current votes (yes/no)
+        const votes = motionDoc.votes || { yes: 0, no: 0, abstain: 0 };
+        const yes = Number(votes.yes || 0);
+        const no = Number(votes.no || 0);
+        const totalYN = yes + no;
+        const yesRatio = totalYN ? yes / totalYN : 0;
+        const noRatio = totalYN ? no / totalYN : 0;
+        let lockedOutcome;
+        if (yesRatio >= 2 / 3) lockedOutcome = "Passed";
+        else if (noRatio >= 2 / 3) lockedOutcome = "Failed";
+
+        // allow minimal validation, but override with lockedOutcome when present
         motionDoc.decisionDetails = {
           outcome:
+            lockedOutcome ||
             body.decisionDetails.outcome ||
             motionDoc.decisionDetails?.outcome ||
             undefined,

@@ -1888,7 +1888,7 @@ export default function Chat() {
   // handle user voting (everyone can vote while motion is in 'voting')
   const handleVote = async (choice) => {
     if (!activeMotion || activeMotion.state !== "voting") return;
-    if (meetingRecessed || activeMotion.state === "referred") return;
+    if (activeMotion.state === "referred") return;
     try {
       const updatedDoc = await castMotionVote(activeMotion.id, choice, me.id);
       // reflect aggregate counts in UI while keeping local per-user record for isMine checks
@@ -1901,10 +1901,11 @@ export default function Chat() {
             voterId: me.id,
             choice: String(choice).toLowerCase(),
           });
+          const nextTally = updatedDoc.votes || computeTally(filtered);
           return {
             ...m,
             votes: filtered,
-            tally: updatedDoc.votes || { yes: 0, no: 0, abstain: 0 },
+            tally: nextTally,
           };
         })
       );
@@ -4126,6 +4127,11 @@ export default function Chat() {
                     )?.choice;
                     const votingOpen =
                       activeMotion?.state === "voting" && !meetingRecessed;
+                    const votingBlockedReason = meetingRecessed
+                      ? "Meeting recessed"
+                      : activeMotion?.state !== "voting"
+                      ? "Voting closed"
+                      : null;
                     const closed = activeMotion?.state === "closed";
                     return (
                       <>
@@ -4137,9 +4143,13 @@ export default function Chat() {
                               (myVote === "yes" ? "is-active" : "")
                             }
                             onClick={() => handleVote("yes")}
-                            disabled={!votingOpen}
+                            disabled={!!votingBlockedReason}
                             aria-pressed={myVote === "yes"}
-                            title={votingOpen ? "Vote Yes" : "Voting closed"}
+                            title={
+                              votingOpen
+                                ? "Vote Yes"
+                                : votingBlockedReason || "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">{tally.yes}</div>
                             <div className="vote-tally-label">Yes</div>
@@ -4152,9 +4162,13 @@ export default function Chat() {
                               (myVote === "no" ? "is-active" : "")
                             }
                             onClick={() => handleVote("no")}
-                            disabled={!votingOpen}
+                            disabled={!!votingBlockedReason}
                             aria-pressed={myVote === "no"}
-                            title={votingOpen ? "Vote No" : "Voting closed"}
+                            title={
+                              votingOpen
+                                ? "Vote No"
+                                : votingBlockedReason || "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">{tally.no}</div>
                             <div className="vote-tally-label">No</div>
@@ -4167,9 +4181,13 @@ export default function Chat() {
                               (myVote === "abstain" ? "is-active" : "")
                             }
                             onClick={() => handleVote("abstain")}
-                            disabled={!votingOpen}
+                            disabled={!!votingBlockedReason}
                             aria-pressed={myVote === "abstain"}
-                            title={votingOpen ? "Abstain" : "Voting closed"}
+                            title={
+                              votingOpen
+                                ? "Abstain"
+                                : votingBlockedReason || "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">
                               {tally.abstain}
@@ -4744,29 +4762,59 @@ export default function Chat() {
                           onSubmit={handleSaveEditedDecision}
                         >
                           <label className="decision-label">Outcome</label>
-                          <div
-                            className="outcome-options"
-                            role="radiogroup"
-                            aria-label="Outcome options"
-                          >
-                            {["Passed", "Failed", "Referred"].map((opt) => {
-                              const variant = opt.toLowerCase();
-                              const active = editDecisionOutcome === opt;
+                          {(() => {
+                            const votes = activeMotion?.votes || [];
+                            const tally =
+                              activeMotion?.tally || computeTally(votes);
+                            const total = (tally.yes || 0) + (tally.no || 0);
+                            const yesRatio = total
+                              ? (tally.yes || 0) / total
+                              : 0;
+                            const noRatio = total ? (tally.no || 0) / total : 0;
+                            const superYes = yesRatio >= 2 / 3;
+                            const superNo = noRatio >= 2 / 3;
+                            if (superYes || superNo) {
+                              const locked = superYes ? "Passed" : "Failed";
                               return (
-                                <button
-                                  key={opt}
-                                  type="button"
-                                  className={`outcome-pill ${variant}${
-                                    active ? " is-active" : ""
-                                  }`}
-                                  onClick={() => setEditDecisionOutcome(opt)}
-                                  aria-pressed={active}
-                                >
-                                  {opt}
-                                </button>
+                                <div className="final-outcome-row">
+                                  <div className="final-outcome">
+                                    <span
+                                      className={`outcome-pill ${locked.toLowerCase()} is-active`}
+                                    >
+                                      {locked}
+                                    </span>
+                                  </div>
+                                </div>
                               );
-                            })}
-                          </div>
+                            }
+                            return (
+                              <div
+                                className="outcome-options"
+                                role="radiogroup"
+                                aria-label="Outcome options"
+                              >
+                                {["Passed", "Failed", "Referred"].map((opt) => {
+                                  const variant = opt.toLowerCase();
+                                  const active = editDecisionOutcome === opt;
+                                  return (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      className={`outcome-pill ${variant}${
+                                        active ? " is-active" : ""
+                                      }`}
+                                      onClick={() =>
+                                        setEditDecisionOutcome(opt)
+                                      }
+                                      aria-pressed={active}
+                                    >
+                                      {opt}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
 
                           <label className="decision-label">Summary</label>
                           <textarea
@@ -4994,29 +5042,55 @@ export default function Chat() {
                         onSubmit={handleSaveDecisionSummary}
                       >
                         <label className="decision-label">Outcome</label>
-                        <div
-                          className="outcome-options"
-                          role="radiogroup"
-                          aria-label="Outcome options"
-                        >
-                          {["Passed", "Failed", "Referred"].map((opt) => {
-                            const variant = opt.toLowerCase();
-                            const active = decisionOutcome === opt;
+                        {(() => {
+                          const votes = activeMotion?.votes || [];
+                          const tally =
+                            activeMotion?.tally || computeTally(votes);
+                          const total = (tally.yes || 0) + (tally.no || 0);
+                          const yesRatio = total ? (tally.yes || 0) / total : 0;
+                          const noRatio = total ? (tally.no || 0) / total : 0;
+                          const superYes = yesRatio >= 2 / 3;
+                          const superNo = noRatio >= 2 / 3;
+                          if (superYes || superNo) {
+                            const locked = superYes ? "Passed" : "Failed";
                             return (
-                              <button
-                                key={opt}
-                                type="button"
-                                className={`outcome-pill ${variant}${
-                                  active ? " is-active" : ""
-                                }`}
-                                onClick={() => setDecisionOutcome(opt)}
-                                aria-pressed={active}
-                              >
-                                {opt}
-                              </button>
+                              <div className="final-outcome-row">
+                                <div className="final-outcome">
+                                  <span
+                                    className={`outcome-pill ${locked.toLowerCase()} is-active`}
+                                  >
+                                    {locked}
+                                  </span>
+                                </div>
+                              </div>
                             );
-                          })}
-                        </div>
+                          }
+                          return (
+                            <div
+                              className="outcome-options"
+                              role="radiogroup"
+                              aria-label="Outcome options"
+                            >
+                              {["Passed", "Failed", "Referred"].map((opt) => {
+                                const variant = opt.toLowerCase();
+                                const active = decisionOutcome === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    className={`outcome-pill ${variant}${
+                                      active ? " is-active" : ""
+                                    }`}
+                                    onClick={() => setDecisionOutcome(opt)}
+                                    aria-pressed={active}
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
 
                         <label className="decision-label">Summary</label>
                         <textarea
