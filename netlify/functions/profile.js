@@ -27,14 +27,33 @@ function getKey(header, callback) {
 
 // Decode token in dev, verify in prod
 function getClaims(authHeader = "") {
-  if (!authHeader.startsWith("Bearer ")) {
+  // In local/dev, allow missing auth and generate a dev user
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
+      return Promise.resolve({
+        sub: "dev-user",
+        email: "",
+        name: "Dev User",
+        nickname: "dev",
+        picture: "",
+      });
+    }
     throw new Error("Invalid Authorization header");
   }
   const token = authHeader.slice(7);
 
   if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
+    // In local/dev mode allow non-JWT (opaque) tokens gracefully.
     const decoded = jwt.decode(token);
-    if (!decoded) throw new Error("Could not decode token");
+    if (!decoded) {
+      return Promise.resolve({
+        sub: "dev-user",
+        email: "",
+        name: "Dev User",
+        nickname: "dev",
+        picture: "",
+      });
+    }
     return Promise.resolve(decoded);
   }
 
@@ -118,7 +137,6 @@ export async function handler(event) {
     // ------------ GET ------------
     if (event.httpMethod === "GET") {
       const clientProfile = toClient(profileDoc);
-
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
@@ -130,15 +148,35 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
 
-      if (typeof body.username === "string") profileDoc.username = body.username;
-      if (typeof body.name === "string") profileDoc.name = body.name;
-      if (typeof body.avatarUrl === "string")
-        profileDoc.avatarUrl = body.avatarUrl;
+      // Normalize + trim incoming editable fields
+      const incomingUsername =
+        typeof body.username === "string" ? body.username.trim() : undefined;
+      const incomingName =
+        typeof body.name === "string" ? body.name.trim() : undefined;
+      const incomingAvatar =
+        typeof body.avatarUrl === "string" ? body.avatarUrl : undefined;
 
-      await profileDoc.save();
+      if (incomingUsername) profileDoc.username = incomingUsername;
+      if (incomingName) profileDoc.name = incomingName;
+      if (incomingAvatar !== undefined) profileDoc.avatarUrl = incomingAvatar;
+
+      try {
+        await profileDoc.save();
+      } catch (saveErr) {
+        if (saveErr && saveErr.code === 11000) {
+          return {
+            statusCode: 409,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Conflict",
+              message: "Username already taken",
+            }),
+          };
+        }
+        throw saveErr;
+      }
 
       const clientProfile = toClient(profileDoc);
-
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },

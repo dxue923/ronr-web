@@ -303,9 +303,6 @@ START NEW CHAT PAGE CSS
   margin-left: 70px;
   width: calc(100% - 70px);
 }
-
-/* On very wide screens, allow a bit more room for the left rail
-   while ensuring the discussion stays dominant with a larger minimum */
 @media (min-width: 1600px) {
   .discussion-shell {
     grid-template-columns: clamp(260px, 18vw, 420px) minmax(900px, 1fr) 300px;
@@ -368,46 +365,7 @@ START NEW CHAT PAGE CSS
   flex-shrink: 0;
 }
 
-/* Meeting toggle button that flips between Start and End */
-.btn-meeting-toggle {
-  border: 1px solid #d6def0;
-  background: #f7f9ff;
-  color: #1c3874;
-  border-radius: 9px;
-  padding: 6px 10px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease,
-    transform 140ms ease, box-shadow 140ms ease, opacity 180ms ease;
-}
-.btn-meeting-toggle:hover {
-  background: #eaf0ff;
-}
-.btn-meeting-toggle.is-ending {
-  background: #fff1f2;
-  color: #991b1b;
-  border-color: rgba(220, 38, 38, 0.2);
-}
-.btn-meeting-toggle.is-ending:hover {
-  background: #fee2e2;
-}
-.btn-meeting-toggle.is-starting {
-  background: #eaf0ff;
-  color: #1c3874;
-}
-.btn-meeting-toggle.flip-anim {
-  animation: flipFade 220ms ease;
-}
-@keyframes flipFade {
-  from {
-    opacity: 0.1;
-    transform: translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* meeting toggle styles removed */
 
 /* motions list */
 .motion-list {
@@ -424,10 +382,6 @@ START NEW CHAT PAGE CSS
 }
 
 .motion-list-item {
-  /* Fixed card height so all motion cards show the same size.
-     Layout uses column direction so the action row can sit below
-     the title/status. Buttons are anchored to the bottom via
-     `margin-top: auto` on the action row. */
   background: #f7f9ff;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -438,15 +392,13 @@ START NEW CHAT PAGE CSS
   flex-direction: column; /* title at top, actions anchored to bottom */
   gap: 0.375rem;
   transition: 0.12s ease-in-out;
-  overflow: visible; /* allow cards to expand to show full content */
-  position: relative; /* enable absolute-positioned edit icon */
+  overflow: visible;
+  position: relative;
 }
 
 .motion-list-item:hover {
   border-color: #d6def0;
 }
-
-/* Show pointer on hover so users know the card is clickable */
 .motion-list-item:hover {
   cursor: pointer;
 }
@@ -456,7 +408,6 @@ START NEW CHAT PAGE CSS
   border-color: #2358bb;
 }
 
-/* Manage action buttons for motions (Edit / Delete) */
 .motion-action-row {
   display: flex;
   gap: 8px;
@@ -468,8 +419,6 @@ START NEW CHAT PAGE CSS
   justify-content: flex-end; /* keep buttons right-aligned */
   padding-top: 6px;
 }
-
-/* Hover-only edit icon inside the motion card for managers */
 .motion-edit-icon {
   position: absolute;
   top: 6px;
@@ -498,7 +447,6 @@ START NEW CHAT PAGE CSS
 .motion-edit-icon:focus {
   opacity: 1;
 }
-/* Kebab manage icon shown on hover for each motion card */
 .motion-kebab {
   position: absolute;
   top: 2px;
@@ -555,15 +503,15 @@ START NEW CHAT PAGE CSS
 }
 .motion-action-row.manage-internal {
   display: flex;
-  gap: 6px; /* smaller gap */
+  gap: 6px;
   align-items: center;
-  justify-content: flex-end; /* keep buttons right-aligned within their area */
+  justify-content: flex-end;
   padding-top: 6px;
   padding-right: 12px; /* nudge left from the edge */
 }
 .motion-action-row.manage-internal .motion-action-btn {
-  padding: 4px 8px; /* smaller footprint */
-  font-size: 0.72rem; /* slightly smaller text */
+  padding: 4px 8px;
+  font-size: 0.72rem;
   border-radius: 6px;
   min-width: 48px;
 }
@@ -574,7 +522,6 @@ START NEW CHAT PAGE CSS
   gap: 6px;
 }
 
-/* Divider between root motion sections (parents). Applied only to parent rows except the first in each section */
 .motion-list-row.motion-root-divider {
   border-top: 1px solid #dfe5ee;
   padding-top: 6px;
@@ -808,27 +755,35 @@ START NEW CHAT PAGE CSS
   flex-wrap: nowrap;
 }
 .participant-add-row input {
-  flex: 1 1 140px;
+  flex: 1 1 160px;
   min-width: 0;
   max-width: 65%;
+  height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #cdd3de;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 0.9rem;
 }
 .member-role-select {
   flex: 0 0 auto;
-  height: 32px;
-  padding: 6px 8px;
+  height: 36px;
+  padding: 8px 10px;
   border: 1px solid #cdd3de;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #ffffff;
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   color: #111827;
 }
 .add-member-btn {
   background: #f7f9ff;
   border: 1px solid #d6def0;
   color: #1c3874;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 5px 9px; /* slightly smaller */
+  height: 30px; /* slightly smaller */
+  border-radius: 8px; /* slightly smaller */
   cursor: pointer;
+  font-weight: 600;
 }
 .add-member-btn:hover {
   background: #e4ebff;
@@ -881,10 +836,10 @@ START NEW CHAT PAGE CSS
   background: none;
   border: none;
   color: #6b7280;
-  font-size: 18px;
+  font-size: 16px; /* slightly smaller */
   line-height: 1;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 4px 6px; /* slightly smaller */
   position: static; /* keep in flow so flex ordering can place it */
 }
 /* style manage (⋮) toggle as borderless inline control inside the panel */
@@ -892,12 +847,24 @@ START NEW CHAT PAGE CSS
   background: none;
   border: none;
   color: #6b7280;
-  font-size: 16px;
+  font-size: 15px; /* slightly smaller */
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 1px 3px; /* slightly smaller */
+  display: inline-flex; /* ensure consistent layout across sizes */
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 .participants-toggle-btn:hover {
   color: #374151;
+}
+
+/* Ensure the pencil icon scales consistently across breakpoints */
+.participants-toggle-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block; /* prevent inline whitespace collapse issues */
+  fill: currentColor; /* ensure it inherits the button color */
 }
 
 .member-list-body.collapsed {
@@ -1176,7 +1143,7 @@ START NEW CHAT PAGE CSS
 /* message wrapper */
 /* container for each message */
 .message-row {
-  display: flex;
+  display: inline-flex; /* shrink-wrap around content */
   flex-direction: column;
   gap: 0.25rem;
   max-width: 78%;
@@ -1329,12 +1296,19 @@ START NEW CHAT PAGE CSS
   padding: 0.4rem 0.85rem;
   font-size: 0.8rem;
   line-height: 1.3;
-  max-width: 100%;
+  max-width: 60ch;
+  display: inline-block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: top;
+  width: fit-content; /* shrink to content width */
 }
 
 .message-row.mine .message-bubble {
   background: #2358bb;
   color: #fff;
+  display: inline-block;
+  width: fit-content;
 }
 
 /* time */
@@ -1355,8 +1329,6 @@ START NEW CHAT PAGE CSS
   justify-content: center; /* center composer horizontally within the main column */
 }
 
-/* Ensure composer stays on top of any floating decision panels so it remains
-   interactable when final-decision or overlays are shown */
 .discussion-composer {
   position: relative;
   z-index: 1700;
@@ -1371,10 +1343,6 @@ START NEW CHAT PAGE CSS
   padding: 0.4rem 0.6rem;
   font-size: 0.8rem;
 }
-
-/* Nudge the visible composer controls slightly to the right while keeping
-   the entire composer centered. This affects the input, stance controls,
-   and send button so they appear grouped and shifted a bit to the right. */
 .discussion-composer > * {
   transform: translateX(8px);
   transition: transform 140ms ease;
@@ -1685,10 +1653,6 @@ START NEW CHAT PAGE CSS
   opacity: 1;
   pointer-events: auto;
 }
-
-/* Position the toggle absolutely for parent (non-sub) motions so the title
-   can sit flush left by default. When the parent is hovered/focused the
-   title receives left padding to make room for the toggle. */
 .motion-list-item:not(.motion-sub) {
   position: relative;
 }
@@ -1713,16 +1677,11 @@ START NEW CHAT PAGE CSS
   padding-left: 0; /* keep title flush left by default */
   transition: padding-left 150ms ease-in-out;
 }
-
-/* Only shift title when the parent motion actually has submotions (toggle will appear)
-   so motions without submotions do not get extra hover margin. */
 .motion-list-item:not(.motion-sub).has-submotions:hover .motion-row-content,
 .motion-list-item:not(.motion-sub).has-submotions:focus-within
   .motion-row-content {
   padding-left: 36px; /* make room for the visible toggle */
 }
-
-/* Submotion label shown inline in motion list */
 .motion-sub-label {
   display: flex;
   flex-direction: column;
@@ -1742,8 +1701,6 @@ START NEW CHAT PAGE CSS
   color: #6b7280;
   margin-top: 4px;
 }
-
-/* Slight indentation for submotions to convey hierarchy */
 .motion-list-item.motion-sub {
   position: relative;
   padding-left: 18px; /* leave space for the caret */
@@ -1756,8 +1713,6 @@ START NEW CHAT PAGE CSS
   color: #6b7280;
   font-size: 14px;
 }
-
-/* Left vertical indicator for parent motions that have submotions */
 .motion-list-item:not(.motion-sub).has-submotions::before {
   content: "";
   position: absolute;
@@ -1830,8 +1785,6 @@ START NEW CHAT PAGE CSS
   gap: 1rem;
   min-height: 0;
 }
-
-/* make the top chair-controls panel share vertical space with motions list */
 .chair-controls {
   /* On wide screens, keep to content height to avoid excess whitespace */
   flex: 0 0 auto;
@@ -1847,7 +1800,6 @@ START NEW CHAT PAGE CSS
   border: 1px solid #e6e9ef;
   padding: 0.85rem;
 }
-/* When final decision summary is being shown (not editing), render without a bordered panel */
 .panel.panel--no-border {
   background: transparent;
   border: none;
@@ -1937,8 +1889,6 @@ START NEW CHAT PAGE CSS
 /* Final decision overlay: prominent focus panel inside discussion */
 .discussion-main.final-decision-active .discussion-thread,
 .discussion-main.final-decision-active .vote-tally-panel {
-  /* Positioning for the final-decision layout is handled in JS so avoid
-     applying a hardcoded transform here which doesn't adapt to content height. */
   transform: none;
   transition: none;
 }
@@ -1948,9 +1898,6 @@ START NEW CHAT PAGE CSS
   transition: margin-top 200ms ease, transform 200ms ease;
 }
 .discussion-main.voting-active .discussion-thread {
-  /* Nudge the comments down slightly so they sit below floating UI
-     elements (tally / decision box) during voting. Increase bottom
-     padding so composer remains clear of overlays. */
   transform: translateY(12px);
   transition: transform 200ms ease;
   padding-bottom: 100px;
@@ -2794,24 +2741,15 @@ START NEW CHAT PAGE CSS
     order: 3;
   }
 }
-
-/* ultra slim layout: keep discussion on the right and stack chair-controls above motions on the left */
 @media (max-width: 1199px) {
   .discussion-shell {
     display: grid;
-    /* left column is the stacked side panels, right column is the discussion area
-     ensure the discussion column is never smaller than the left column */
     grid-template-columns: 240px minmax(200px, 1fr);
     grid-template-rows: 1fr; /* full-height single row */
     gap: 0.85rem;
     height: calc(100vh - 2rem);
     overflow: hidden;
   }
-
-  /* place the right-side container in the left/top cell (will contain chair-controls)
-     and the motions (discussion-left) in the left/bottom cell; the main discussion
-     spans both rows on the right column so it always has the full height */
-  /* On split screen, right panel occupies the right column full height */
   .discussion-right {
     grid-column: 2;
     grid-row: 1;
@@ -2846,7 +2784,6 @@ START NEW CHAT PAGE CSS
     overflow: hidden;
   }
 
-  /* make the top left (chair controls) fill its cell and scroll internally */
   .discussion-right > .panel:first-child,
   .discussion-right .chair-controls {
     flex: 1 1 auto;
@@ -2895,11 +2832,6 @@ START NEW CHAT PAGE CSS
   .motion-list-item {
     padding: 0.4rem 0.5rem; /* compact motion card padding */
   }
-
-  /* Ensure participants header matches Motions header on split screens
-     - same font size and line-height
-     - controls (collapse + manage) align vertically with motions controls
-     - consistent button sizing and spacing */
   .discussion-left .member-list-header {
     display: flex !important;
     align-items: center !important;
@@ -2914,7 +2846,7 @@ START NEW CHAT PAGE CSS
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
-    font-size: 0.85rem !important;
+    font-size: 1rem !important;
     line-height: 1 !important;
     margin: 0 !important;
   }
@@ -2950,15 +2882,27 @@ START NEW CHAT PAGE CSS
     width: 34px !important;
     height: 34px !important;
     border-radius: 8px !important;
-    border: 1px solid #e6e9ef !important;
-    background: #ffffff !important;
+    border: none;
     box-shadow: none !important;
-    color: #374151 !important;
+    color: #6b7280 !important;
     display: inline-grid !important;
     place-items: center !important;
   }
-  /* keep the collapse triangle compact but vertically centered */
-  .discussion-left .participants-collapse-toggle,
+
+  .discussion-left .participants-toggle-btn {
+    color: #374151 !important;
+  }
+  p
+    the
+    collapse
+    triangle
+    compact
+    but
+    vertically
+    centered
+    */
+    .discussion-left
+    .participants-collapse-toggle,
   .discussion-left .motions-collapse-toggle {
     background: transparent !important;
     border: none !important;
@@ -2971,8 +2915,6 @@ START NEW CHAT PAGE CSS
     max-height: none;
     overflow-y: auto;
   }
-  /* Center the welcome text on split (stacked) layouts so the header and
-     paragraphs align and read clearly when the left panel is present. */
   .empty-panel-message {
     text-align: center;
     align-items: center;
@@ -4072,7 +4014,6 @@ label[for="myCheckbox"] {
 @media (max-width: 768px) {
   .edit-profile-page {
     padding: 24px 16px;
-    /* remove left offset on smaller screens to avoid horizontal scroll */
     margin-left: 0;
     width: 100%;
   }
@@ -4151,17 +4092,12 @@ label[for="myCheckbox"] {
 .discussion-left-content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto; /* scrolling happens strictly below the header */
-  /* Keep content clear of the scrollbar on all platforms */
+  overflow: auto;
   scrollbar-gutter: stable; /* reserve space for the scrollbar */
-  padding-right: 0.75rem; /* extra breathing room so content isn't covered */
-
-  /* Firefox scrollbar color: light grey thumb on transparent track */
+  padding-right: 0.75rem;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
-
-/* WebKit scrollbar: lighter grey, rounded thumb, right-aligned */
 .discussion-left-content::-webkit-scrollbar {
   width: 10px;
 }
@@ -4175,7 +4111,6 @@ label[for="myCheckbox"] {
 .discussion-left-content:hover::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.28); /* slightly darker on hover for visibility */
 }
-/* Avoid nested scrolling in lists within the left column */
 .discussion-left .motion-list-body {
   overflow: visible;
 }
