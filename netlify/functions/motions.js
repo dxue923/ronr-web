@@ -1,10 +1,54 @@
 // netlify/functions/motions.js
 // Serverless function for managing committee motions (GET all, GET one, POST new, PATCH update, DELETE)
 
-import mongoose from "mongoose";
+import { connectToDatabase } from "../../db/mongoose.js";
 import Motion from "../../models/Motions.js";
 import Committee from "../../models/Committee.js";
-import Discussion from "../../models/Discussion.js"; // <-- NEW: for cascading deletes
+import Discussion from "../../models/Discussion.js"; // for cascading deletes
+import jwt from "jsonwebtoken";
+
+const DOMAIN = process.env.AUTH0_DOMAIN;
+const AUDIENCE = process.env.AUTH0_AUDIENCE;
+const IS_DEV = process.env.NETLIFY_DEV === "true";
+
+function decodeAuth(authHeader = "") {
+  if (!authHeader.startsWith("Bearer ")) {
+    if (IS_DEV) {
+      return { sub: "dev-user", nickname: "dev", name: "Dev User" };
+    }
+    throw new Error("Missing Bearer token");
+  }
+  const token = authHeader.slice(7);
+  try {
+    const decoded = jwt.decode(token) || {};
+    return decoded || {};
+  } catch {
+    if (IS_DEV) return { sub: "dev-user", nickname: "dev" };
+    throw new Error("Invalid token");
+  }
+}
+
+function usernameFromClaims(c = {}) {
+  return (
+    c.nickname ||
+    c.preferred_username ||
+    c.name ||
+    c.email ||
+    c.sub ||
+    "user"
+  ).toString();
+}
+
+async function getRoleForCommittee(committeeId, username) {
+  if (!committeeId || !username) return null;
+  const committee = await Committee.findById(committeeId).lean();
+  if (!committee) return null;
+  const uLower = username.toLowerCase();
+  const member = (committee.members || []).find(
+    (m) => (m.username || "").toLowerCase() === uLower
+  );
+  return member ? member.role : null;
+}
 
 // New canonical status list
 const VALID_STATUSES = [
@@ -18,22 +62,7 @@ const VALID_STATUSES = [
   "closed",
 ];
 
-let isConnected = false;
-
-async function connectToDatabase() {
-  if (isConnected) return;
-
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("MONGODB_URI is not set in environment variables");
-  }
-
-  await mongoose.connect(uri, {
-    dbName: process.env.MONGODB_DB || undefined,
-  });
-
-  isConnected = true;
-}
+// Use shared DB connector that loads .env.local and reuses connections
 
 function normalizeMotion(motion) {
   if (!motion) return motion;
@@ -67,6 +96,8 @@ function serializeMotion(doc) {
   const obj = { ...doc }; // doc is plain object from .lean() or toObject
   obj.id = obj._id;
   delete obj._id;
+  // Provide `name` alias for clients expecting that field
+  if (obj.title && !obj.name) obj.name = obj.title;
   return normalizeMotion(obj);
 }
 
@@ -75,6 +106,22 @@ export async function handler(event) {
     await connectToDatabase();
 
     const method = event.httpMethod || "GET";
+    const authHeader =
+      event.headers?.authorization || event.headers?.Authorization || "";
+    let claims = {};
+    try {
+      claims = decodeAuth(authHeader);
+    } catch (e) {
+      // For GET allow unauthenticated listing; for mutating ops deny.
+      if (method !== "GET") {
+        return {
+          statusCode: 401,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Unauthorized", message: e.message }),
+        };
+      }
+    }
+    const actorUsername = usernameFromClaims(claims).trim();
 
     // ---------- GET ----------
     if (method === "GET") {
@@ -117,9 +164,20 @@ export async function handler(event) {
     // ---------- POST: create new motion ----------
     if (method === "POST") {
       const body = JSON.parse(event.body || "{}");
-      const title = String(body.title ?? "").trim();
+      // allow clients to send either `title` or `name`
+      const title = String(body.title ?? body.name ?? "").trim();
       const description = String(body.description ?? "").trim();
       const committeeId = String(body.committeeId || "").trim();
+      // optional submotion fields
+      const type = body.type === "submotion" ? "submotion" : "main";
+      const parentMotionId = body.parentMotionId
+        ? String(body.parentMotionId).trim()
+        : null;
+      // optional meta (allow passing structured info for postpone/refer/revision/overturn etc.)
+      const meta =
+        body.meta && typeof body.meta === "object"
+          ? { ...body.meta }
+          : undefined;
 
       if (!title) {
         return {
@@ -139,6 +197,17 @@ export async function handler(event) {
         };
       }
 
+      // Validate submotion requirements when creating a submotion
+      if (type === "submotion" && !parentMotionId) {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            error: "parentMotionId is required when type is submotion",
+          }),
+        };
+      }
+
       // verify the committee actually exists
       const committee = await Committee.findById(committeeId).lean();
       if (!committee) {
@@ -151,7 +220,54 @@ export async function handler(event) {
         };
       }
 
+      // Authorization: allow members/chair/owner; auto-add unknown actor as member (skip observers check)
+      let role = await getRoleForCommittee(committeeId, actorUsername);
+      if (!role) {
+        // Auto-add actor as a member for permissive creation
+        try {
+          await Committee.findByIdAndUpdate(committeeId, {
+            $push: {
+              members: {
+                username: actorUsername,
+                name: actorUsername,
+                role: "member",
+                avatarUrl: "",
+              },
+            },
+          });
+          role = "member";
+        } catch (e) {
+          // If auto-add fails, still proceed without blocking motion creation
+          role = "member";
+        }
+      }
+      // If role explicitly observer, upgrade to member for creation permissiveness
+      if (role === "observer") {
+        role = "member";
+      }
+
       const motionId = Date.now().toString();
+
+      // Optional creator information from client
+      const createdBy =
+        (body.createdBy && typeof body.createdBy === "object"
+          ? body.createdBy
+          : null) || {};
+      const createdById = String(
+        body.createdById || createdBy.id || createdBy.sub || ""
+      ).trim();
+      const createdByName = String(
+        body.createdByName || createdBy.name || createdBy.username || ""
+      ).trim();
+      const createdByUsername = String(
+        body.createdByUsername || createdBy.username || createdBy.nickname || ""
+      ).trim();
+      const createdByAvatarUrl = String(
+        body.createdByAvatarUrl ||
+          createdBy.avatarUrl ||
+          createdBy.picture ||
+          ""
+      ).trim();
 
       const newMotionDoc = await Motion.create({
         _id: motionId,
@@ -160,6 +276,14 @@ export async function handler(event) {
         description,
         status: "in-progress",
         votes: { yes: 0, no: 0, abstain: 0 },
+        type,
+        parentMotionId: type === "submotion" ? parentMotionId : null,
+        meta: meta,
+        createdById,
+        createdByName,
+        createdByUsername,
+        createdByAvatarUrl,
+        createdAt: new Date().toISOString(),
       });
 
       const plain = newMotionDoc.toObject({ versionKey: false });
@@ -172,7 +296,7 @@ export async function handler(event) {
       };
     }
 
-    // ---------- PATCH: update status and/or vote ----------
+    // ---------- PATCH: update status and/or vote, decision details, meta ----------
     if (method === "PATCH") {
       const body = JSON.parse(event.body || "{}");
       const id = String(body.id || "").trim();
@@ -207,7 +331,14 @@ export async function handler(event) {
         motionDoc.votes = { yes: 0, no: 0, abstain: 0 };
       }
 
-      // Update status if provided
+      // Authorization: determine committee of motion first for role checks
+      const motionCommitteeId = motionDoc.committeeId;
+      const role = await getRoleForCommittee(motionCommitteeId, actorUsername);
+      const isOwner = role === "owner";
+      const isChair = role === "chair";
+      const isMember = role === "member";
+
+      // Update status if provided (chair/owner only)
       if (body.status) {
         const newStatus = String(body.status).trim();
         if (!VALID_STATUSES.includes(newStatus)) {
@@ -221,10 +352,20 @@ export async function handler(event) {
             }),
           };
         }
+        if (!(isOwner || isChair)) {
+          return {
+            statusCode: 403,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Forbidden",
+              message: "Only chair or owner can change status",
+            }),
+          };
+        }
         motionDoc.status = newStatus;
       }
 
-      // Apply a vote if provided
+      // Apply a vote if provided (with optional voterId enforcement)
       if (body.vote) {
         const vote = String(body.vote).toLowerCase();
         if (!["yes", "no", "abstain"].includes(vote)) {
@@ -236,7 +377,144 @@ export async function handler(event) {
             }),
           };
         }
-        motionDoc.votes[vote] = Number(motionDoc.votes[vote] || 0) + 1;
+        // Allow members/chair/owner to vote; observers denied
+        if (!role || role === "observer") {
+          return {
+            statusCode: 403,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Forbidden",
+              message: "Role cannot vote",
+            }),
+          };
+        }
+        const voterId = body.voterId ? String(body.voterId).trim() : "";
+        if (voterId) {
+          const voters = Array.isArray(motionDoc.meta?.voters)
+            ? motionDoc.meta.voters
+            : [];
+          const already = voters.includes(voterId);
+          if (!already) {
+            voters.push(voterId);
+            motionDoc.meta = { ...(motionDoc.meta || {}), voters };
+            motionDoc.votes[vote] = Number(motionDoc.votes[vote] || 0) + 1;
+          }
+        } else {
+          // No voterId provided: increment aggregate as best effort
+          motionDoc.votes[vote] = Number(motionDoc.votes[vote] || 0) + 1;
+        }
+      }
+
+      // Save decision details if provided
+      if (body.decisionDetails && typeof body.decisionDetails === "object") {
+        if (!(isOwner || isChair)) {
+          return {
+            statusCode: 403,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Forbidden",
+              message: "Only chair or owner can record decision details",
+            }),
+          };
+        }
+        // allow minimal validation
+        motionDoc.decisionDetails = {
+          outcome:
+            body.decisionDetails.outcome ||
+            motionDoc.decisionDetails?.outcome ||
+            undefined,
+          summary:
+            body.decisionDetails.summary ||
+            motionDoc.decisionDetails?.summary ||
+            "",
+          pros: Array.isArray(body.decisionDetails.pros)
+            ? body.decisionDetails.pros
+            : motionDoc.decisionDetails?.pros || [],
+          cons: Array.isArray(body.decisionDetails.cons)
+            ? body.decisionDetails.cons
+            : motionDoc.decisionDetails?.cons || [],
+          recordedAt:
+            body.decisionDetails.recordedAt || new Date().toISOString(),
+          recordedBy: body.decisionDetails.recordedBy || undefined,
+        };
+        // when decision recorded, ensure status reflects closed states when applicable
+        if (
+          motionDoc.status !== "postponed" &&
+          motionDoc.status !== "referred"
+        ) {
+          if (motionDoc.decisionDetails.outcome) {
+            const o = String(motionDoc.decisionDetails.outcome).toLowerCase();
+            if (o.includes("pass") || o.includes("adopt"))
+              motionDoc.status = "passed";
+            else if (
+              o.includes("fail") ||
+              o.includes("reject") ||
+              o.includes("tie")
+            )
+              motionDoc.status = "failed";
+            else motionDoc.status = "closed";
+          } else {
+            motionDoc.status = "closed";
+          }
+        }
+      }
+
+      // Update meta if provided (postpone/refer info)
+      if (body.meta && typeof body.meta === "object") {
+        // meta modifications that affect status (postpone/refer) restricted to chair/owner
+        if (
+          (body.meta.postponeInfo ||
+            body.meta.postponeOption ||
+            body.meta.referInfo ||
+            body.meta.referDetails) &&
+          !(isOwner || isChair)
+        ) {
+          return {
+            statusCode: 403,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Forbidden",
+              message: "Only chair or owner can postpone or refer motions",
+            }),
+          };
+        }
+        motionDoc.meta = { ...(motionDoc.meta || {}), ...body.meta };
+        // If postpone info is present, set status to postponed
+        if (body.meta.postponeInfo || body.meta.postponeOption) {
+          motionDoc.status = "postponed";
+        }
+        // If refer info provided, set status to referred
+        if (body.meta.referInfo || body.meta.referDetails) {
+          motionDoc.status = "referred";
+          const info = body.meta.referInfo || body.meta.referDetails;
+          const destId = String(
+            info.destinationCommitteeId || info.toCommitteeId || ""
+          ).trim();
+          if (destId) {
+            try {
+              const newId = Date.now().toString();
+              await Motion.create({
+                _id: newId,
+                committeeId: destId,
+                title: motionDoc.title,
+                description: motionDoc.description,
+                status: "in-progress",
+                votes: { yes: 0, no: 0, abstain: 0 },
+                meta: {
+                  referredFrom: {
+                    committeeId: motionDoc.committeeId,
+                    referredAt: new Date().toISOString(),
+                  },
+                },
+              });
+            } catch (e) {
+              console.warn(
+                "Failed to duplicate motion to destination committee:",
+                e?.message || e
+              );
+            }
+          }
+        }
       }
 
       await motionDoc.save();

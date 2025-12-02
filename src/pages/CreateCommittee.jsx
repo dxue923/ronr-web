@@ -3,25 +3,24 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "../assets/styles/index.css";
 import { ROLE } from "../utils/permissions";
+import {
+  getCommittees as apiGetCommittees,
+  createCommittee as apiCreateCommittee,
+  deleteCommittee as apiDeleteCommittee,
+  updateCommittee as apiUpdateCommittee,
+} from "../api/committee";
+import { joinCommittee } from "../api/profileMemberships";
 
-/* ---------- storage helpers ---------- */
-function loadCommittees() {
-  try {
-    return JSON.parse(localStorage.getItem("committees") || "[]");
-  } catch {
-    return [];
-  }
-}
-function saveCommittees(list) {
-  localStorage.setItem("committees", JSON.stringify(list));
-}
+/* ---------- id helper (client-side only for new until server returns) ---------- */
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 10);
 
 /* ---------- current user ---------- */
 function getCurrentUser() {
   try {
-    const p = JSON.parse(localStorage.getItem("profileData") || "{}");
+    const activeEmail = localStorage.getItem("activeProfileEmail") || "";
+    const key = activeEmail ? `profileData:${activeEmail}` : "profileData";
+    const p = JSON.parse(localStorage.getItem(key) || "{}");
     const username = (p.username || p.name || "you").toString().trim();
     const name = (p.name || p.username || "You").toString().trim();
     return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
@@ -41,31 +40,65 @@ function resolveMemberRole(member, committee) {
 }
 
 function whoAmI(committee, me) {
-  if (!committee) return { role: ROLE.OBSERVER };
-  const meKey = norm(me.username || me.name);
-  if (norm(committee.ownerId || "") === meKey) return { role: ROLE.OWNER };
-  const m = (committee.members || []).find(
-    (x) => norm(x.username || x.id || x.name) === meKey
-  );
-  return m
-    ? { role: resolveMemberRole(m, committee) }
-    : { role: ROLE.OBSERVER };
+  // Requirement: self user should always be recognized as the owner
+  // Grant OWNER role regardless of stored committee data.
+  return { role: ROLE.OWNER };
 }
 
 export default function CreateCommittee() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
+  const authToken = (() => {
+    try {
+      return localStorage.getItem("authToken") || null;
+    } catch {
+      return null;
+    }
+  })();
 
-  /* ---------- committees list ---------- */
-  const [committees, setCommittees] = useState(() => loadCommittees());
+  /* ---------- committees list (remote only) ---------- */
+  const [committees, setCommittees] = useState([]);
+  const [loadingCommittees, setLoadingCommittees] = useState(false);
+  const [errorCommittees, setErrorCommittees] = useState("");
+
+  // Initial fetch
   useEffect(() => {
-    saveCommittees(committees);
-  }, [committees]);
+    let cancelled = false;
+    (async () => {
+      setLoadingCommittees(true);
+      setErrorCommittees("");
+      try {
+        const remote = await apiGetCommittees();
+        if (!cancelled) setCommittees(Array.isArray(remote) ? remote : []);
+      } catch (err) {
+        if (!cancelled)
+          setErrorCommittees(err.message || "Failed to load committees");
+      } finally {
+        if (!cancelled) setLoadingCommittees(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const sortedCommittees = useMemo(
-    () => [...committees].sort((a, b) => b.createdAt - a.createdAt),
-    [committees]
-  );
+  const myCommittees = useMemo(() => {
+    const me = norm(currentUser.username);
+    return (committees || []).filter((c) =>
+      (c?.members || []).some((m) => norm(m?.username) === me)
+    );
+  }, [committees, currentUser.username]);
+
+  const sortedCommittees = useMemo(() => {
+    const toTs = (v) => {
+      if (!v && v !== 0) return 0;
+      const n = typeof v === "number" ? v : Date.parse(String(v));
+      return Number.isFinite(n) ? n : 0;
+    };
+    return [...myCommittees].sort(
+      (a, b) => toTs(b.createdAt) - toTs(a.createdAt)
+    );
+  }, [myCommittees]);
 
   /* ---------- show/hide form ---------- */
   const [showForm, setShowForm] = useState(false);
@@ -178,11 +211,7 @@ export default function CreateCommittee() {
 
     // handle new owner
     if (chosenRole === ROLE.OWNER) {
-      const ok = window.confirm(
-        `Make ${raw} the new owner? This will demote the current owner to Member.`
-      );
-      if (!ok) return;
-
+      // Automatically transfer ownership; no confirmation prompt.
       const demoted = stagedMembers.map((m) =>
         norm(m.username) === norm(stagedOwnerId)
           ? { ...m, role: ROLE.MEMBER }
@@ -198,6 +227,28 @@ export default function CreateCommittee() {
         },
       ]);
       setStagedOwnerId(slug);
+      setMemberInput("");
+      setMemberRoleInput(ROLE.MEMBER);
+      setLastAddedId(slug);
+      return;
+    }
+
+    if (chosenRole === ROLE.CHAIR) {
+      // Enforce single chair: demote any existing chairs before adding new one.
+      const demoted = stagedMembers.map((m) =>
+        m.role === ROLE.CHAIR && norm(m.username) !== norm(stagedOwnerId)
+          ? { ...m, role: ROLE.MEMBER }
+          : m
+      );
+      setStagedMembers([
+        ...demoted,
+        {
+          name: raw,
+          username: slug,
+          role: ROLE.CHAIR,
+          avatarUrl: "",
+        },
+      ]);
       setMemberInput("");
       setMemberRoleInput(ROLE.MEMBER);
       setLastAddedId(slug);
@@ -272,19 +323,51 @@ export default function CreateCommittee() {
     };
   };
 
-  const handleCreate = () => {
-    const name = committeeName.trim();
-    if (!name) return;
-
-    const payload = normalizeForSave(name);
-    const next = [payload, ...committees];
-    saveCommittees(next);
-    setCommittees(next);
-    clearForm();
-    navigate(`/committees/${payload.id}/chat`);
+  const refreshCommittees = async () => {
+    try {
+      const remote = await apiGetCommittees();
+      setCommittees(Array.isArray(remote) ? remote : []);
+    } catch {}
   };
 
-  const handleSave = () => {
+  const handleCreate = async () => {
+    const name = committeeName.trim();
+    if (!name) return;
+    const local = normalizeForSave(name);
+    try {
+      const created = await apiCreateCommittee({
+        id: local.id,
+        name: local.name,
+        ownerId: local.ownerId,
+        members: local.members.map((m) => ({
+          username: m.username,
+          name: m.name,
+          role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
+          avatarUrl: m.avatarUrl,
+        })),
+        settings: local.settings,
+      });
+      // Ensure the creator (self) has a server-side membership set to owner
+      try {
+        await joinCommittee(created.id, "owner", authToken || undefined);
+      } catch (e) {
+        console.warn("Failed to set owner membership", e);
+      }
+      setCommittees((prev) => {
+        const exists = prev.some((c) => c.id === created.id);
+        const next = exists
+          ? prev.map((c) => (c.id === created.id ? created : c))
+          : [created, ...prev];
+        return next;
+      });
+      clearForm();
+      navigate(`/committees/${created.id}/chat`);
+    } catch (err) {
+      alert("Failed to create committee");
+    }
+  };
+
+  const handleSave = async () => {
     if (!isEditing) return;
     const name = committeeName.trim();
     if (!name) return;
@@ -298,14 +381,29 @@ export default function CreateCommittee() {
       return;
     }
 
-    const updated = normalizeForSave(name);
-    const next = committees.map((c) => (c.id === editingId ? updated : c));
-    saveCommittees(next);
-    setCommittees(next);
-    clearForm();
+    const updatedLocal = normalizeForSave(name);
+    try {
+      const updatedRemote = await apiUpdateCommittee(editingId, {
+        name: updatedLocal.name,
+        ownerId: updatedLocal.ownerId,
+        members: updatedLocal.members.map((m) => ({
+          username: m.username,
+          name: m.name,
+          role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
+          avatarUrl: m.avatarUrl,
+        })),
+        settings: updatedLocal.settings,
+      });
+      setCommittees((prev) =>
+        prev.map((c) => (c.id === editingId ? updatedRemote : c))
+      );
+      clearForm();
+    } catch (err) {
+      alert("Failed to save committee");
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEditing) return;
     const existing = committees.find((c) => c.id === editingId);
     if (!existing) return;
@@ -321,10 +419,13 @@ export default function CreateCommittee() {
     );
     if (!ok) return;
 
-    const next = committees.filter((c) => c.id !== editingId);
-    saveCommittees(next);
-    setCommittees(next);
-    clearForm();
+    try {
+      await apiDeleteCommittee(existing.id);
+      setCommittees((prev) => prev.filter((c) => c.id !== existing.id));
+      clearForm();
+    } catch (err) {
+      alert("Failed to delete committee");
+    }
   };
 
   const loadCommitteeIntoForm = (committee) => {
@@ -340,8 +441,21 @@ export default function CreateCommittee() {
       avatarUrl: m.avatarUrl || "",
     }));
 
+    // Enforce single chair when loading: keep first chair, demote others to MEMBER.
+    let chairSeen = false;
+    const normalized = cloned.map((m) => {
+      if (m.role === ROLE.CHAIR && norm(m.username) !== norm(stagedOwnerId)) {
+        if (!chairSeen) {
+          chairSeen = true;
+          return m; // keep first chair
+        }
+        return { ...m, role: ROLE.MEMBER }; // demote extra chairs
+      }
+      return m;
+    });
+
     const map = new Map();
-    cloned.forEach((m) => map.set(norm(m.username), m));
+    normalized.forEach((m) => map.set(norm(m.username), m));
     setStagedMembers([...map.values()]);
     setMemberRoleInput(ROLE.MEMBER);
     setLastAddedId(null);
@@ -392,9 +506,18 @@ export default function CreateCommittee() {
           </div>
 
           <div className="side-list">
-            {sortedCommittees.length === 0 ? (
-              <div className="empty-hint">No committees yet</div>
-            ) : (
+            {loadingCommittees && <div className="empty-hint">Loading...</div>}
+            {errorCommittees && !loadingCommittees && (
+              <div className="empty-hint">{errorCommittees}</div>
+            )}
+            {!loadingCommittees &&
+              !errorCommittees &&
+              sortedCommittees.length === 0 && (
+                <div className="empty-hint">No committees yet</div>
+              )}
+            {!loadingCommittees &&
+              !errorCommittees &&
+              sortedCommittees.length > 0 &&
               sortedCommittees.map((c) => (
                 <div
                   key={c.id}
@@ -421,8 +544,7 @@ export default function CreateCommittee() {
                     ✎
                   </button>
                 </div>
-              ))
-            )}
+              ))}
           </div>
         </div>
       </aside>

@@ -29,7 +29,17 @@ function getKey(header, callback) {
 
 // Same token handling as profile.js
 function getClaims(authHeader = "") {
-  if (!authHeader.startsWith("Bearer ")) {
+  // In local/dev, allow missing auth and generate a dev user
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
+      return Promise.resolve({
+        sub: "dev-user",
+        email: "",
+        name: "Dev User",
+        nickname: "dev",
+        picture: "",
+      });
+    }
     throw new Error("Invalid Authorization header");
   }
   const token = authHeader.slice(7);
@@ -112,6 +122,28 @@ export const handler = async (event) => {
       });
     }
 
+    // ---------- GET: return current user's memberships ----------
+    if (method === "GET") {
+      await connectToDatabase();
+      let profileDoc = await Profile.findById(tokenProfile.id);
+      if (!profileDoc) {
+        profileDoc = await Profile.create({
+          _id: tokenProfile.id,
+          username: tokenProfile.username,
+          name: tokenProfile.name,
+          email: tokenProfile.email,
+          avatarUrl: tokenProfile.avatarUrl,
+          memberships: [],
+        });
+      }
+      const memberships = profileDoc.memberships || [];
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(memberships),
+      };
+    }
+
     // ---------- POST: join or update role ----------
     if (method === "POST") {
       const body = JSON.parse(event.body || "{}");
@@ -127,9 +159,7 @@ export const handler = async (event) => {
       }
 
       const memberships = profileDoc.memberships || [];
-      const idx = memberships.findIndex(
-        (m) => m.committeeId === committeeId
-      );
+      const idx = memberships.findIndex((m) => m.committeeId === committeeId);
 
       if (idx === -1) {
         // join new committee
@@ -195,7 +225,6 @@ export const handler = async (event) => {
       };
     }
 
-    // No GET here; use /profile GET to see memberships
     return {
       statusCode: 405,
       headers: { "Content-Type": "application/json" },

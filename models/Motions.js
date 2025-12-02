@@ -45,6 +45,24 @@ const motionSchema = new mongoose.Schema({
     default: "",
   },
 
+  // Creator information
+  createdById: {
+    type: String,
+    default: "",
+  },
+  createdByName: {
+    type: String,
+    default: "",
+  },
+  createdByUsername: {
+    type: String,
+    default: "",
+  },
+  createdByAvatarUrl: {
+    type: String,
+    default: "",
+  },
+
   // Motion lifecycle status
   status: {
     type: String,
@@ -74,7 +92,18 @@ const motionSchema = new mongoose.Schema({
       abstain: 0,
     }),
   },
+
+  // Final decision details (optional)
+  decisionDetails: {
+    type: Object,
+    default: null,
+  },
+
+  // Misc metadata for submotions and operational context
+  meta: {
+    type: Object,
+    default: {},
+  },
 });
 
-export default mongoose.models.Motion ||
-  mongoose.model("Motion", motionSchema);
+export default mongoose.models.Motion || mongoose.model("Motion", motionSchema);
