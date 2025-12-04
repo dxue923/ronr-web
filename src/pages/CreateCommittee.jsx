@@ -143,23 +143,16 @@ export default function CreateCommittee() {
     };
   }, [currentUser.username]);
 
-  const myCommittees = useMemo(() => {
-    const me = norm(currentUser.username);
-    return (committees || []).filter((c) =>
-      (c?.members || []).some((m) => norm(m?.username) === me)
-    );
-  }, [committees, currentUser.username]);
-
   const sortedCommittees = useMemo(() => {
     const toTs = (v) => {
       if (!v && v !== 0) return 0;
       const n = typeof v === "number" ? v : Date.parse(String(v));
       return Number.isFinite(n) ? n : 0;
     };
-    return [...myCommittees].sort(
+    return [...(committees || [])].sort(
       (a, b) => toTs(b.createdAt) - toTs(a.createdAt)
     );
-  }, [myCommittees]);
+  }, [committees]);
 
   /* ---------- show/hide form ---------- */
   const [showForm, setShowForm] = useState(false);
@@ -281,11 +274,17 @@ export default function CreateCommittee() {
     const raw = memberInput.trim();
     if (!raw) return;
 
-    const slug =
-      raw
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, "")
-        .slice(0, 24) || "member" + Math.random().toString(36).slice(2, 6);
+    // Relax username rules to allow common characters (letters, digits, dot, underscore, dash)
+    const slug = raw
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/gi, "")
+      .slice(0, 24);
+
+    // If nothing valid remains (e.g. only punctuation), do not add
+    if (!slug) {
+      setMemberInput("");
+      return;
+    }
 
     const exists =
       stagedMembers.some((m) => norm(m.username) === norm(slug)) ||

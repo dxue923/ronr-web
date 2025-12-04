@@ -113,6 +113,13 @@ export default function EditProfile() {
         email: updated.email || prev.email,
       }));
       setAvatar(updated.avatarUrl || avatar);
+      // Broadcast profile update so other views (e.g., CreateCommittee) can refresh
+      try {
+        window.dispatchEvent(new Event("profile-updated"));
+        try {
+          localStorage.setItem("profileUpdatedAt", String(Date.now()));
+        } catch {}
+      } catch {}
       // No localStorage: all changes are saved to backend only
       alert("Profile synced!");
     } catch (err) {
