@@ -11,6 +11,187 @@ import {
 } from "../api/committee";
 import { joinCommittee } from "../api/profileMemberships";
 import { findProfileByUsername, fetchProfile } from "../api/profile";
+// Helper to get a profile by username (case-insensitive, returns profile or null)
+async function getProfileByUsername(username) {
+  // The exported findProfileByUsername returns a function, not a direct promise
+  // so we must call it and then call the returned function (for legacy reasons)
+  let fn = findProfileByUsername;
+  if (typeof fn === "function") {
+    const lookup = await fn(username);
+    if (typeof lookup === "function") {
+      // If the result is a function, call it with no token
+      return await lookup();
+    }
+    return lookup;
+  }
+  return null;
+}
+
+const AVATAR_SIZE = 40;
+// Avatar component at top level for use in all subcomponents
+function Avatar({ src, alt }) {
+  const [imgError, setImgError] = React.useState(false);
+  const hasImage =
+    src && typeof src === "string" && src.trim().length > 0 && !imgError;
+  if (hasImage) {
+    return (
+      <img
+        src={src}
+        alt={alt || "avatar"}
+        className="member-avatar"
+        style={{
+          width: AVATAR_SIZE,
+          height: AVATAR_SIZE,
+          borderRadius: "9999px",
+          objectFit: "cover",
+          border: "1px solid #d1d5db", // default gray border
+          background: "#e5e7eb",
+          flexShrink: 0,
+        }}
+        onError={() => setImgError(true)}
+        title={src}
+      />
+    );
+  }
+  // fallback: blank avatar
+  return (
+    <div
+      className="member-avatar"
+      style={{
+        width: AVATAR_SIZE,
+        height: AVATAR_SIZE,
+        borderRadius: "9999px",
+        background: "#e5e7eb",
+        border: imgError ? "2px solid #f87171" : "1px solid #d1d5db", // red border if error
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#9ca3af",
+        fontSize: 18,
+      }}
+      title={imgError ? "Avatar failed to load" : "No avatar"}
+    >
+      {imgError ? "!" : null}
+    </div>
+  );
+}
+
+// Helper to fetch latest profile for a username or email
+import { findProfileByUsername as _findProfileByUsername } from "../api/profile";
+async function fetchLatestProfile({ username, email }) {
+  try {
+    if (email) {
+      // Try to find by email first
+      const qs = `?lookup=${encodeURIComponent(email)}`;
+      const headers = { Accept: "application/json" };
+      const res = await fetch(`/.netlify/functions/profile${qs}`, {
+        method: "GET",
+        headers,
+      });
+      if (res.status === 404) return null;
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return null;
+      return data;
+    }
+    // Fallback: Try to find by username (case-insensitive)
+    return await getProfileByUsername(username);
+  } catch {
+    return null;
+  }
+}
+
+function MemberProfileCard({ username, onRemove }) {
+  const [profile, setProfile] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!username) return;
+    let mounted = true;
+
+    const fetchAndSet = () => {
+      fetchLatestProfile({ username }) // ✅ pass object
+        .then((p) => {
+          if (mounted && p) setProfile(p);
+        })
+        .catch(() => {
+          // optional: fallback to minimal profile so you at least see the username
+          if (mounted) setProfile({ username });
+        });
+    };
+
+    fetchAndSet();
+    window.addEventListener("profile-updated", fetchAndSet);
+    return () => {
+      mounted = false;
+      window.removeEventListener("profile-updated", fetchAndSet);
+    };
+  }, [username]);
+
+  if (!profile) return null;
+
+  return (
+    <div className="member-item" id={`member-${username}`}>
+      <div className="member-left">
+        <Avatar src={profile.avatarUrl} alt={profile.name} />
+        <div className="member-meta">
+          <p className="member-name">{profile.name || profile.username}</p>
+          <p className="member-username">({profile.username})</p>
+        </div>
+      </div>
+      {onRemove && (
+        <button
+          className="pill danger"
+          onClick={() => onRemove(username)}
+          title="Remove member"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Component to always show latest profile info for the owner
+// Owner card: always display current user's profile info from state
+function OwnerProfileCard({ user }) {
+  // Always show latest profile for the current user (owner)
+  const [profile, setProfile] = React.useState(user);
+  React.useEffect(() => {
+    let mounted = true;
+    const fetchAndSet = async () => {
+      if (!user?.email && !user?.username) return;
+      // Try to fetch by email if available, else username
+      const p = await fetchLatestProfile({
+        email: user.email,
+        username: user.username,
+      });
+      if (mounted && p) setProfile(p);
+    };
+    fetchAndSet();
+    window.addEventListener("profile-updated", fetchAndSet);
+    return () => {
+      mounted = false;
+      window.removeEventListener("profile-updated", fetchAndSet);
+    };
+  }, [user.email, user.username]);
+  if (!profile) return null;
+  return (
+    <div className="member-item" id={`member-${profile.username}`}>
+      <div className="member-left">
+        <Avatar
+          src={profile.avatarUrl}
+          alt={profile.name || profile.username || ""}
+        />
+        <div className="member-meta">
+          <p className="member-name">
+            {profile.name || profile.username || "(No name)"}
+          </p>
+          <p className="member-username">{profile.username}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 import { useAuth0 } from "@auth0/auth0-react";
 
 /* ---------- id helper (client-side only for new until server returns) ---------- */
@@ -24,7 +205,6 @@ function deriveUserFromEmail(email = "") {
   return { id: local || "", username: local || "", name: "", avatarUrl: "" };
 }
 
-const AVATAR_SIZE = 40;
 const norm = (s) => (s ?? "").toString().trim().toLowerCase();
 
 function resolveMemberRole(member, committee) {
@@ -41,12 +221,16 @@ function whoAmI(committee, me) {
 }
 
 export default function CreateCommittee() {
+  // Username validation state
+  const [memberInputError, setMemberInputError] = useState("");
+
   const navigate = useNavigate();
   const { user, getAccessTokenSilently, isAuthenticated } = useAuth0();
 
-  const [currentUser, setCurrentUser] = useState(
-    deriveUserFromEmail(user?.email || "")
-  );
+  const [currentUser, setCurrentUser] = useState({
+    ...deriveUserFromEmail(user?.email || ""),
+    email: user?.email || "",
+  });
 
   const authToken = (() => {
     try {
@@ -87,6 +271,7 @@ export default function CreateCommittee() {
             username: emailLocal, // stable slug for committees
             name: displayName, // display name from profile
             avatarUrl: profile?.avatarUrl || "",
+            email: profile?.email || user?.email || "",
           });
         }
       } catch {
@@ -281,34 +466,43 @@ export default function CreateCommittee() {
     const raw = memberInput.trim();
     if (!raw) return;
 
-    const slug =
-      raw
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, "")
-        .slice(0, 24) || "member" + Math.random().toString(36).slice(2, 6);
-
+    // Only allow exact username as stored in DB
+    const username = raw;
     const exists =
-      stagedMembers.some((m) => norm(m.username) === norm(slug)) ||
-      norm(slug) === norm(stagedOwnerId);
-
+      stagedMembers.some((m) => norm(m.username) === norm(username)) ||
+      norm(username) === norm(stagedOwnerId);
     if (exists) {
       setMemberInput("");
+      setMemberInputError("");
       return;
     }
 
     const chosenRole = memberRoleInput;
 
     // Validate against backend: only allow real users (existing profiles)
+    let profile = null;
     try {
-      const lookup = await findProfileByUsername(slug);
-      if (!lookup) {
-        alert("User not found. Only registered users can be added.");
+      profile = await getProfileByUsername(username);
+      if (!profile) {
+        setMemberInputError(
+          "User not found. Only registered users can be added."
+        );
         return;
+      } else {
+        setMemberInputError("");
       }
     } catch (e) {
-      alert("Unable to verify user. Please try again.");
+      setMemberInputError("Unable to verify user. Please try again.");
       return;
     }
+
+    // Use actual profile info from backend
+    const memberData = {
+      name: profile.name || profile.username,
+      username: profile.username,
+      role: chosenRole,
+      avatarUrl: profile.avatarUrl || "",
+    };
 
     // handle new owner
     if (chosenRole === ROLE.OWNER) {
@@ -318,19 +512,11 @@ export default function CreateCommittee() {
           ? { ...m, role: ROLE.MEMBER }
           : m
       );
-      setStagedMembers([
-        ...demoted,
-        {
-          name: raw,
-          username: slug,
-          role: ROLE.OWNER,
-          avatarUrl: "",
-        },
-      ]);
-      setStagedOwnerId(slug);
+      setStagedMembers([...demoted, { ...memberData, role: ROLE.OWNER }]);
+      setStagedOwnerId(profile.username);
       setMemberInput("");
       setMemberRoleInput(ROLE.MEMBER);
-      setLastAddedId(slug);
+      setLastAddedId(profile.username);
       return;
     }
 
@@ -341,34 +527,19 @@ export default function CreateCommittee() {
           ? { ...m, role: ROLE.MEMBER }
           : m
       );
-      setStagedMembers([
-        ...demoted,
-        {
-          name: raw,
-          username: slug,
-          role: ROLE.CHAIR,
-          avatarUrl: "",
-        },
-      ]);
+      setStagedMembers([...demoted, { ...memberData, role: ROLE.CHAIR }]);
       setMemberInput("");
       setMemberRoleInput(ROLE.MEMBER);
-      setLastAddedId(slug);
+      setLastAddedId(profile.username);
       return;
     }
 
     // normal add
-    setStagedMembers((prev) => [
-      ...prev,
-      {
-        name: raw,
-        username: slug,
-        role: chosenRole,
-        avatarUrl: "",
-      },
-    ]);
+    setStagedMembers((prev) => [...prev, memberData]);
     setMemberInput("");
     setMemberRoleInput(ROLE.MEMBER);
-    setLastAddedId(slug);
+    setLastAddedId(profile.username);
+    setMemberInputError("");
   };
 
   const removeStaged = (username) => {
@@ -783,19 +954,69 @@ export default function CreateCommittee() {
                   </select>
                 </div>
 
-                <input
-                  className="member-search-input"
-                  type="text"
-                  value={memberInput}
-                  onChange={(e) => setMemberInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addMember();
+                <div style={{ position: "relative", width: "100%" }}>
+                  <input
+                    className="member-search-input"
+                    type="text"
+                    value={memberInput}
+                    onChange={async (e) => {
+                      setMemberInput(e.target.value);
+                      setMemberInputError("");
+                      const val = e.target.value.trim();
+                      if (!val) {
+                        setMemberInputError("");
+                        return;
+                      }
+                      // Check if username exists as user types
+                      try {
+                        const profile = await findProfileByUsername(val);
+                        if (!profile) {
+                          setMemberInputError(
+                            "User not found. Only registered users can be added."
+                          );
+                        } else {
+                          setMemberInputError("");
+                        }
+                      } catch {
+                        setMemberInputError(
+                          "Unable to verify user. Please try again."
+                        );
+                      }
+                    }}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        await addMember();
+                      }
+                    }}
+                    placeholder="Enter username"
+                    aria-invalid={!!memberInputError}
+                    aria-describedby={
+                      memberInputError ? "member-input-error" : undefined
                     }
-                  }}
-                  placeholder="Enter username"
-                />
+                  />
+                  {memberInputError && (
+                    <div
+                      id="member-input-error"
+                      style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        background: "#fee2e2",
+                        color: "#b91c1c",
+                        border: "1px solid #fca5a5",
+                        borderRadius: 4,
+                        padding: "2px 8px",
+                        fontSize: 13,
+                        marginTop: 2,
+                        zIndex: 10,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {memberInputError}
+                    </div>
+                  )}
+                </div>
 
                 <button className="submit-button" onClick={addMember}>
                   Add
@@ -812,25 +1033,8 @@ export default function CreateCommittee() {
                         <span>Owner</span>
                       </div>
                       <div className="role-members">
-                        {/* Always show currentUser.name/avatar for owner */}
-                        <div
-                          className="member-item"
-                          key={currentUser.username}
-                          id={`member-${currentUser.username}`}
-                        >
-                          <div className="member-left">
-                            <Avatar
-                              src={currentUser.avatarUrl}
-                              alt={currentUser.name}
-                            />
-                            <div className="member-meta">
-                              <p className="member-name">{currentUser.name}</p>
-                              <p className="member-username">
-                                ({currentUser.username})
-                              </p>
-                            </div>
-                          </div>
-                        </div>
+                        {/* Always show latest profile info for owner */}
+                        <OwnerProfileCard user={currentUser} />
                       </div>
                     </li>
                   )}
@@ -843,28 +1047,11 @@ export default function CreateCommittee() {
                       </div>
                       <div className="role-members">
                         {chairs.map((m) => (
-                          <div
-                            className="member-item"
+                          <MemberProfileCard
                             key={m.username}
-                            id={`member-${m.username}`}
-                          >
-                            <div className="member-left">
-                              <Avatar src={m.avatarUrl} alt={m.name} />
-                              <div className="member-meta">
-                                <p className="member-name">{m.name}</p>
-                                <p className="member-username">
-                                  ({m.username})
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              className="pill remove"
-                              onClick={() => removeStaged(m.username)}
-                              title="Remove member"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                            username={m.username}
+                            onRemove={removeStaged}
+                          />
                         ))}
                       </div>
                     </li>
@@ -879,28 +1066,11 @@ export default function CreateCommittee() {
                       </div>
                       <div className="role-members">
                         {members.map((m) => (
-                          <div
-                            className="member-item"
+                          <MemberProfileCard
                             key={m.username}
-                            id={`member-${m.username}`}
-                          >
-                            <div className="member-left">
-                              <Avatar src={m.avatarUrl} alt={m.name} />
-                              <div className="member-meta">
-                                <p className="member-name">{m.name}</p>
-                                <p className="member-username">
-                                  ({m.username})
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              className="pill danger"
-                              onClick={() => removeStaged(m.username)}
-                              title="Remove member"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                            username={m.username}
+                            onRemove={removeStaged}
+                          />
                         ))}
                       </div>
                     </li>
@@ -915,28 +1085,11 @@ export default function CreateCommittee() {
                       </div>
                       <div className="role-members">
                         {observers.map((m) => (
-                          <div
-                            className="member-item"
+                          <MemberProfileCard
                             key={m.username}
-                            id={`member-${m.username}`}
-                          >
-                            <div className="member-left">
-                              <Avatar src={m.avatarUrl} alt={m.name} />
-                              <div className="member-meta">
-                                <p className="member-name">{m.name}</p>
-                                <p className="member-username">
-                                  ({m.username})
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              className="pill danger"
-                              onClick={() => removeStaged(m.username)}
-                              title="Remove member"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                            username={m.username}
+                            onRemove={removeStaged}
+                          />
                         ))}
                       </div>
                     </li>

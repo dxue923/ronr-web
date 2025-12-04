@@ -152,60 +152,47 @@ export async function handler(event) {
       };
     }
 
-    // Ensure profile exists or create it ONE TIME from Auth0 data
+    // Ensure profile exists or create/update/merge by email
     let profileDoc;
     try {
-      profileDoc = await Profile.findById(tokenProfile.id).lean();
-    } catch (findErr) {
-      console.error("[profile] find error", findErr?.message || findErr);
-      profileDoc = null;
-    }
-
-    if (!profileDoc) {
-      try {
-        // Ensure default username stored in DB as email local-part
+      // Try to find by email first
+      profileDoc = await Profile.findOne({ email: tokenProfile.email }).lean();
+      // If not found by email, fallback to Auth0 ID
+      if (!profileDoc) {
+        profileDoc = await Profile.findById(tokenProfile.id).lean();
+      }
+      // If still not found, create new
+      if (!profileDoc) {
         const defaultUsername = tokenProfile.username;
         const created = await Profile.create({
           _id: tokenProfile.id,
           username: defaultUsername,
-          // Keep name blank until the user sets it
           name: "",
           email: tokenProfile.email,
-          // Keep avatar blank until the user sets it
           avatarUrl: "",
           memberships: [],
         });
         profileDoc = toClient(created);
-      } catch (createErr) {
-        console.error(
-          "[profile] create error",
-          createErr?.message || createErr
-        );
-        // If creation fails, fall back to minimal token-derived profile on GET
-        if (event.httpMethod === "GET") {
-          const minimal = {
-            id: tokenProfile.id,
-            username: tokenProfile.username,
-            name: "",
-            email: tokenProfile.email,
-            avatarUrl: "",
-            memberships: [],
-          };
-          return {
-            statusCode: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(minimal),
-          };
+      } else {
+        // If found by email but _id is different, merge and remove duplicate
+        if (profileDoc._id !== tokenProfile.id) {
+          // Update the found profile to use the current Auth0 ID
+          await Profile.deleteOne({ _id: tokenProfile.id }); // Remove any old profile with this Auth0 ID
+          await Profile.updateOne(
+            { email: tokenProfile.email },
+            { $set: { _id: tokenProfile.id } }
+          );
+          profileDoc._id = tokenProfile.id;
         }
-        return {
-          statusCode: 503,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            error: "Service Unavailable",
-            message: "Database temporarily unreachable",
-          }),
-        };
+        // Remove any other duplicate profiles with the same email but different _id
+        await Profile.deleteMany({
+          email: tokenProfile.email,
+          _id: { $ne: tokenProfile.id },
+        });
       }
+    } catch (findErr) {
+      console.error("[profile] find/merge error", findErr?.message || findErr);
+      profileDoc = null;
     }
     // NOTE: we are NOT overwriting avatarUrl from token anymore
     // If you still want to keep email in sync, you could optionally:
@@ -277,13 +264,13 @@ export async function handler(event) {
       const incomingAvatar =
         typeof body.avatarUrl === "string" ? body.avatarUrl : undefined;
 
-      if (incomingUsername) profileDoc.username = incomingUsername;
-      if (incomingName) profileDoc.name = incomingName;
-      if (incomingAvatar !== undefined) profileDoc.avatarUrl = incomingAvatar;
-
+      // Always update by email (enforced unique)
       try {
-        // Re-load doc for mutation if we used lean earlier
-        const docForUpdate = await Profile.findById(tokenProfile.id);
+        let docForUpdate = await Profile.findOne({ email: tokenProfile.email });
+        if (!docForUpdate) {
+          // Fallback: try by Auth0 ID
+          docForUpdate = await Profile.findById(tokenProfile.id);
+        }
         if (!docForUpdate) {
           return {
             statusCode: 404,
@@ -299,7 +286,7 @@ export async function handler(event) {
           const existing = await Profile.findOne({
             username: incomingUsername,
           }).lean();
-          if (existing && existing._id !== tokenProfile.id) {
+          if (existing && String(existing._id) !== String(docForUpdate._id)) {
             return {
               statusCode: 409,
               headers: { "Content-Type": "application/json" },
@@ -315,6 +302,11 @@ export async function handler(event) {
         if (incomingAvatar !== undefined)
           docForUpdate.avatarUrl = incomingAvatar;
         await docForUpdate.save();
+        // Remove any other duplicate profiles with the same email but different _id
+        await Profile.deleteMany({
+          email: tokenProfile.email,
+          _id: { $ne: docForUpdate._id },
+        });
         profileDoc = docForUpdate;
       } catch (saveErr) {
         if (saveErr && saveErr.code === 11000) {

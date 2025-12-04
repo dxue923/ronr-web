@@ -1,3 +1,69 @@
+// Render a member card that always fetches the latest profile info by username
+function LiveProfileMemberCard({
+  username,
+  fallbackName,
+  role,
+  canRemove,
+  onRemove,
+}) {
+  const [profile, setProfile] = React.useState(null);
+  React.useEffect(() => {
+    let mounted = true;
+    async function fetchProfile() {
+      const p = await getProfileByUsername(username);
+      if (mounted) setProfile(p);
+    }
+    fetchProfile();
+    window.addEventListener("profile-updated", fetchProfile);
+    return () => {
+      mounted = false;
+      window.removeEventListener("profile-updated", fetchProfile);
+    };
+  }, [username]);
+  const displayName =
+    (profile && profile.name && profile.name.trim()) ||
+    (profile && profile.username) ||
+    fallbackName ||
+    username;
+  const avatarSrc =
+    profile && profile.avatarUrl && profile.avatarUrl.trim()
+      ? profile.avatarUrl
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          displayName || username
+        )}&background=e5e7eb&color=374151&size=40`;
+  return (
+    <div className="member-row">
+      <img
+        src={avatarSrc}
+        alt={displayName}
+        className="member-avatar"
+        style={{
+          width: 30,
+          height: 30,
+          borderRadius: "50%",
+          objectFit: "cover",
+          border: "1px solid #d1d5db",
+          background: "#e5e7eb",
+          flexShrink: 0,
+        }}
+      />
+      <div>
+        <div className="member-name">{displayName}</div>
+        <RoleBadge role={role} />
+      </div>
+      {canRemove && (
+        <button
+          type="button"
+          className="remove-member-btn"
+          title="Remove participant"
+          onClick={onRemove}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
 // src/pages/Chat.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
@@ -17,8 +83,27 @@ import {
 } from "../api/motions";
 import "../assets/styles/index.css";
 import { getMeeting } from "../api/meetings";
-import { fetchProfile as apiFetchProfile } from "../api/profile";
+import {
+  fetchProfile as apiFetchProfile,
+  findProfileByUsername,
+} from "../api/profile";
 
+// helper to get a profile by username
+async function getProfileByUsername(username) {
+  try {
+    let fn = findProfileByUsername;
+    if (typeof fn === "function") {
+      const lookup = await fn(username);
+      if (typeof lookup === "function") {
+        return await lookup();
+      }
+      return lookup;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
@@ -709,24 +794,40 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [viewTab, activeMotion?.id, activeMotion?.messages]);
 
-  // fetch remote comments when active motion changes
+  // fetch remote comments when active motion changes or on interval (polling)
   useEffect(() => {
     if (!activeMotionId) return;
     let cancelled = false;
+    let pollTimer = null;
     async function loadComments() {
-      setLoadingComments(true);
-      setCommentsError("");
       try {
         const remote = await getCommentsForMotion(activeMotionId);
         if (cancelled) return;
-        const mapped = (remote || []).map((c) => ({
-          id: c.id,
-          authorId: c.authorId,
-          authorName: c.authorId,
-          text: c.text,
-          time: c.createdAt || new Date().toISOString(),
-          stance: c.position || "neutral",
-        }));
+        // Try to get the display name from the profile cache
+        const mapped = (remote || []).map((c) => {
+          let displayName = c.authorId;
+          try {
+            // Try to get the profile from localStorage
+            const key = c.authorId ? `profileData:${c.authorId}` : null;
+            const raw = key ? localStorage.getItem(key) : null;
+            if (raw) {
+              const p = JSON.parse(raw);
+              if (p && p.name && p.name.trim()) {
+                displayName = p.name.trim();
+              } else if (p && p.username) {
+                displayName = p.username;
+              }
+            }
+          } catch {}
+          return {
+            id: c.id,
+            authorId: c.authorId,
+            authorName: displayName,
+            text: c.text,
+            time: c.createdAt || new Date().toISOString(),
+            stance: c.position || "neutral",
+          };
+        });
         setMotions((prev) =>
           prev.map((m) =>
             m.id === activeMotionId ? { ...m, messages: mapped } : m
@@ -735,13 +836,16 @@ export default function Chat() {
       } catch (err) {
         if (!cancelled)
           setCommentsError(err.message || "Failed to load comments");
-      } finally {
-        if (!cancelled) setLoadingComments(false);
       }
     }
-    loadComments();
+    // Initial load
+    setLoadingComments(true);
+    loadComments().finally(() => setLoadingComments(false));
+    // Poll every 3 seconds
+    pollTimer = setInterval(loadComments, 3000);
     return () => {
       cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, [activeMotionId]);
 
@@ -767,35 +871,125 @@ export default function Chat() {
       );
   }
   // Normalize members to a unified client shape from server data
+  // Normalize members to a unified client shape from server data
   const normalizeMembers = (c) => {
     if (!c) return [];
     const list = c.members || c.memberships || [];
-    return (list || []).map((m) => ({
-      id: m.id || m.username || m.name || "",
-      name: m.name || m.username || m.id || "",
-      role: (m.role || "member").toLowerCase(),
-      avatarUrl: m.avatarUrl || "",
-    }));
+
+    return (list || []).map((m) => {
+      const username = (m.username || m.id || m.name || "").toString();
+      const name = (m.name || "").toString();
+      return {
+        id: username, // use username as stable id
+        username,
+        name,
+        role: (m.role || "member").toLowerCase(),
+        avatarUrl: m.avatarUrl || "",
+      };
+    });
+
+    // // Member profile card for chat participants
+    // function MemberProfileCard({ username, role }) {
+    //   const [profile, setProfile] = useState(null);
+    //   useEffect(() => {
+    //     let mounted = true;
+    //     async function fetchProfile() {
+    //       // Use backend lookup for latest info
+    //       let fn = findProfileByUsername;
+    //       let p = null;
+    //       if (typeof fn === "function") {
+    //         const lookup = await fn(username);
+    //         if (typeof lookup === "function") {
+    //           p = await lookup();
+    //         } else {
+    //           p = lookup;
+    //         }
+    //       }
+    //       if (mounted) setProfile(p);
+    //     }
+    //     fetchProfile();
+    //     window.addEventListener("profile-updated", fetchProfile);
+    //     return () => {
+    //       mounted = false;
+    //       window.removeEventListener("profile-updated", fetchProfile);
+    //     };
+    //   }, [username]);
+    //   if (!profile) return null;
+    //   const displayName =
+    //     profile.name && profile.name.trim().length > 0
+    //       ? profile.name
+    //       : profile.username;
+    //   const avatarSrc =
+    //     profile.avatarUrl && profile.avatarUrl.trim().length > 0
+    //       ? profile.avatarUrl
+    //       : "https://ui-avatars.com/api/?name=" +
+    //         encodeURIComponent(displayName || username) +
+    //         "&background=e5e7eb&color=374151&size=40";
+    //   return (
+    //     <div className="member-item" id={`member-${username}`}>
+    //       <div className="member-left">
+    //         <img
+    //           src={avatarSrc}
+    //           alt={displayName || username || "avatar"}
+    //           className="member-avatar"
+    //           style={{
+    //             width: 40,
+    //             height: 40,
+    //             borderRadius: "9999px",
+    //             objectFit: "cover",
+    //             border: "1px solid #d1d5db",
+    //             background: "#e5e7eb",
+    //             flexShrink: 0,
+    //           }}
+    //         />
+    //         <div className="member-meta">
+    //           <p className="member-name">{displayName}</p>
+    //           <p className="member-username">{profile.username}</p>
+    //           <RoleBadge role={role} />
+    //         </div>
+    //       </div>
+    //     </div>
+    //   );
+    // }
+    // // Render participants with live profile info
+    // function ParticipantsList() {
+    //   return (
+    //     <div className="participants-list">
+    //       {members.map((m) => (
+    //         <MemberProfileCard
+    //           key={m.username}
+    //           username={m.username}
+    //           role={m.role}
+    //         />
+    //       ))}
+    //     </div>
+    //   );
+    // }
   };
   const members = committeeUnavailable ? [] : normalizeMembers(committee);
 
-  // persist members to committee in localStorage and trigger re-render
   const persistMembers = async (nextMembers) => {
-    // Write to server and then update local committee state from server response
     try {
       if (!committee?.id) return;
-      const payloadMembers = nextMembers.map((m) => ({
-        username: m.id || m.name,
-        name: m.name || m.id,
-        role: (m.role || "member").toLowerCase(),
-        avatarUrl: m.avatarUrl || "",
-      }));
+      const payloadMembers = nextMembers.map((m) => {
+        const username = (m.username || m.id || m.name || "").toString();
+        const name = (m.name || "").toString() || username;
+        return {
+          username,
+          name,
+          role: (m.role || "member").toLowerCase(),
+          avatarUrl: m.avatarUrl || "",
+        };
+      });
+
       const updated = await apiUpdateCommittee(committee.id, {
         name: committee.name,
         ownerId: committee.ownerId || committee.owner,
         members: payloadMembers,
         settings: committee.settings || {},
       });
+      // ...keep the rest of persistMembers the same
+
       if (updated && updated.id) {
         setCommittee(updated);
         // also sync localStorage cache for legacy helpers
@@ -883,27 +1077,47 @@ export default function Chat() {
     };
   }, [committee?.id]);
 
-  const handleAddMember = () => {
+  // OLD
+  // const handleAddMember = () => {
+  const handleAddMember = async () => {
     const raw = memberInput.trim();
     if (!raw) return;
-    const id = raw
-      .toLowerCase()
-      // allow letters, numbers, underscores, dots, and hyphens
-      .replace(/[^a-z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    const name = raw;
+
+    // user should type the username as stored in Profile
+    const usernameInput = raw;
+
+    // avoid duplicates by username
     const exists = (members || []).some(
       (m) =>
-        (m.id || "").toString() === id ||
-        (m.name || "").toLowerCase() === raw.toLowerCase()
+        (m.username || m.id || "").toString().toLowerCase() ===
+        usernameInput.toLowerCase()
     );
     if (exists) {
       setMemberInput("");
       return;
     }
-    const newMember = { id, name, role: newMemberRole || "member" };
+
+    // look up the profile from backend
+    const profile = await getProfileByUsername(usernameInput);
+    if (!profile) {
+      alert("User not found. Only registered users can be added.");
+      return;
+    }
+
+    const username = profile.username;
+    const name = (profile.name && profile.name.toString().trim()) || username;
+    const avatarUrl = profile.avatarUrl || "";
+
+    const newMember = {
+      id: username,
+      username,
+      name,
+      role: (newMemberRole || "member").toLowerCase(),
+      avatarUrl,
+    };
+
     const next = [...(members || []), newMember];
-    persistMembers(next);
+    await persistMembers(next);
     setMemberInput("");
     setNewMemberRole("member");
   };
@@ -3880,43 +4094,17 @@ export default function Chat() {
                 }`}
               >
                 {members.map((p) => (
-                  <div key={p.id || p.name} className="member-row">
-                    {p.avatarUrl ? (
-                      <img
-                        src={p.avatarUrl}
-                        alt={p.name || p.id}
-                        className="member-avatar"
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: "50%",
-                          objectFit: "cover",
-                          border: "1px solid #d1d5db",
-                          background: "#e5e7eb",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
-                      <div className="avatar-circle">
-                        {(p.name || p.id || "?").slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <div>
-                      <div className="member-name">{p.name || p.id}</div>
-                      <RoleBadge role={p.role} />
-                    </div>
-                    {showManagePanel &&
-                      p.id !== (committee?.ownerId || committee?.owner) && (
-                        <button
-                          type="button"
-                          className="remove-member-btn"
-                          title="Remove participant"
-                          onClick={() => handleRemoveMember(p.id)}
-                        >
-                          ×
-                        </button>
-                      )}
-                  </div>
+                  <LiveProfileMemberCard
+                    key={p.id || p.name}
+                    username={p.username}
+                    fallbackName={p.name || p.id}
+                    role={p.role}
+                    canRemove={
+                      showManagePanel &&
+                      p.id !== (committee?.ownerId || committee?.owner)
+                    }
+                    onRemove={() => handleRemoveMember(p.id)}
+                  />
                 ))}
               </div>
             </div>
@@ -4137,7 +4325,12 @@ export default function Chat() {
                         {/* top line: name + chosen stance */}
                         <div className="message-header">
                           <span className="message-author">
-                            {msg.authorName}
+                            {isMine
+                              ? (me.name && me.name.trim()) ||
+                                me.username ||
+                                me.id ||
+                                "Me"
+                              : msg.authorName}
                           </span>
                           {msg.stance ? (
                             <span
@@ -5257,26 +5450,17 @@ export default function Chat() {
               }`}
             >
               {members.map((p) => (
-                <div key={p.id || p.name} className="member-row">
-                  <div className="avatar-circle">
-                    {(p.name || p.id || "?").slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="member-name">{p.name || p.id}</div>
-                    <RoleBadge role={p.role} />
-                  </div>
-                  {showManagePanel &&
-                    p.id !== (committee?.ownerId || committee?.owner) && (
-                      <button
-                        type="button"
-                        className="remove-member-btn"
-                        title="Remove participant"
-                        onClick={() => handleRemoveMember(p.id)}
-                      >
-                        ×
-                      </button>
-                    )}
-                </div>
+                <LiveProfileMemberCard
+                  key={p.id || p.name}
+                  username={p.username}
+                  fallbackName={p.name || p.id}
+                  role={p.role}
+                  canRemove={
+                    showManagePanel &&
+                    p.id !== (committee?.ownerId || committee?.owner)
+                  }
+                  onRemove={() => handleRemoveMember(p.id)}
+                />
               ))}
             </div>
           </div>

@@ -113,7 +113,10 @@ export default function EditProfile() {
         email: updated.email || prev.email,
       }));
       setAvatar(updated.avatarUrl || avatar);
-      // No localStorage: all changes are saved to backend only
+
+      // Dispatch profile-updated event so other pages refresh user info
+      window.dispatchEvent(new Event("profile-updated"));
+
       alert("Profile synced!");
     } catch (err) {
       console.error("[EditProfile] update error", err);
