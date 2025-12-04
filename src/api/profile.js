@@ -36,6 +36,26 @@ export async function updateProfile(idToken, updates) {
   return data;
 }
 
+// Authenticated lookup by username or email, using the caller's token
+export async function lookupProfile(idToken, lookup) {
+  const qs = `?lookup=${encodeURIComponent(lookup)}`;
+  const res = await fetch(`${BASE_URL}${qs}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+  });
+
+  if (res.status === 404) return null;
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || "Failed to lookup profile");
+  }
+  return data;
+}
+
 // Lookup a profile by username (case-insensitive). Returns null if not found.
 export async function findProfileByUsername(username) {
   const qs = `?lookup=${encodeURIComponent(username)}`;

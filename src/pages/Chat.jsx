@@ -83,27 +83,7 @@ import {
 } from "../api/motions";
 import "../assets/styles/index.css";
 import { getMeeting } from "../api/meetings";
-import {
-  fetchProfile as apiFetchProfile,
-  findProfileByUsername,
-} from "../api/profile";
-
-// helper to get a profile by username
-async function getProfileByUsername(username) {
-  try {
-    let fn = findProfileByUsername;
-    if (typeof fn === "function") {
-      const lookup = await fn(username);
-      if (typeof lookup === "function") {
-        return await lookup();
-      }
-      return lookup;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+import { fetchProfile as apiFetchProfile } from "../api/profile";
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
@@ -152,10 +132,9 @@ function getCurrentUser() {
     const key = activeEmail ? `profileData:${activeEmail}` : null;
     const raw = key ? localStorage.getItem(key) : null;
     const p = raw ? JSON.parse(raw) : {};
-    let username = (p.username || p.email || "").toString().trim();
-    // Do not invent a name; keep blank unless provided by backend
-    let name = (p.name || "").toString().trim();
-    if (!username) username = "guest";
+    const username = (p.username || p.email || "").toString().trim() || "guest";
+    // Name should come directly from the Profile GET response
+    const name = (p.name || "").toString().trim() || username;
     return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
   } catch (e) {
     return { id: "guest", username: "guest", name: "Guest", avatarUrl: "" };
@@ -805,25 +784,27 @@ export default function Chat() {
         if (cancelled) return;
         // Try to get the display name from the profile cache
         // Always fetch the latest profile for each author
-        const mapped = await Promise.all((remote || []).map(async (c) => {
-          let displayName = c.authorId;
-          try {
-            const profile = await getProfileByUsername(c.authorId);
-            if (profile && profile.name && profile.name.trim()) {
-              displayName = profile.name.trim();
-            } else if (profile && profile.username) {
-              displayName = profile.username;
-            }
-          } catch {}
-          return {
-            id: c.id,
-            authorId: c.authorId,
-            authorName: displayName,
-            text: c.text,
-            time: c.createdAt || new Date().toISOString(),
-            stance: c.position || "neutral",
-          };
-        }));
+        const mapped = await Promise.all(
+          (remote || []).map(async (c) => {
+            let displayName = c.authorId;
+            try {
+              const profile = await getProfileByUsername(c.authorId);
+              if (profile && profile.name && profile.name.trim()) {
+                displayName = profile.name.trim();
+              } else if (profile && profile.username) {
+                displayName = profile.username;
+              }
+            } catch {}
+            return {
+              id: c.id,
+              authorId: c.authorId,
+              authorName: displayName,
+              text: c.text,
+              time: c.createdAt || new Date().toISOString(),
+              stance: c.position || "neutral",
+            };
+          })
+        );
         setMotions((prev) =>
           prev.map((m) =>
             m.id === activeMotionId ? { ...m, messages: mapped } : m

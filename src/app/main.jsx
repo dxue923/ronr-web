@@ -9,6 +9,7 @@ import ErrorBoundary from "../components/ErrorBoundary.jsx";
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
 const onRedirectCallback = (appState) => {
   // After Auth0 handles ?code=&state=, hard-redirect to target to ensure Router renders the right page
@@ -24,6 +25,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       authorizationParams={{
         // Use site root for callback so SDK can process then route via appState
         redirect_uri: window.location.origin,
+        audience,
       }}
       cacheLocation="localstorage"
       onRedirectCallback={onRedirectCallback}

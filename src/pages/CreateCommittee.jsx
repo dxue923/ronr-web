@@ -10,22 +10,7 @@ import {
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
 import { joinCommittee } from "../api/profileMemberships";
-import { findProfileByUsername, fetchProfile } from "../api/profile";
-// Helper to get a profile by username (case-insensitive, returns profile or null)
-async function getProfileByUsername(username) {
-  // The exported findProfileByUsername returns a function, not a direct promise
-  // so we must call it and then call the returned function (for legacy reasons)
-  let fn = findProfileByUsername;
-  if (typeof fn === "function") {
-    const lookup = await fn(username);
-    if (typeof lookup === "function") {
-      // If the result is a function, call it with no token
-      return await lookup();
-    }
-    return lookup;
-  }
-  return null;
-}
+import { fetchProfile } from "../api/profile";
 
 const AVATAR_SIZE = 40;
 // Avatar component at top level for use in all subcomponents
@@ -77,71 +62,22 @@ function Avatar({ src, alt }) {
   );
 }
 
-// Helper to fetch latest profile for a username or email
-import { findProfileByUsername as _findProfileByUsername } from "../api/profile";
-async function fetchLatestProfile({ username, email }) {
-  try {
-    if (email) {
-      // Try to find by email first
-      const qs = `?lookup=${encodeURIComponent(email)}`;
-      const headers = { Accept: "application/json" };
-      const res = await fetch(`/.netlify/functions/profile${qs}`, {
-        method: "GET",
-        headers,
-      });
-      if (res.status === 404) return null;
-      const data = await res.json().catch(() => null);
-      if (!res.ok) return null;
-      return data;
-    }
-    // Fallback: Try to find by username (case-insensitive)
-    return await getProfileByUsername(username);
-  } catch {
-    return null;
-  }
-}
-
-function MemberProfileCard({ username, onRemove }) {
-  const [profile, setProfile] = React.useState(null);
-
-  React.useEffect(() => {
-    if (!username) return;
-    let mounted = true;
-
-    const fetchAndSet = () => {
-      fetchLatestProfile({ username }) // ✅ pass object
-        .then((p) => {
-          if (mounted && p) setProfile(p);
-        })
-        .catch(() => {
-          // optional: fallback to minimal profile so you at least see the username
-          if (mounted) setProfile({ username });
-        });
-    };
-
-    fetchAndSet();
-    window.addEventListener("profile-updated", fetchAndSet);
-    return () => {
-      mounted = false;
-      window.removeEventListener("profile-updated", fetchAndSet);
-    };
-  }, [username]);
-
-  if (!profile) return null;
+function MemberProfileCard({ member, onRemove }) {
+  if (!member) return null;
 
   return (
-    <div className="member-item" id={`member-${username}`}>
+    <div className="member-item" id={`member-${member.username}`}>
       <div className="member-left">
-        <Avatar src={profile.avatarUrl} alt={profile.name} />
+        <Avatar src={member.avatarUrl} alt={member.name || member.username} />
         <div className="member-meta">
-          <p className="member-name">{profile.name || profile.username}</p>
-          <p className="member-username">({profile.username})</p>
+          <p className="member-name">{member.name || member.username}</p>
+          <p className="member-username">({member.username})</p>
         </div>
       </div>
       {onRemove && (
         <button
           className="pill danger"
-          onClick={() => onRemove(username)}
+          onClick={() => onRemove(member.username)}
           title="Remove member"
         >
           ✕
@@ -154,39 +90,16 @@ function MemberProfileCard({ username, onRemove }) {
 // Component to always show latest profile info for the owner
 // Owner card: always display current user's profile info from state
 function OwnerProfileCard({ user }) {
-  // Always show latest profile for the current user (owner)
-  const [profile, setProfile] = React.useState(user);
-  React.useEffect(() => {
-    let mounted = true;
-    const fetchAndSet = async () => {
-      if (!user?.email && !user?.username) return;
-      // Try to fetch by email if available, else username
-      const p = await fetchLatestProfile({
-        email: user.email,
-        username: user.username,
-      });
-      if (mounted && p) setProfile(p);
-    };
-    fetchAndSet();
-    window.addEventListener("profile-updated", fetchAndSet);
-    return () => {
-      mounted = false;
-      window.removeEventListener("profile-updated", fetchAndSet);
-    };
-  }, [user.email, user.username]);
-  if (!profile) return null;
+  if (!user) return null;
   return (
-    <div className="member-item" id={`member-${profile.username}`}>
+    <div className="member-item" id={`member-${user.username}`}>
       <div className="member-left">
-        <Avatar
-          src={profile.avatarUrl}
-          alt={profile.name || profile.username || ""}
-        />
+        <Avatar src={user.avatarUrl} alt={user.name || user.username || ""} />
         <div className="member-meta">
           <p className="member-name">
-            {profile.name || profile.username || "(No name)"}
+            {user.name || user.username || "(No name)"}
           </p>
-          <p className="member-username">{profile.username}</p>
+          <p className="member-username">{user.username}</p>
         </div>
       </div>
     </div>
@@ -225,7 +138,8 @@ export default function CreateCommittee() {
   const [memberInputError, setMemberInputError] = useState("");
 
   const navigate = useNavigate();
-  const { user, getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { user, getAccessTokenSilently, isAuthenticated, getIdTokenClaims } =
+    useAuth0();
 
   const [currentUser, setCurrentUser] = useState({
     ...deriveUserFromEmail(user?.email || ""),
@@ -240,6 +154,9 @@ export default function CreateCommittee() {
     }
   })();
 
+  // Bearer token for authenticated profile lookups (owner + members)
+  const [idToken, setIdToken] = useState(null);
+
   /* ---------- load backend profile to prefer updated name/avatar ---------- */
   useEffect(() => {
     let cancelled = false;
@@ -251,25 +168,30 @@ export default function CreateCommittee() {
           return;
         }
 
-        const token = await getAccessTokenSilently().catch(() => null);
-        if (!token) {
+        const claims = await getIdTokenClaims().catch(() => null);
+        const rawIdToken = claims?.__raw || null;
+        setIdToken(rawIdToken);
+
+        if (!rawIdToken) {
           setCurrentUser(deriveUserFromEmail(user?.email || ""));
           return;
         }
 
-        const profile = await fetchProfile(token);
+        const profile = await fetchProfile(rawIdToken);
 
         const emailLocal =
           (profile?.email || user?.email || "").split("@")[0] || "";
 
         const profileName = (profile?.name || "").toString().trim();
         const displayName = profileName || emailLocal;
+        const profileUsername = (profile?.username || "").toString().trim();
 
         if (!cancelled) {
           setCurrentUser({
             id: emailLocal,
-            username: emailLocal, // stable slug for committees
-            name: displayName, // display name from profile
+            // Always prefer the username returned by the Profile GET
+            username: profileUsername || emailLocal,
+            name: displayName,
             avatarUrl: profile?.avatarUrl || "",
             email: profile?.email || user?.email || "",
           });
@@ -482,7 +404,13 @@ export default function CreateCommittee() {
     // Validate against backend: only allow real users (existing profiles)
     let profile = null;
     try {
-      profile = await getProfileByUsername(username);
+      if (!idToken) {
+        setMemberInputError(
+          "Unable to verify user. Please sign in again and try."
+        );
+        return;
+      }
+      profile = await lookupProfile(idToken, username);
       if (!profile) {
         setMemberInputError(
           "User not found. Only registered users can be added."
@@ -959,6 +887,12 @@ export default function CreateCommittee() {
                     className="member-search-input"
                     type="text"
                     value={memberInput}
+                    style={{
+                      width: "100%",
+                      minWidth: "180px",
+                      marginRight: "8px",
+                      boxSizing: "border-box",
+                    }}
                     onChange={async (e) => {
                       setMemberInput(e.target.value);
                       setMemberInputError("");
@@ -1033,7 +967,6 @@ export default function CreateCommittee() {
                         <span>Owner</span>
                       </div>
                       <div className="role-members">
-                        {/* Always show latest profile info for owner */}
                         <OwnerProfileCard user={currentUser} />
                       </div>
                     </li>
@@ -1049,7 +982,7 @@ export default function CreateCommittee() {
                         {chairs.map((m) => (
                           <MemberProfileCard
                             key={m.username}
-                            username={m.username}
+                            member={m}
                             onRemove={removeStaged}
                           />
                         ))}
@@ -1068,7 +1001,7 @@ export default function CreateCommittee() {
                         {members.map((m) => (
                           <MemberProfileCard
                             key={m.username}
-                            username={m.username}
+                            member={m}
                             onRemove={removeStaged}
                           />
                         ))}
@@ -1087,7 +1020,7 @@ export default function CreateCommittee() {
                         {observers.map((m) => (
                           <MemberProfileCard
                             key={m.username}
-                            username={m.username}
+                            member={m}
                             onRemove={removeStaged}
                           />
                         ))}
