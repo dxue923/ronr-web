@@ -804,19 +804,15 @@ export default function Chat() {
         const remote = await getCommentsForMotion(activeMotionId);
         if (cancelled) return;
         // Try to get the display name from the profile cache
-        const mapped = (remote || []).map((c) => {
+        // Always fetch the latest profile for each author
+        const mapped = await Promise.all((remote || []).map(async (c) => {
           let displayName = c.authorId;
           try {
-            // Try to get the profile from localStorage
-            const key = c.authorId ? `profileData:${c.authorId}` : null;
-            const raw = key ? localStorage.getItem(key) : null;
-            if (raw) {
-              const p = JSON.parse(raw);
-              if (p && p.name && p.name.trim()) {
-                displayName = p.name.trim();
-              } else if (p && p.username) {
-                displayName = p.username;
-              }
+            const profile = await getProfileByUsername(c.authorId);
+            if (profile && profile.name && profile.name.trim()) {
+              displayName = profile.name.trim();
+            } else if (profile && profile.username) {
+              displayName = profile.username;
             }
           } catch {}
           return {
@@ -827,7 +823,7 @@ export default function Chat() {
             time: c.createdAt || new Date().toISOString(),
             stance: c.position || "neutral",
           };
-        });
+        }));
         setMotions((prev) =>
           prev.map((m) =>
             m.id === activeMotionId ? { ...m, messages: mapped } : m
@@ -843,9 +839,16 @@ export default function Chat() {
     loadComments().finally(() => setLoadingComments(false));
     // Poll every 3 seconds
     pollTimer = setInterval(loadComments, 3000);
+    // Listen for profile-updated events to reload comments
+    const onProfileUpdated = () => {
+      setLoadingComments(true);
+      loadComments().finally(() => setLoadingComments(false));
+    };
+    window.addEventListener("profile-updated", onProfileUpdated);
     return () => {
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
+      window.removeEventListener("profile-updated", onProfileUpdated);
     };
   }, [activeMotionId]);
 
