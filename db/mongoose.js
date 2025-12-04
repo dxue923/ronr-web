@@ -7,6 +7,10 @@ dotenv.config({ path: ".env.local" }); // or ".env" if you changed it
 
 let isConnected = false;
 
+// Disable command buffering so we fail fast rather than queueing
+mongoose.set("bufferCommands", false);
+mongoose.set("strictQuery", true);
+
 export async function connectToDatabase() {
   if (isConnected) {
     // Reuse existing connection in warm Lambda

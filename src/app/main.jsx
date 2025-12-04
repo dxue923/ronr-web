@@ -11,12 +11,9 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 
 const onRedirectCallback = (appState) => {
-  // After Auth0 handles ?code=&state=, clean up the URL
-  window.history.replaceState(
-    {},
-    document.title,
-    appState?.returnTo || "/create-committee"
-  );
+  // After Auth0 handles ?code=&state=, hard-redirect to target to ensure Router renders the right page
+  const target = appState?.returnTo || "/create-committee";
+  window.location.replace(target);
 };
 
 ReactDOM.createRoot(document.getElementById("root")).render(
@@ -25,8 +22,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       domain={domain}
       clientId={clientId}
       authorizationParams={{
-        redirect_uri: window.location.origin + "/create-committee",
-        audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+        // Use site root for callback so SDK can process then route via appState
+        redirect_uri: window.location.origin,
       }}
       cacheLocation="localstorage"
       onRedirectCallback={onRedirectCallback}

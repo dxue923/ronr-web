@@ -6,7 +6,8 @@ import "../assets/styles/index.css";
 const PLACEHOLDER_AVATAR = null;
 
 export default function EditProfile() {
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { user, isAuthenticated, getAccessTokenSilently, getIdTokenClaims } =
+    useAuth0();
   const [formData, setFormData] = useState({
     name: "",
     username: "",
@@ -17,92 +18,49 @@ export default function EditProfile() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // remoteLoaded state removed (no longer showing load status UI)
-
-  // Load profile: remote if authenticated, else local storage fallback (scoped by email)
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setError("");
       if (!isAuthenticated) {
-        // Local fallback only, use activeProfileEmail if available
-        try {
-          const activeEmail = localStorage.getItem("activeProfileEmail") || "";
-          const key = activeEmail
-            ? `profileData:${activeEmail}`
-            : "profileData";
-          const stored = JSON.parse(localStorage.getItem(key) || "{}");
-          if (cancelled) return;
-          setFormData({
-            name: stored.name || stored.username || "",
-            username: stored.username || "",
-            email: user?.email || stored.email || "",
-            bio: stored.bio || "",
-          });
-          setAvatar(stored.avatarUrl || null);
-        } catch {}
+        setError("Please sign in to load your profile.");
         return;
       }
 
       setLoading(true);
       try {
-        const token = await getAccessTokenSilently().catch(() => null);
-        if (!token) throw new Error("Unable to get auth token");
+        // Get ID token (JWT with sub/email/etc.)
+        const claims = await getIdTokenClaims().catch(() => null);
+        const token = claims?.__raw;
+
+        if (!token) {
+          throw new Error("Unable to get auth token");
+        }
+
         const profile = await fetchProfile(token);
-        if (cancelled) return;
+        if (!profile) return;
+
         setFormData({
-          name: profile.name || profile.username || "",
+          name: profile.name || "",
           username: profile.username || "",
           email: profile.email || user?.email || "",
-          bio: "", // bio not stored server-side yet
+          bio: "", // or profile.bio if you later add it
         });
         setAvatar(profile.avatarUrl || null);
-        // Persist namespaced local cache and active email
-        try {
-          if (profile.email) {
-            localStorage.setItem("activeProfileEmail", profile.email);
-            localStorage.setItem(
-              `profileData:${profile.email}`,
-              JSON.stringify({
-                name: profile.name || "",
-                username: profile.username || "",
-                email: profile.email || "",
-                bio: "",
-                avatarUrl: profile.avatarUrl || "",
-              })
-            );
-          }
-        } catch {}
       } catch (err) {
         console.error("[EditProfile] load error", err);
-        if (!cancelled) setError(err.message || "Failed to load profile");
-        // Fallback to local storage if available
-        try {
-          const activeEmail = localStorage.getItem("activeProfileEmail") || "";
-          const key = activeEmail
-            ? `profileData:${activeEmail}`
-            : "profileData";
-          const stored = JSON.parse(localStorage.getItem(key) || "{}");
-          if (!cancelled) {
-            setFormData({
-              name: stored.name || stored.username || "",
-              username: stored.username || "",
-              email: user?.email || stored.email || "",
-              bio: stored.bio || "",
-            });
-            setAvatar(stored.avatarUrl || null);
-          }
-        } catch {}
+        setError(err.message || "Failed to load profile");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
+
     load();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, getAccessTokenSilently, user]);
+  }, [isAuthenticated, getIdTokenClaims, user]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -130,34 +88,24 @@ export default function EditProfile() {
       avatarUrl: avatar || "",
     };
 
-    // Always persist locally for fallback (namespaced by email)
-    try {
-      if (payload.email) {
-        localStorage.setItem("activeProfileEmail", payload.email);
-        localStorage.setItem(
-          `profileData:${payload.email}`,
-          JSON.stringify(payload)
-        );
-      } else {
-        // legacy fallback
-        localStorage.setItem("profileData", JSON.stringify(payload));
-      }
-    } catch {}
-
     if (!isAuthenticated) {
-      alert("Profile saved locally (not signed in).");
+      setError("You must be signed in to update your profile.");
+      alert("You must be signed in to update your profile.");
       return;
     }
 
     setSaving(true);
     try {
-      const token = await getAccessTokenSilently().catch(() => null);
+      const claims = await getIdTokenClaims().catch(() => null);
+      const token = claims?.__raw;
       if (!token) throw new Error("Missing auth token");
+
       const updated = await updateProfile(token, {
         name: payload.name,
         username: payload.username,
         avatarUrl: payload.avatarUrl,
       });
+
       setFormData((prev) => ({
         ...prev,
         name: updated.name || prev.name,
@@ -165,28 +113,12 @@ export default function EditProfile() {
         email: updated.email || prev.email,
       }));
       setAvatar(updated.avatarUrl || avatar);
-      // Update namespaced local cache and active email after successful sync
-      try {
-        const email = updated.email || payload.email || "";
-        if (email) {
-          localStorage.setItem("activeProfileEmail", email);
-          localStorage.setItem(
-            `profileData:${email}`,
-            JSON.stringify({
-              name: updated.name || payload.name,
-              username: updated.username || payload.username,
-              email,
-              bio: payload.bio || "",
-              avatarUrl: updated.avatarUrl || payload.avatarUrl || "",
-            })
-          );
-        }
-      } catch {}
+      // No localStorage: all changes are saved to backend only
       alert("Profile synced!");
     } catch (err) {
       console.error("[EditProfile] update error", err);
       setError(err.message || "Update failed");
-      alert("Remote update failed; saved locally only.");
+      // No misleading alert about local save
     } finally {
       setSaving(false);
     }
@@ -203,7 +135,7 @@ export default function EditProfile() {
           </div>
         )}
         {!!error && <div className="error-msg">{error}</div>}
-        <h2 className="profile-title">Edit Profile</h2>
+        {/* Title removed per request */}
 
         <div className="avatar-section">
           <img src={avatar || undefined} alt="" className="profile-image" />

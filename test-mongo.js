@@ -1,7 +1,13 @@
 // test-mongo.js
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
 import mongoose from "mongoose";
 
 const uri = process.env.MONGODB_URI;
+
+console.log("DEBUG: process.cwd() =", process.cwd());
+console.log("DEBUG: MONGODB_URI =", process.env.MONGODB_URI);
+console.log("DEBUG: All env:", JSON.stringify(process.env, null, 2));
 
 (async () => {
   try {

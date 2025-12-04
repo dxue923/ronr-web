@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400..700;1,400..700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap");
 
 /* ==================================================
    GLOBAL / RESET
@@ -16,6 +17,21 @@ body {
   font-family: "STIX Two Text", serif;
   background: #f2f2f5;
   color: #343a40;
+}
+
+/* Form controls: use IBM Plex Sans for inputs and buttons */
+input,
+textarea,
+button,
+.btn,
+.add-member-btn,
+.remove-member-btn,
+.motion-action-btn,
+.chair-icon-btn,
+.participants-toggle-btn,
+.participants-collapse-toggle,
+.primary-icon-btn {
+  font-family: "IBM Plex Sans", sans-serif !important;
 }
 
 /* ==================================================
@@ -364,6 +380,13 @@ START NEW CHAT PAGE CSS
   cursor: pointer;
   flex-shrink: 0;
 }
+.primary-icon-btn.small {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 14px;
+  line-height: 1;
+}
 
 /* meeting toggle styles removed */
 
@@ -372,6 +395,23 @@ START NEW CHAT PAGE CSS
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+/* Header above the motions list: title and add icon inline */
+.motions-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px; /* more space between title and plus icon */
+  justify-content: space-between; /* push controls to far right */
+  margin-bottom: 10px; /* add breathing room before first motion card */
+}
+/* Let the title take remaining space so the add icon hugs the right edge */
+.motions-section-header strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Always push the add icon to the far right */
+.motions-section-header .primary-icon-btn {
+  margin-left: auto;
 }
 
 /* left column now scrolls; let list expand naturally */
@@ -483,6 +523,14 @@ START NEW CHAT PAGE CSS
 
 /* Modal delete button style */
 .btn-danger {
+  /* Align the add icon vertically with the participants pencil icon on smaller screens */
+  @media (max-width: 1199px) {
+    .motions-section-header .primary-icon-btn.small {
+      height: 22px;
+      display: inline-flex;
+      align-items: center; /* vertical alignment */
+    }
+  }
   background: #fff1f2;
   color: #991b1b;
   border: 1px solid rgba(220, 38, 38, 0.12);
@@ -803,7 +851,7 @@ START NEW CHAT PAGE CSS
 }
 
 .member-list h3 {
-  font-size: 0.85rem;
+  font-size: 1rem !important; /* set participants title to 1rem */
   margin: 0;
 }
 
@@ -1363,10 +1411,10 @@ START NEW CHAT PAGE CSS
 }
 
 .send-btn {
-  width: 40px;
-  height: 40px; /* fixed square so button remains circular */
-  min-width: 40px;
-  min-height: 40px;
+  width: 35px;
+  height: 35px; /* fixed square so button remains circular */
+  min-width: 35px;
+  min-height: 35px;
   border: none;
   border-radius: 50%; /* always circular */
   background: #2358bb;
@@ -3924,19 +3972,19 @@ label[for="myCheckbox"] {
 }
 
 .avatar-edit-label {
-  background: #2358bb;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 20px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
+  background: transparent;
+  color: #9ca3af; /* light grey text */
+  border: none; /* no border */
+  border-radius: 0; /* remove rounded button look */
+  padding: 0; /* no pill padding */
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer; /* pointer on hover */
+  transition: color 0.15s ease;
 }
 
 .avatar-edit-label:hover {
-  background: #1a438f;
+  color: #6b7280; /* slightly darker grey on hover */
 }
 
 .profile-edit-form {
@@ -4055,7 +4103,7 @@ label[for="myCheckbox"] {
   }
 
   .avatar-edit-label {
-    padding: 8px 16px;
+    padding: 0;
     font-size: 0.85rem;
   }
 

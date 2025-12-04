@@ -2,6 +2,14 @@
 // Frontend helper for the motions Netlify function
 
 const BASE_URL = "/.netlify/functions/motions";
+// Retrieve auth token from localStorage if available
+function getAuthToken() {
+  try {
+    return localStorage.getItem("authToken") || null;
+  } catch {
+    return null;
+  }
+}
 
 // GET all motions, optionally filtered by committeeId
 export async function fetchMotions(committeeId) {
@@ -68,6 +76,7 @@ export async function createMotion({
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
     },
     body: JSON.stringify(payload),
   });
@@ -97,6 +106,7 @@ export async function updateMotionStatus(id, status) {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
     },
     body: JSON.stringify({ id, status }),
   });
@@ -121,6 +131,7 @@ export async function castMotionVote(id, vote, voterId) {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
     },
     body: JSON.stringify({ id, vote: normalizedVote, voterId }),
   });
@@ -145,6 +156,7 @@ export async function updateMotion(id, { status, decisionDetails, meta } = {}) {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
     },
     body: JSON.stringify(body),
   });

@@ -21,7 +21,11 @@ export default function Navbar() {
   };
   const handleSignOut = () => {
     logout({
-      logoutParams: { returnTo: `${window.location.origin}/` },
+      logoutParams: {
+        returnTo: `${window.location.origin}/`,
+        // Clear IdP session to avoid silent SSO re-login
+        federated: true,
+      },
     });
   };
 

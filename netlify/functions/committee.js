@@ -6,6 +6,7 @@ import Committee from "../../models/Committee.js";
 import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // related discussions
 import jwt from "jsonwebtoken";
+import Profile from "../../models/Profile.js";
 
 const IS_DEV = process.env.NETLIFY_DEV === "true";
 
@@ -24,14 +25,16 @@ function decodeAuth(authHeader = "") {
 }
 
 function usernameFromClaims(c = {}) {
-  return (
+  const email = (c.email || "").toString();
+  const localPart = email ? email.split("@")[0] : "";
+  const base =
+    localPart ||
     c.nickname ||
     c.preferred_username ||
     c.name ||
-    c.email ||
     c.sub ||
-    "user"
-  ).toString();
+    "user";
+  return base.toString();
 }
 
 function getRole(committeeDoc, username) {
@@ -82,7 +85,30 @@ export async function handler(event) {
     if (overrideHeader === "DELETE" || overrideBody === "DELETE")
       method = "DELETE";
 
-    await connectToDatabase();
+    try {
+      await connectToDatabase();
+    } catch (connErr) {
+      // For GET requests, fail gracefully with empty list to avoid 500s in UI
+      if ((event.httpMethod || "GET").toUpperCase() === "GET") {
+        console.warn(
+          "[committee] DB connect failed, returning empty list",
+          connErr?.message || connErr
+        );
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify([]),
+        };
+      }
+      return {
+        statusCode: 503,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "Service Unavailable",
+          message: "Database temporarily unreachable",
+        }),
+      };
+    }
 
     const authHeader =
       event.headers?.authorization || event.headers?.Authorization || "";
@@ -105,10 +131,16 @@ export async function handler(event) {
     if (method === "GET") {
       const params = event.queryStringParameters || {};
       const committeeId = params.id || null;
-      const member = (params.member || "").toString().trim();
+      let member = (params.member || "").toString().trim();
+      if (!member && actorUsername) member = actorUsername;
 
       if (committeeId) {
-        const found = await Committee.findById(committeeId);
+        let found = null;
+        try {
+          found = await Committee.findById(committeeId);
+        } catch (e) {
+          console.warn("[committee] findById error", e?.message || e);
+        }
         if (!found) {
           return {
             statusCode: 404,
@@ -126,9 +158,52 @@ export async function handler(event) {
       // If a member filter is provided, return only committees where that username appears in members
       if (member) {
         const usernameRegex = new RegExp(`^${escapeRegex(member)}$`, "i");
-        const docs = await Committee.find({
-          "members.username": usernameRegex,
-        }).sort({ createdAt: 1 });
+        let docs = [];
+        try {
+          docs = await Committee.find({
+            "members.username": usernameRegex,
+          }).sort({ createdAt: 1 });
+        } catch (e) {
+          console.warn("[committee] member filter find error", e?.message || e);
+          docs = [];
+        }
+
+        // Refresh member display names from Profile for the returned committees
+        try {
+          const usernames = Array.from(
+            new Set(
+              docs.flatMap((d) =>
+                (d.members || []).map((m) => (m.username || "").trim())
+              )
+            )
+          ).filter(Boolean);
+          let profiles = [];
+          if (usernames.length) {
+            profiles = await Profile.find({ username: { $in: usernames } })
+              .select("username name avatarUrl email")
+              .lean();
+          }
+          const byUsername = new Map(
+            profiles.map((p) => [String(p.username || "").toLowerCase(), p])
+          );
+          docs.forEach((doc) => {
+            doc.members = (doc.members || []).map((m) => {
+              const key = String(m.username || "").toLowerCase();
+              const prof = byUsername.get(key);
+              if (prof) {
+                return {
+                  ...m,
+                  name: prof.name || m.name || m.username,
+                  avatarUrl: prof.avatarUrl || m.avatarUrl || "",
+                };
+              }
+              return m;
+            });
+          });
+        } catch (e) {
+          console.warn("[committee] name refresh failed", e?.message || e);
+        }
+
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
@@ -136,7 +211,48 @@ export async function handler(event) {
         };
       }
 
-      const docs = await Committee.find().sort({ createdAt: 1 });
+      let docs = [];
+      try {
+        docs = await Committee.find().sort({ createdAt: 1 });
+      } catch (e) {
+        console.warn("[committee] list find error", e?.message || e);
+        docs = [];
+      }
+      // Also refresh names for full list to keep display consistent
+      try {
+        const usernames = Array.from(
+          new Set(
+            docs.flatMap((d) =>
+              (d.members || []).map((m) => (m.username || "").trim())
+            )
+          )
+        ).filter(Boolean);
+        let profiles = [];
+        if (usernames.length) {
+          profiles = await Profile.find({ username: { $in: usernames } })
+            .select("username name avatarUrl email")
+            .lean();
+        }
+        const byUsername = new Map(
+          profiles.map((p) => [String(p.username || "").toLowerCase(), p])
+        );
+        docs.forEach((doc) => {
+          doc.members = (doc.members || []).map((m) => {
+            const key = String(m.username || "").toLowerCase();
+            const prof = byUsername.get(key);
+            if (prof) {
+              return {
+                ...m,
+                name: prof.name || m.name || m.username,
+                avatarUrl: prof.avatarUrl || m.avatarUrl || "",
+              };
+            }
+            return m;
+          });
+        });
+      } catch (e) {
+        console.warn("[committee] list name refresh failed", e?.message || e);
+      }
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
@@ -199,17 +315,24 @@ export async function handler(event) {
         (m) =>
           (m.username || "").toLowerCase() === ownerKey || m.role === "owner"
       );
-      const withOwner = haveOwner
-        ? cleaned
-        : [
-            {
-              username: ownerId,
-              name: ownerId,
-              role: "owner",
-              avatarUrl: "",
-            },
-            ...cleaned,
-          ];
+      let withOwner = cleaned;
+      if (!haveOwner) {
+        let ownerProfile = null;
+        try {
+          ownerProfile = await Profile.findOne({ username: ownerId })
+            .select("username name avatarUrl")
+            .lean();
+        } catch {}
+        withOwner = [
+          {
+            username: ownerId,
+            name: (ownerProfile?.name || ownerId).trim(),
+            role: "owner",
+            avatarUrl: ownerProfile?.avatarUrl || "",
+          },
+          ...cleaned,
+        ];
+      }
 
       // Enforce single chair
       let chairSeen = false;
@@ -336,9 +459,8 @@ export async function handler(event) {
       }
 
       try {
+        // NOTE: Permissions relaxed per request — allow anyone to modify
         const role = getRole(doc, actorUsername);
-        const isOwner = role === "owner";
-        const isChair = role === "chair";
 
         // Restrict owner-only changes: members array modifications & ownerId transfer
         const modifyingMembers = Array.isArray(body.members);
@@ -346,29 +468,10 @@ export async function handler(event) {
           typeof body.ownerId === "string" &&
           body.ownerId.trim() &&
           body.ownerId.trim() !== doc.ownerId;
-        if ((modifyingMembers || transferringOwner) && !isOwner) {
-          return {
-            statusCode: 403,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              error: "Forbidden",
-              message: "Only owner can modify members or transfer ownership",
-            }),
-          };
-        }
+        // Allow anyone to modify members or transfer ownership
 
         // Settings/name can be updated by chair or owner
         if (typeof body.name === "string") {
-          if (!(isOwner || isChair)) {
-            return {
-              statusCode: 403,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                error: "Forbidden",
-                message: "Only chair or owner can rename committee",
-              }),
-            };
-          }
           doc.name = body.name.trim() || doc.name;
         }
 
@@ -407,16 +510,6 @@ export async function handler(event) {
         }
 
         if (body.settings && typeof body.settings === "object") {
-          if (!(isOwner || isChair)) {
-            return {
-              statusCode: 403,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                error: "Forbidden",
-                message: "Only chair or owner can update settings",
-              }),
-            };
-          }
           doc.settings = body.settings;
         }
 

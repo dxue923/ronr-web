@@ -84,14 +84,19 @@ function mapAuth0(decoded) {
     picture = "",
   } = decoded;
 
-  const username = nickname || email || "user";
+  // Default username should be the email local-part (before '@')
+  const emailLocalPart =
+    email && typeof email === "string" ? email.split("@")[0] : "";
+  const username = emailLocalPart || nickname || "user";
 
   return {
     id: sub, // will become _id in Mongo
     username,
-    name: name || username,
+    // Keep name empty until explicitly set by the user
+    name: "",
     email,
-    avatarUrl: picture || "",
+    // Keep avatar empty until explicitly set by the user
+    avatarUrl: "",
   };
 }
 
@@ -114,20 +119,93 @@ export async function handler(event) {
     const tokenProfile = mapAuth0(claims);
 
     // 2) DB
-    await connectToDatabase();
+    try {
+      await connectToDatabase();
+    } catch (connErr) {
+      // Fail gracefully: return minimal profile from token without exposing connection errors
+      console.error("[profile] DB connect error", connErr?.message || connErr);
+      if (event.httpMethod === "GET") {
+        const minimal = {
+          id: tokenProfile.id,
+          username: tokenProfile.username,
+          // Leave name empty for users without a saved profile
+          name: "",
+          email: tokenProfile.email,
+          // Leave avatar empty for users without a saved profile
+          avatarUrl: "",
+          memberships: [],
+        };
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(minimal),
+        };
+      }
+      // For writes, surface a generic error without internal details
+      return {
+        statusCode: 503,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "Service Unavailable",
+          message: "Database temporarily unreachable",
+        }),
+      };
+    }
 
     // Ensure profile exists or create it ONE TIME from Auth0 data
-    let profileDoc = await Profile.findById(tokenProfile.id);
+    let profileDoc;
+    try {
+      profileDoc = await Profile.findById(tokenProfile.id).lean();
+    } catch (findErr) {
+      console.error("[profile] find error", findErr?.message || findErr);
+      profileDoc = null;
+    }
 
     if (!profileDoc) {
-      profileDoc = await Profile.create({
-        _id: tokenProfile.id,
-        username: tokenProfile.username,
-        name: tokenProfile.name,
-        email: tokenProfile.email,
-        avatarUrl: tokenProfile.avatarUrl,
-        memberships: [],
-      });
+      try {
+        // Ensure default username stored in DB as email local-part
+        const defaultUsername = tokenProfile.username;
+        const created = await Profile.create({
+          _id: tokenProfile.id,
+          username: defaultUsername,
+          // Keep name blank until the user sets it
+          name: "",
+          email: tokenProfile.email,
+          // Keep avatar blank until the user sets it
+          avatarUrl: "",
+          memberships: [],
+        });
+        profileDoc = toClient(created);
+      } catch (createErr) {
+        console.error(
+          "[profile] create error",
+          createErr?.message || createErr
+        );
+        // If creation fails, fall back to minimal token-derived profile on GET
+        if (event.httpMethod === "GET") {
+          const minimal = {
+            id: tokenProfile.id,
+            username: tokenProfile.username,
+            name: "",
+            email: tokenProfile.email,
+            avatarUrl: "",
+            memberships: [],
+          };
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(minimal),
+          };
+        }
+        return {
+          statusCode: 503,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            error: "Service Unavailable",
+            message: "Database temporarily unreachable",
+          }),
+        };
+      }
     }
     // NOTE: we are NOT overwriting avatarUrl from token anymore
     // If you still want to keep email in sync, you could optionally:
@@ -136,7 +214,50 @@ export async function handler(event) {
 
     // ------------ GET ------------
     if (event.httpMethod === "GET") {
+      const params = event.queryStringParameters || {};
+      const lookup = (params.lookup || "").toString().trim();
+      if (lookup) {
+        // Find by exact email (preferred) or username.
+        try {
+          let doc = null;
+          if (lookup.includes("@")) {
+            // Exact email match
+            doc = await Profile.findOne({ email: lookup }).lean();
+          }
+          if (!doc) {
+            // Fallback: username exact, case-insensitive
+            const re = new RegExp(
+              `^${lookup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+              "i"
+            );
+            doc = await Profile.findOne({ username: re }).lean();
+          }
+          if (!doc) {
+            return {
+              statusCode: 404,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                error: "Not Found",
+                message: "Profile not found",
+              }),
+            };
+          }
+          const client = toClient(doc);
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(client),
+          };
+        } catch (e) {
+          return {
+            statusCode: 500,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Lookup failed" }),
+          };
+        }
+      }
       const clientProfile = toClient(profileDoc);
+      // Do not auto-override username/name/avatar on GET; respect saved values
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
@@ -161,7 +282,40 @@ export async function handler(event) {
       if (incomingAvatar !== undefined) profileDoc.avatarUrl = incomingAvatar;
 
       try {
-        await profileDoc.save();
+        // Re-load doc for mutation if we used lean earlier
+        const docForUpdate = await Profile.findById(tokenProfile.id);
+        if (!docForUpdate) {
+          return {
+            statusCode: 404,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Not Found",
+              message: "Profile not found",
+            }),
+          };
+        }
+        if (incomingUsername) {
+          // Guard: prevent setting a username that belongs to a different email/user
+          const existing = await Profile.findOne({
+            username: incomingUsername,
+          }).lean();
+          if (existing && existing._id !== tokenProfile.id) {
+            return {
+              statusCode: 409,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                error: "Conflict",
+                message: "Username already belongs to another account",
+              }),
+            };
+          }
+          docForUpdate.username = incomingUsername;
+        }
+        if (incomingName) docForUpdate.name = incomingName;
+        if (incomingAvatar !== undefined)
+          docForUpdate.avatarUrl = incomingAvatar;
+        await docForUpdate.save();
+        profileDoc = docForUpdate;
       } catch (saveErr) {
         if (saveErr && saveErr.code === 11000) {
           return {
@@ -169,7 +323,7 @@ export async function handler(event) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               error: "Conflict",
-              message: "Username already taken",
+              message: "Username or email already taken",
             }),
           };
         }
@@ -193,9 +347,12 @@ export async function handler(event) {
   } catch (err) {
     console.error("[profile] error", err);
     return {
-      statusCode: 401,
+      statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Unauthorized", message: err.message }),
+      body: JSON.stringify({
+        error: "Server Error",
+        message: "Unable to load profile",
+      }),
     };
   }
 }

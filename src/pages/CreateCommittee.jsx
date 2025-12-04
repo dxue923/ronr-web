@@ -10,23 +10,18 @@ import {
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
 import { joinCommittee } from "../api/profileMemberships";
+import { findProfileByUsername, fetchProfile } from "../api/profile";
+import { useAuth0 } from "@auth0/auth0-react";
 
 /* ---------- id helper (client-side only for new until server returns) ---------- */
 const uid = () =>
   globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 10);
 
-/* ---------- current user ---------- */
-function getCurrentUser() {
-  try {
-    const activeEmail = localStorage.getItem("activeProfileEmail") || "";
-    const key = activeEmail ? `profileData:${activeEmail}` : "profileData";
-    const p = JSON.parse(localStorage.getItem(key) || "{}");
-    const username = (p.username || p.name || "you").toString().trim();
-    const name = (p.name || p.username || "You").toString().trim();
-    return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
-  } catch {
-    return { id: "you", username: "you", name: "You", avatarUrl: "" };
-  }
+/* ---------- current user (backend/auth0-derived) ---------- */
+function deriveUserFromEmail(email = "") {
+  const local = (email || "").split("@")[0] || "";
+  // Do not prefill name or avatar from email; keep blank until user sets
+  return { id: local || "", username: local || "", name: "", avatarUrl: "" };
 }
 
 const AVATAR_SIZE = 40;
@@ -47,7 +42,12 @@ function whoAmI(committee, me) {
 
 export default function CreateCommittee() {
   const navigate = useNavigate();
-  const currentUser = getCurrentUser();
+  const { user, getAccessTokenSilently, isAuthenticated } = useAuth0();
+
+  const [currentUser, setCurrentUser] = useState(
+    deriveUserFromEmail(user?.email || "")
+  );
+
   const authToken = (() => {
     try {
       return localStorage.getItem("authToken") || null;
@@ -56,31 +56,92 @@ export default function CreateCommittee() {
     }
   })();
 
+  /* ---------- load backend profile to prefer updated name/avatar ---------- */
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!isAuthenticated) {
+          setCurrentUser(deriveUserFromEmail(user?.email || ""));
+          return;
+        }
+
+        const token = await getAccessTokenSilently().catch(() => null);
+        if (!token) {
+          setCurrentUser(deriveUserFromEmail(user?.email || ""));
+          return;
+        }
+
+        const profile = await fetchProfile(token);
+
+        const emailLocal =
+          (profile?.email || user?.email || "").split("@")[0] || "";
+
+        const profileName = (profile?.name || "").toString().trim();
+        const displayName = profileName || emailLocal;
+
+        if (!cancelled) {
+          setCurrentUser({
+            id: emailLocal,
+            username: emailLocal, // stable slug for committees
+            name: displayName, // display name from profile
+            avatarUrl: profile?.avatarUrl || "",
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setCurrentUser(deriveUserFromEmail(user?.email || ""));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email, isAuthenticated, getAccessTokenSilently]);
+
   /* ---------- committees list (remote only) ---------- */
   const [committees, setCommittees] = useState([]);
   const [loadingCommittees, setLoadingCommittees] = useState(false);
   const [errorCommittees, setErrorCommittees] = useState("");
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+  // Seed with cached committees so we show content while fetching
+  useEffect(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("committees") || "[]");
+      if (Array.isArray(cached) && cached.length) {
+        setCommittees(cached);
+      }
+    } catch {}
+  }, []);
 
   // Initial fetch
   useEffect(() => {
+    if (!currentUser.username) return; // wait until profile loaded
     let cancelled = false;
     (async () => {
       setLoadingCommittees(true);
       setErrorCommittees("");
       try {
-        const remote = await apiGetCommittees();
+        const memberOverride = currentUser.username;
+        const remote = await apiGetCommittees(memberOverride);
         if (!cancelled) setCommittees(Array.isArray(remote) ? remote : []);
       } catch (err) {
         if (!cancelled)
           setErrorCommittees(err.message || "Failed to load committees");
       } finally {
-        if (!cancelled) setLoadingCommittees(false);
+        if (!cancelled) {
+          setLoadingCommittees(false);
+          setHasLoadedOnce(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentUser.username]);
 
   const myCommittees = useMemo(() => {
     const me = norm(currentUser.username);
@@ -120,6 +181,34 @@ export default function CreateCommittee() {
     },
   ]);
   const [stagedOwnerId, setStagedOwnerId] = useState(currentUser.username);
+
+  // Keep staged owner row in sync when currentUser or owner id changes
+  useEffect(() => {
+    setStagedMembers((prev) => {
+      // Remove any previous owner row and always insert the latest profile info
+      const others = prev.filter(
+        (m) =>
+          m.role !== ROLE.OWNER &&
+          norm(m.username) !== norm(currentUser.username)
+      );
+      return [
+        {
+          name: currentUser.name,
+          username: currentUser.username,
+          role: ROLE.OWNER,
+          avatarUrl: currentUser.avatarUrl || "",
+        },
+        ...others,
+      ];
+    });
+    // Always sync owner id to current user
+    setStagedOwnerId(currentUser.username);
+  }, [
+    currentUser.name,
+    currentUser.username,
+    currentUser.avatarUrl,
+    stagedOwnerId,
+  ]);
 
   const roleSelectRef = useRef(null);
   const membersScrollRef = useRef(null);
@@ -188,7 +277,7 @@ export default function CreateCommittee() {
   const gotoChat = (id) => navigate(`/committees/${id}/chat`);
 
   /* ---------- staged members ops ---------- */
-  const addMember = () => {
+  const addMember = async () => {
     const raw = memberInput.trim();
     if (!raw) return;
 
@@ -208,6 +297,18 @@ export default function CreateCommittee() {
     }
 
     const chosenRole = memberRoleInput;
+
+    // Validate against backend: only allow real users (existing profiles)
+    try {
+      const lookup = await findProfileByUsername(slug);
+      if (!lookup) {
+        alert("User not found. Only registered users can be added.");
+        return;
+      }
+    } catch (e) {
+      alert("Unable to verify user. Please try again.");
+      return;
+    }
 
     // handle new owner
     if (chosenRole === ROLE.OWNER) {
@@ -324,15 +425,96 @@ export default function CreateCommittee() {
   };
 
   const refreshCommittees = async () => {
+    if (!currentUser.username) return;
     try {
-      const remote = await apiGetCommittees();
+      const memberOverride = currentUser.username;
+      const remote = await apiGetCommittees(memberOverride);
       setCommittees(Array.isArray(remote) ? remote : []);
     } catch {}
   };
 
+  // Simple retry if committees load empty on first load
+  useEffect(() => {
+    if (loadingCommittees) return;
+    if ((committees || []).length > 0) return;
+    const t = setTimeout(() => {
+      refreshCommittees();
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [loadingCommittees, committees?.length]);
+
+  // Listen for profile updates across the app and refresh current user + committees
+  useEffect(() => {
+    const handler = async () => {
+      try {
+        if (!isAuthenticated) return;
+
+        const token = await getAccessTokenSilently().catch(() => null);
+        if (!token) return;
+
+        const profile = await fetchProfile(token);
+        const emailLocal =
+          (profile?.email || user?.email || "").split("@")[0] || "";
+
+        const profileName = (profile?.name || "").toString().trim();
+        const displayName = profileName || emailLocal;
+
+        setCurrentUser((prev) => ({
+          id: emailLocal || prev.id,
+          username: emailLocal || prev.username, // keep slug stable
+          name: displayName || prev.name,
+          avatarUrl: profile?.avatarUrl || prev.avatarUrl || "",
+        }));
+      } catch {
+        // ignore errors, just skip update
+      }
+      refreshCommittees();
+    };
+
+    window.addEventListener("profile-updated", handler);
+
+    const onStorage = (e) => {
+      if (e.key === "profileUpdatedAt") handler();
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("profile-updated", handler);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [isAuthenticated, getAccessTokenSilently, user?.email]);
+
   const handleCreate = async () => {
     const name = committeeName.trim();
     if (!name) return;
+
+    // Force reload of profile before creating committee
+    let latestProfile = null;
+    try {
+      const token = await getAccessTokenSilently().catch(() => null);
+      if (token) {
+        latestProfile = await fetchProfile(token);
+      }
+    } catch {}
+
+    // Update currentUser with latest profile info if available
+    if (latestProfile) {
+      const emailLocal =
+        (latestProfile?.email || user?.email || "").split("@")[0] || "";
+      const profileName = (latestProfile?.name || "").toString().trim();
+      const displayName = profileName || emailLocal;
+      setCurrentUser({
+        id: emailLocal,
+        username: emailLocal,
+        name: displayName,
+        avatarUrl: latestProfile?.avatarUrl || "",
+      });
+    }
+
+    // Wait for state update to propagate (React setState is async)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Use the latest currentUser for committee creation
     const local = normalizeForSave(name);
     try {
       const created = await apiCreateCommittee({
@@ -459,6 +641,8 @@ export default function CreateCommittee() {
     setStagedMembers([...map.values()]);
     setMemberRoleInput(ROLE.MEMBER);
     setLastAddedId(null);
+    // The owner sync effect will run next and overwrite the owner row
+    // with currentUser.name/avatar to keep it consistent with Profile.
   };
 
   /* ---------- group by role for display ---------- */
@@ -512,6 +696,7 @@ export default function CreateCommittee() {
             )}
             {!loadingCommittees &&
               !errorCommittees &&
+              hasLoadedOnce &&
               sortedCommittees.length === 0 && (
                 <div className="empty-hint">No committees yet</div>
               )}
@@ -627,23 +812,25 @@ export default function CreateCommittee() {
                         <span>Owner</span>
                       </div>
                       <div className="role-members">
-                        {owners.map((m) => (
-                          <div
-                            className="member-item"
-                            key={m.username}
-                            id={`member-${m.username}`}
-                          >
-                            <div className="member-left">
-                              <Avatar src={m.avatarUrl} alt={m.name} />
-                              <div className="member-meta">
-                                <p className="member-name">{m.name}</p>
-                                <p className="member-username">
-                                  ({m.username})
-                                </p>
-                              </div>
+                        {/* Always show currentUser.name/avatar for owner */}
+                        <div
+                          className="member-item"
+                          key={currentUser.username}
+                          id={`member-${currentUser.username}`}
+                        >
+                          <div className="member-left">
+                            <Avatar
+                              src={currentUser.avatarUrl}
+                              alt={currentUser.name}
+                            />
+                            <div className="member-meta">
+                              <p className="member-name">{currentUser.name}</p>
+                              <p className="member-username">
+                                ({currentUser.username})
+                              </p>
                             </div>
                           </div>
-                        ))}
+                        </div>
                       </div>
                     </li>
                   )}
