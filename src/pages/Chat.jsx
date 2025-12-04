@@ -782,19 +782,19 @@ export default function Chat() {
       try {
         const remote = await getCommentsForMotion(activeMotionId);
         if (cancelled) return;
-        // Try to get the display name from the profile cache
-        // Always fetch the latest profile for each author
+        // Always fetch the latest profile for each author and use their profile name only
         const mapped = await Promise.all(
           (remote || []).map(async (c) => {
-            let displayName = c.authorId;
+            let displayName = "(No name)";
             try {
               const profile = await getProfileByUsername(c.authorId);
               if (profile && profile.name && profile.name.trim()) {
                 displayName = profile.name.trim();
-              } else if (profile && profile.username) {
-                displayName = profile.username;
               }
-            } catch {}
+              // If no valid name, do not fallback to username or guest
+            } catch {
+              displayName = "(No name)";
+            }
             return {
               id: c.id,
               authorId: c.authorId,
@@ -4845,6 +4845,7 @@ export default function Chat() {
                       }
                       onClick={() => {
                         setComposerStanceVisual("pro");
+                        setComposerStance("pro");
                       }}
                       onFocus={() => {
                         setComposerStanceVisual("pro");
@@ -4883,6 +4884,7 @@ export default function Chat() {
                       }
                       onClick={() => {
                         setComposerStanceVisual("con");
+                        setComposerStance("con");
                       }}
                       onFocus={() => {
                         setComposerStanceVisual("con");
@@ -4921,6 +4923,7 @@ export default function Chat() {
                       }
                       onClick={() => {
                         setComposerStanceVisual("neutral");
+                        setComposerStance("neutral");
                       }}
                       onFocus={() => {
                         setComposerStanceVisual("neutral");

@@ -10,7 +10,7 @@ import {
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
 import { joinCommittee } from "../api/profileMemberships";
-import { fetchProfile } from "../api/profile";
+import { fetchProfile, findProfileByUsername } from "../api/profile";
 
 const AVATAR_SIZE = 40;
 // Avatar component at top level for use in all subcomponents
@@ -131,6 +131,21 @@ function whoAmI(committee, me) {
   // Requirement: self user should always be recognized as the owner
   // Grant OWNER role regardless of stored committee data.
   return { role: ROLE.OWNER };
+}
+
+// Backend lookup: given idToken + username → profile or null
+async function lookupProfileByUsername(idToken, username) {
+  if (!username) return null;
+  try {
+    const fn = await findProfileByUsername(username); // returns a function
+    if (typeof fn === "function") {
+      const profile = await fn(idToken); // pass token so Netlify can auth
+      return profile || null;
+    }
+    return fn || null;
+  } catch {
+    return null;
+  }
 }
 
 export default function CreateCommittee() {
@@ -363,15 +378,8 @@ export default function CreateCommittee() {
     setCommitteeName("");
     setMemberInput("");
     setMemberRoleInput(ROLE.MEMBER);
-    setStagedMembers([
-      {
-        name: currentUser.name,
-        username: currentUser.username,
-        role: ROLE.OWNER,
-        avatarUrl: currentUser.avatarUrl || "",
-      },
-    ]);
-    setStagedOwnerId(currentUser.username);
+    setStagedMembers([]); // Start with no members; only explicit adds allowed
+    setStagedOwnerId("");
     setLastAddedId(null);
   };
 
@@ -383,12 +391,10 @@ export default function CreateCommittee() {
 
   const gotoChat = (id) => navigate(`/committees/${id}/chat`);
 
-  /* ---------- staged members ops ---------- */
   const addMember = async () => {
     const raw = memberInput.trim();
     if (!raw) return;
 
-    // Only allow exact username as stored in DB
     const username = raw;
     const exists =
       stagedMembers.some((m) => norm(m.username) === norm(username)) ||
@@ -401,7 +407,7 @@ export default function CreateCommittee() {
 
     const chosenRole = memberRoleInput;
 
-    // Validate against backend: only allow real users (existing profiles)
+    // Validate against backend: only allow real users (existing profiles with email)
     let profile = null;
     try {
       if (!idToken) {
@@ -410,27 +416,32 @@ export default function CreateCommittee() {
         );
         return;
       }
-      profile = await lookupProfile(idToken, username);
-      if (!profile) {
+
+      profile = await lookupProfileByUsername(idToken, username);
+
+      // ❗ Only treat as invalid if there's no profile OR no email
+      if (!profile || !profile.email) {
         setMemberInputError(
           "User not found. Only registered users can be added."
         );
         return;
-      } else {
-        setMemberInputError("");
       }
+
+      setMemberInputError("");
     } catch (e) {
       setMemberInputError("Unable to verify user. Please try again.");
       return;
     }
 
-    // Use actual profile info from backend
     const memberData = {
       name: profile.name || profile.username,
       username: profile.username,
       role: chosenRole,
       avatarUrl: profile.avatarUrl || "",
     };
+
+    // owner / chair / normal add logic stays the same...
+    // (your existing code for ROLE.OWNER, ROLE.CHAIR, etc.)
 
     // handle new owner
     if (chosenRole === ROLE.OWNER) {
@@ -893,29 +904,10 @@ export default function CreateCommittee() {
                       marginRight: "8px",
                       boxSizing: "border-box",
                     }}
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       setMemberInput(e.target.value);
+                      // Clear error while editing; we only validate on Add/Enter
                       setMemberInputError("");
-                      const val = e.target.value.trim();
-                      if (!val) {
-                        setMemberInputError("");
-                        return;
-                      }
-                      // Check if username exists as user types
-                      try {
-                        const profile = await findProfileByUsername(val);
-                        if (!profile) {
-                          setMemberInputError(
-                            "User not found. Only registered users can be added."
-                          );
-                        } else {
-                          setMemberInputError("");
-                        }
-                      } catch {
-                        setMemberInputError(
-                          "Unable to verify user. Please try again."
-                        );
-                      }
                     }}
                     onKeyDown={async (e) => {
                       if (e.key === "Enter") {
@@ -929,6 +921,7 @@ export default function CreateCommittee() {
                       memberInputError ? "member-input-error" : undefined
                     }
                   />
+
                   {memberInputError && (
                     <div
                       id="member-input-error"
