@@ -249,7 +249,9 @@ export default function Chat() {
   };
   const scrollRef = useRef(null);
   const composerInputRef = useRef(null);
-  // Manage participants logic removed
+  const [showManagePanel, setShowManagePanel] = useState(false);
+  const [memberInput, setMemberInput] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState("member");
   //  force re-read of committee from localStorage after edits
   const [membersRev, setMembersRev] = useState(0);
   // collapse participants on narrow screens to save vertical space
@@ -1150,7 +1152,48 @@ export default function Chat() {
 
   // OLD
   // const handleAddMember = () => {
-  // handleAddMember removed
+  const handleAddMember = async () => {
+    const raw = memberInput.trim();
+    if (!raw) return;
+
+    // user should type the username as stored in Profile
+    const usernameInput = raw;
+
+    // avoid duplicates by username
+    const exists = (members || []).some(
+      (m) =>
+        (m.username || m.id || "").toString().toLowerCase() ===
+        usernameInput.toLowerCase()
+    );
+    if (exists) {
+      setMemberInput("");
+      return;
+    }
+
+    // look up the profile from backend
+    const profile = await getProfileByUsername(usernameInput);
+    if (!profile) {
+      alert("User not found. Only registered users can be added.");
+      return;
+    }
+
+    const username = profile.username;
+    const name = (profile.name && profile.name.toString().trim()) || username;
+    const avatarUrl = profile.avatarUrl || "";
+
+    const newMember = {
+      id: username,
+      username,
+      name,
+      role: (newMemberRole || "member").toLowerCase(),
+      avatarUrl,
+    };
+
+    const next = [...(members || []), newMember];
+    await persistMembers(next);
+    setMemberInput("");
+    setNewMemberRole("member");
+  };
 
   // Hide chair menu when switching active motion (e.g., user clicks another motion)
   useEffect(() => {
@@ -1158,7 +1201,12 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMotionId]);
 
-  // handleRemoveMember removed
+  const handleRemoveMember = (memberId) => {
+    const ownerId = committee?.ownerId || committee?.owner;
+    if (ownerId && memberId === ownerId) return; // cannot remove owner
+    const next = (members || []).filter((m) => m.id !== memberId);
+    persistMembers(next);
+  };
 
   const handleSend = async (e) => {
     return handleSendWithStance(e);
@@ -4153,7 +4201,60 @@ export default function Chat() {
                     </svg>
                   )}
                 </button>
+                <button
+                  className="participants-toggle-btn"
+                  onClick={() => setShowManagePanel((s) => !s)}
+                  aria-expanded={showManagePanel}
+                  title="Manage participants"
+                  aria-label="Manage participants"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </button>
               </div>
+
+              {showManagePanel && (
+                <div className="participants-tools visible">
+                  <div className="participant-add-row">
+                    <input
+                      value={memberInput}
+                      onChange={(e) => setMemberInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddMember();
+                        }
+                      }}
+                      placeholder="Add by username"
+                      aria-label="Add participant by username"
+                    />
+                    <select
+                      className="member-role-select"
+                      value={newMemberRole}
+                      onChange={(e) => setNewMemberRole(e.target.value)}
+                      aria-label="Membership role"
+                    >
+                      <option value="member">Member</option>
+                      <option value="observer">Observer</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="add-member-btn"
+                      onClick={handleAddMember}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div
                 className={`member-list-body ${
@@ -4166,6 +4267,11 @@ export default function Chat() {
                     username={p.username}
                     fallbackName={p.name || p.id}
                     role={p.role}
+                    canRemove={
+                      showManagePanel &&
+                      p.id !== (committee?.ownerId || committee?.owner)
+                    }
+                    onRemove={() => handleRemoveMember(p.id)}
                   />
                 ))}
               </div>
@@ -5448,55 +5554,98 @@ export default function Chat() {
             <div className="member-list-header">
               <h3>Participants</h3>
               {/* collapse toggle always visible */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  alignItems: "center",
-                  gap: "8px",
-                }}
+              <button
+                className="participants-collapse-toggle"
+                onClick={() => setMembersCollapsed((s) => !s)}
+                aria-expanded={!membersCollapsed}
+                title={
+                  membersCollapsed ? "Show participants" : "Hide participants"
+                }
+                aria-label={
+                  membersCollapsed
+                    ? "Expand participants"
+                    : "Collapse participants"
+                }
               >
-                <button
-                  className="participants-collapse-toggle"
-                  onClick={() => setMembersCollapsed((s) => !s)}
-                  aria-expanded={!membersCollapsed}
-                  title={
-                    membersCollapsed ? "Show participants" : "Hide participants"
-                  }
-                  aria-label={
-                    membersCollapsed
-                      ? "Expand participants"
-                      : "Collapse participants"
-                  }
-                >
-                  {membersCollapsed ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                      <path
-                        d="M9 6l6 6-6 6"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                      <path
-                        d="M6 9l6 6 6-6"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
+                {membersCollapsed ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M9 6l6 6-6 6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      d="M6 9l6 6 6-6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+              <button
+                className="participants-toggle-btn"
+                onClick={() => setShowManagePanel((s) => !s)}
+                aria-expanded={showManagePanel}
+                title="Manage participants"
+                aria-label="Manage participants"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </button>
             </div>
 
-            {/* manage participants logic removed */}
+            {/* manage tools: add member input; visible only in manage mode for managers */}
+            {showManagePanel && (
+              <div className="participants-tools visible">
+                <div className="participant-add-row">
+                  <input
+                    value={memberInput}
+                    onChange={(e) => setMemberInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddMember();
+                      }
+                    }}
+                    placeholder="Add by username"
+                    aria-label="Add participant by username"
+                  />
+                  <select
+                    className="member-role-select"
+                    value={newMemberRole}
+                    onChange={(e) => setNewMemberRole(e.target.value)}
+                    aria-label="Membership role"
+                  >
+                    <option value="member">Member</option>
+                    <option value="observer">Observer</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="add-member-btn"
+                    onClick={handleAddMember}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div
               className={`member-list-body ${
@@ -5509,6 +5658,11 @@ export default function Chat() {
                   username={p.username}
                   fallbackName={p.name || p.id}
                   role={p.role}
+                  canRemove={
+                    showManagePanel &&
+                    p.id !== (committee?.ownerId || committee?.owner)
+                  }
+                  onRemove={() => handleRemoveMember(p.id)}
                 />
               ))}
             </div>
