@@ -106,13 +106,10 @@ export async function updateCommittee(id, updates) {
 // Delete a committee
 export async function deleteCommittee(id) {
   const res = await fetch(`${BASE}?id=${encodeURIComponent(id)}`, {
-    method: "POST",
+    method: "DELETE",
     headers: {
-      "Content-Type": "application/json",
-      "X-HTTP-Method-Override": "DELETE",
       ...getAuthHeader(),
     },
-    body: JSON.stringify({ _method: "DELETE" }),
   });
 
   const data = await res.json().catch(() => null);
