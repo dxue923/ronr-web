@@ -1,4 +1,5 @@
-// Render a member card that always fetches the latest profile info by username
+// Render a member card. We no longer call an undefined getProfileByUsername
+// here; Chat already refreshes committee members on profile updates.
 function LiveProfileMemberCard({
   username,
   fallbackName,
@@ -6,31 +7,10 @@ function LiveProfileMemberCard({
   canRemove,
   onRemove,
 }) {
-  const [profile, setProfile] = React.useState(null);
-  React.useEffect(() => {
-    let mounted = true;
-    async function fetchProfile() {
-      const p = await getProfileByUsername(username);
-      if (mounted) setProfile(p);
-    }
-    fetchProfile();
-    window.addEventListener("profile-updated", fetchProfile);
-    return () => {
-      mounted = false;
-      window.removeEventListener("profile-updated", fetchProfile);
-    };
-  }, [username]);
-  const displayName =
-    (profile && profile.name && profile.name.trim()) ||
-    (profile && profile.username) ||
-    fallbackName ||
-    username;
-  const avatarSrc =
-    profile && profile.avatarUrl && profile.avatarUrl.trim()
-      ? profile.avatarUrl
-      : `https://ui-avatars.com/api/?name=${encodeURIComponent(
-          displayName || username
-        )}&background=e5e7eb&color=374151&size=40`;
+  const displayName = fallbackName || username;
+  const avatarSrc = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    displayName || username
+  )}&background=e5e7eb&color=374151&size=40`;
   return (
     <div className="member-row">
       <img
