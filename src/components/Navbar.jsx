@@ -1,5 +1,6 @@
 // src/components/Navbar.jsx
 import "../assets/styles/index.css";
+import logo from "../assets/logo.png";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 
@@ -31,6 +32,9 @@ export default function Navbar() {
 
   return (
     <aside className="left-rail" role="navigation" aria-label="Primary">
+      <div className="nav-logo">
+        <img src={logo} alt="Logo" className="nav-logo-img" />
+      </div>
       <div className="nav-rail">
         {/* Motions */}
         {/* <button
