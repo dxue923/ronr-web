@@ -174,7 +174,27 @@ function SendIcon() {
 }
 
 export default function Chat() {
-  const { isAuthenticated, getIdTokenClaims } = useAuth0();
+  const { isAuthenticated, user, getIdTokenClaims } = useAuth0();
+  const currentUserId = React.useMemo(() => {
+    try {
+      if (user) {
+        const nickname = (user.nickname || user.preferred_username || "")
+          .toString()
+          .trim();
+        if (nickname) return nickname;
+
+        const email = (user.email || "").toString().trim();
+        if (email) return email.split("@")[0];
+      }
+
+      const stored = localStorage.getItem("ronr:currentUserId");
+      if (stored && stored.trim()) return stored.trim();
+
+      return "guest";
+    } catch {
+      return "guest";
+    }
+  }, [user, isAuthenticated]);
   // Show a temporary 'Referred' pill for 10 seconds after motion arrives
   const isRecentlyReferred = (m) => {
     const rf = m?.meta?.referredFrom;
@@ -323,7 +343,11 @@ export default function Chat() {
   );
   const [chatForceLoading, setChatForceLoading] = useState(true);
   const [motionsLoadedOnce, setMotionsLoadedOnce] = useState(false);
-  const [me, setMe] = useState(getFallbackUser());
+  const [me, setMe] = useState(() => ({
+    ...getFallbackUser(),
+    id: currentUserId || "guest",
+    username: currentUserId || "guest",
+  }));
   // Load current user from Profile API when authenticated and refresh on profile updates
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +378,9 @@ export default function Chat() {
           name,
           avatarUrl: profile.avatarUrl || "",
         };
+        try {
+          localStorage.setItem("ronr:currentUserId", stableId);
+        } catch {}
         setMe(next);
       } catch (e) {
         setMe(getFallbackUser());
@@ -879,17 +906,22 @@ export default function Chat() {
                 displayName = profile.name.trim();
               }
             } catch {}
-            // Fallback: always use authorId if no name found
+            const authorId = (c.authorId || "").toString().trim();
             if (!displayName) {
-              displayName = (c.authorId || "").toString().trim();
+              displayName = authorId;
             }
+            const isOwn =
+              !!currentUserId &&
+              authorId &&
+              authorId.toLowerCase() === currentUserId.toLowerCase();
             return {
               id: c.id,
-              authorId: c.authorId,
+              authorId,
               authorName: displayName,
               text: c.text,
               time: c.createdAt || new Date().toISOString(),
               stance: c.position || "neutral",
+              isOwn,
             };
           })
         );
@@ -4447,21 +4479,28 @@ export default function Chat() {
                 {!loadingComments &&
                   !commentsError &&
                   (activeMotion.messages || []).map((msg) => {
-                    const isMine = (() => {
-                      const aid = (msg.authorId || "")
-                        .toString()
-                        .trim()
-                        .toLowerCase();
-                      const myId = (me.id || "")
-                        .toString()
-                        .trim()
-                        .toLowerCase();
-                      const myUser = (me.username || "")
-                        .toString()
-                        .trim()
-                        .toLowerCase();
-                      return aid && (aid === myId || aid === myUser);
-                    })();
+                    const isMine =
+                      typeof msg.isOwn === "boolean"
+                        ? msg.isOwn
+                        : (() => {
+                            const aid = (msg.authorId || "")
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                            const myId = (currentUserId || "")
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                            const myUser = (me.username || "")
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                            return (
+                              !!aid &&
+                              ((!!myId && aid === myId) ||
+                                (!!myUser && aid === myUser))
+                            );
+                          })();
                     const memberForMessage = (members || []).find((m) => {
                       const mid = (m.id || "").toString();
                       const muser = (m.username || "").toString();
