@@ -807,37 +807,46 @@ export default function CreateCommittee() {
             {!loadingCommittees &&
               !errorCommittees &&
               hasLoadedOnce &&
-              sortedCommittees.length === 0 }
+              sortedCommittees.length === 0}
             {!loadingCommittees &&
               !errorCommittees &&
               sortedCommittees.length > 0 &&
-              sortedCommittees.map((c) => (
-                <div
-                  key={c.id}
-                  className="committee-tile committee-tile-row"
-                  onClick={() => gotoChat(c.id)}
-                  title={`Open ${c.name}`}
-                >
-                  <div className="tile-body">
-                    <div className="tile-title">{c.name}</div>
-                    <div className="tile-sub">
-                      {c.members?.length || 0} member
-                      {(c.members?.length || 0) === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                  <button
-                    className="edit-btn"
-                    aria-label="Edit committee"
-                    title="Edit committee"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      loadCommitteeIntoForm(c);
-                    }}
+              sortedCommittees.map((c) => {
+                const visibleCount = (c.members || []).filter((m) => {
+                  const u = (m?.username || m?.id || "")
+                    .toString()
+                    .trim()
+                    .toLowerCase();
+                  return u && u !== "guest" && u !== "anon";
+                }).length;
+                return (
+                  <div
+                    key={c.id}
+                    className="committee-tile committee-tile-row"
+                    onClick={() => gotoChat(c.id)}
+                    title={`Open ${c.name}`}
                   >
-                    ✎
-                  </button>
-                </div>
-              ))}
+                    <div className="tile-body">
+                      <div className="tile-title">{c.name}</div>
+                      <div className="tile-sub">
+                        {visibleCount} member
+                        {visibleCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <button
+                      className="edit-btn"
+                      aria-label="Edit committee"
+                      title="Edit committee"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        loadCommitteeIntoForm(c);
+                      }}
+                    >
+                      ✎
+                    </button>
+                  </div>
+                );
+              })}
           </div>
         </div>
       </aside>
