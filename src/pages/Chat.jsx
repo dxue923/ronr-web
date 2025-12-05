@@ -687,6 +687,10 @@ export default function Chat() {
       (v.voterId || "") === (me.id || "") &&
       (v.choice || "").toString().toLowerCase() === "yes"
   );
+  // track vote submission in-flight to avoid duplicate casts
+  const [voteSubmittingFor, setVoteSubmittingFor] = useState(null);
+  // synchronous ref used as immediate guard against duplicate rapid clicks
+  const voteSubmittingRef = useRef(null);
   const [showFinalOverlay, setShowFinalOverlay] = useState(false);
 
   // auto-show final decision overlay when a motion with decisionDetails becomes active
@@ -2262,7 +2266,7 @@ export default function Chat() {
       if (isPostponeSub && meta.parentMotionId) {
         const revisedOutcome =
           (editDecisionOutcome && editDecisionOutcome) ||
-          computeOutcome(am.votes || []);
+          computeOutcome(voteEntries(am));
         const passed = /pass|adopt/i.test(revisedOutcome);
         const parentId = meta.parentMotionId;
         updated = updated.map((m) => {
@@ -2491,26 +2495,48 @@ export default function Chat() {
   const handleVote = async (choice) => {
     if (!activeMotion || activeMotion.state !== "voting") return;
     if (meetingRecessed || activeMotion.state === "referred") return;
+    if (voteSubmittingRef.current === activeMotion.id) return; // already submitting (sync guard)
     try {
+      // mark synchronously to prevent concurrent invocations
+      voteSubmittingRef.current = activeMotion.id;
+      setVoteSubmittingFor(activeMotion.id);
       const updatedDoc = await castMotionVote(activeMotion.id, choice, me.id);
       // reflect aggregate counts in UI while keeping local per-user record for isMine checks
       setMotions((prev) =>
         prev.map((m) => {
           if (m.id !== activeMotion.id) return m;
-          const votes = Array.isArray(m.votes) ? [...m.votes] : [];
-          const filtered = votes.filter((v) => v.voterId !== me.id);
-          filtered.push({
-            voterId: me.id,
-            choice: String(choice).toLowerCase(),
-          });
+          // Prefer authoritative per-voter choices returned by backend
+          const metaChoices =
+            updatedDoc?.meta && typeof updatedDoc.meta.voterChoices === "object"
+              ? { ...updatedDoc.meta.voterChoices }
+              : null;
+          const votesArray = metaChoices
+            ? Object.keys(metaChoices).map((voterId) => ({
+                voterId,
+                choice: metaChoices[voterId],
+              }))
+            : // fallback to existing array-shaped votes in-memory, updating current user
+              (() => {
+                const votes = Array.isArray(m.votes) ? [...m.votes] : [];
+                const filtered = votes.filter((v) => v.voterId !== me.id);
+                filtered.push({
+                  voterId: me.id,
+                  choice: String(choice).toLowerCase(),
+                });
+                return filtered;
+              })();
           return {
             ...m,
-            votes: filtered,
+            votes: votesArray,
             tally: updatedDoc.votes || { yes: 0, no: 0, abstain: 0 },
           };
         })
       );
+      voteSubmittingRef.current = null;
+      setVoteSubmittingFor(null);
     } catch (err) {
+      voteSubmittingRef.current = null;
+      setVoteSubmittingFor(null);
       console.warn("Failed to cast vote", err);
     }
   };
@@ -4742,7 +4768,10 @@ export default function Chat() {
                               (myVote === "yes" ? "is-active" : "")
                             }
                             onClick={() => handleVote("yes")}
-                            disabled={!votingOpen}
+                            disabled={
+                              !votingOpen ||
+                              voteSubmittingFor === activeMotion.id
+                            }
                             aria-pressed={myVote === "yes"}
                             title={votingOpen ? "Vote Yes" : "Voting closed"}
                           >
@@ -4757,7 +4786,10 @@ export default function Chat() {
                               (myVote === "no" ? "is-active" : "")
                             }
                             onClick={() => handleVote("no")}
-                            disabled={!votingOpen}
+                            disabled={
+                              !votingOpen ||
+                              voteSubmittingFor === activeMotion.id
+                            }
                             aria-pressed={myVote === "no"}
                             title={votingOpen ? "Vote No" : "Voting closed"}
                           >
@@ -4772,7 +4804,10 @@ export default function Chat() {
                               (myVote === "abstain" ? "is-active" : "")
                             }
                             onClick={() => handleVote("abstain")}
-                            disabled={!votingOpen}
+                            disabled={
+                              !votingOpen ||
+                              voteSubmittingFor === activeMotion.id
+                            }
                             aria-pressed={myVote === "abstain"}
                             title={votingOpen ? "Abstain" : "Voting closed"}
                           >
