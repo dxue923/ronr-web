@@ -195,16 +195,34 @@ export default function CreateCommittee() {
           return;
         }
 
-        const claims = await getIdTokenClaims().catch(() => null);
-        const rawIdToken = claims?.__raw || null;
-        setIdToken(rawIdToken);
+        // Try to request an access token for the API first. If that fails,
+        // fall back to the ID token so the UI can still load in edge cases.
+        let token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            scope: "openid profile email",
+          },
+        }).catch(() => null);
 
-        if (!rawIdToken) {
+        if (!token) {
+          const claims = await getIdTokenClaims().catch(() => null);
+          token = claims?.__raw || null;
+        }
+
+        setIdToken(token);
+
+        if (!token) {
           setCurrentUser(deriveUserFromEmail(user?.email || ""));
           return;
         }
 
-        const profile = await fetchProfile(rawIdToken);
+        // Persist a short-lived auth token so `src/api/*` helpers can include it
+        // in the Authorization header for server calls.
+        try {
+          localStorage.setItem("authToken", token);
+        } catch {}
+
+        const profile = await fetchProfile(token);
 
         const emailLocal =
           (profile?.email || user?.email || "").split("@")[0] || "";
@@ -645,8 +663,16 @@ export default function CreateCommittee() {
       try {
         if (!isAuthenticated) return;
 
-        const token = await getAccessTokenSilently().catch(() => null);
+        let token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            scope: "openid profile email",
+          },
+        }).catch(() => null);
         if (!token) return;
+        try {
+          localStorage.setItem("authToken", token);
+        } catch {}
 
         const profile = await fetchProfile(token);
         const emailLocal =
@@ -687,8 +713,16 @@ export default function CreateCommittee() {
     // Force reload of profile before creating committee
     let latestProfile = null;
     try {
-      const token = await getAccessTokenSilently().catch(() => null);
+      let token = await getAccessTokenSilently({
+        authorizationParams: {
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          scope: "openid profile email",
+        },
+      }).catch(() => null);
       if (token) {
+        try {
+          localStorage.setItem("authToken", token);
+        } catch {}
         latestProfile = await fetchProfile(token);
       }
     } catch {}
