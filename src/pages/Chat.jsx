@@ -4410,9 +4410,18 @@ export default function Chat() {
                   !commentsError &&
                   (activeMotion.messages || []).map((msg) => {
                     const isMine = (() => {
-                      const aid = (msg.authorId || "").toString().trim().toLowerCase();
-                      const myId = (me.id || "").toString().trim().toLowerCase();
-                      const myUser = (me.username || "").toString().trim().toLowerCase();
+                      const aid = (msg.authorId || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      const myId = (me.id || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      const myUser = (me.username || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
                       return aid && (aid === myId || aid === myUser);
                     })();
                     const memberForMessage = (members || []).find((m) => {
@@ -4423,7 +4432,11 @@ export default function Chat() {
                     });
                     const displayNameFromMembers = memberForMessage
                       ? (memberForMessage.name || "").toString().trim() ||
-                        (memberForMessage.username || memberForMessage.id || "").toString()
+                        (
+                          memberForMessage.username ||
+                          memberForMessage.id ||
+                          ""
+                        ).toString()
                       : "";
                     try {
                       console.debug("[Chat] render", {
