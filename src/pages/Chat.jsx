@@ -5622,6 +5622,7 @@ export default function Chat() {
                   username={p.username}
                   fallbackName={p.name || p.id}
                   role={p.role}
+                  avatarUrl={p.avatarUrl}
                 />
               ))}
             </div>
