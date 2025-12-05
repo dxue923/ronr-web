@@ -39,15 +39,15 @@ export default function EditProfile() {
         }
 
         const profile = await fetchProfile(token);
-        if (!profile) return;
-
-        setFormData({
-          name: profile.name || "",
-          username: profile.username || "",
-          email: profile.email || user?.email || "",
-          bio: "", // or profile.bio if you later add it
-        });
-        setAvatar(profile.avatarUrl || null);
+        if (profile) {
+          setFormData({
+            name: profile.name || "",
+            username: profile.username || "",
+            email: profile.email || user?.email || "",
+            bio: "", // or profile.bio if you later add it
+          });
+          setAvatar(profile.avatarUrl || null);
+        }
       } catch (err) {
         console.error("[EditProfile] load error", err);
         setError(err.message || "Failed to load profile");
@@ -138,7 +138,6 @@ export default function EditProfile() {
     } catch (err) {
       console.error("[EditProfile] update error", err);
       setError(err.message || "Update failed");
-      // No misleading alert about local save
     } finally {
       setSaving(false);
     }

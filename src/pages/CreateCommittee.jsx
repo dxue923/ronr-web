@@ -807,7 +807,7 @@ export default function CreateCommittee() {
             {!loadingCommittees &&
               !errorCommittees &&
               hasLoadedOnce &&
-              sortedCommittees.length === 0 }
+              sortedCommittees.length === 0}
             {!loadingCommittees &&
               !errorCommittees &&
               sortedCommittees.length > 0 &&
