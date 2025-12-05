@@ -126,9 +126,23 @@ function resolveMemberRole(member, committee) {
 }
 
 function whoAmI(committee, me) {
-  // Requirement: self user should always be recognized as the owner
-  // Grant OWNER role regardless of stored committee data.
-  return { role: ROLE.OWNER };
+  // Determine the role of `me` in `committee` based on ownerId and members.
+  if (!committee || !me) return { role: ROLE.MEMBER };
+  try {
+    const meKey = norm(me.username || me.id || "");
+    if (meKey && norm(committee.ownerId || "") === meKey)
+      return { role: ROLE.OWNER };
+    const members = committee.members || [];
+    const found = members.find(
+      (m) => norm(m.username || m.id || m.name) === meKey
+    );
+    if (found) {
+      return { role: found.role || ROLE.MEMBER };
+    }
+  } catch (e) {
+    // fallback
+  }
+  return { role: ROLE.MEMBER };
 }
 
 // Backend lookup: given idToken + username → profile or null
@@ -330,6 +344,18 @@ export default function CreateCommittee() {
   const [editingId, setEditingId] = useState(null);
   const isEditing = Boolean(editingId);
 
+  // Determine the committee being edited (if any) and whether the current
+  // user is allowed to modify members/settings. For new committees `canEdit`
+  // is true. When editing, only Owner or Chair may modify members.
+  const editingCommittee = isEditing
+    ? committees.find((c) => c.id === editingId) || null
+    : null;
+  const { role: myRole } =
+    isEditing && editingCommittee
+      ? whoAmI(editingCommittee, currentUser)
+      : { role: ROLE.OWNER };
+  const canEdit = !isEditing || myRole === ROLE.OWNER || myRole === ROLE.CHAIR;
+
   // always start with self in stagedMembers
   const [stagedMembers, setStagedMembers] = useState(() => [
     {
@@ -344,7 +370,17 @@ export default function CreateCommittee() {
   // Keep staged owner row in sync when currentUser or owner id changes
   useEffect(() => {
     setStagedMembers((prev) => {
-      // Remove any previous owner row and always insert the latest profile info
+      // If editing an existing committee whose owner is someone else,
+      // do not overwrite the owner row with the current user's profile.
+      if (
+        isEditing &&
+        stagedOwnerId &&
+        norm(stagedOwnerId) !== norm(currentUser.username)
+      ) {
+        return prev;
+      }
+
+      // Remove any previous owner row and insert the latest profile info
       const others = prev.filter(
         (m) =>
           m.role !== ROLE.OWNER &&
@@ -360,12 +396,16 @@ export default function CreateCommittee() {
         ...others,
       ];
     });
-    // Always sync owner id to current user
-    setStagedOwnerId(currentUser.username);
+
+    // Only sync owner id to current user for new committees (or when no owner set).
+    if (!isEditing || !stagedOwnerId) {
+      setStagedOwnerId(currentUser.username);
+    }
   }, [
     currentUser.name,
     currentUser.username,
     currentUser.avatarUrl,
+    isEditing,
     stagedOwnerId,
   ]);
 
@@ -430,6 +470,10 @@ export default function CreateCommittee() {
   const gotoChat = (id) => navigate(`/committees/${id}/chat`);
 
   const addMember = async () => {
+    if (isEditing && !canEdit) {
+      alert("Only the Owner or Chair can modify members.");
+      return;
+    }
     const raw = memberInput.trim();
     if (!raw) return;
 
@@ -520,6 +564,10 @@ export default function CreateCommittee() {
   };
 
   const removeStaged = (username) => {
+    if (isEditing && !canEdit) {
+      alert("Only the Owner or Chair can modify members.");
+      return;
+    }
     if (norm(username) === norm(stagedOwnerId)) {
       alert("Transfer ownership before removing the current owner.");
       return;
@@ -758,12 +806,26 @@ export default function CreateCommittee() {
     setCommitteeName(committee.name || "");
     setStagedOwnerId(committee.ownerId || "");
 
-    const cloned = (committee.members || []).map((m) => ({
-      name: m.name,
-      username: m.username || m.id || m.name,
-      role: resolveMemberRole(m, committee),
-      avatarUrl: m.avatarUrl || "",
-    }));
+    // Filter out placeholder/anonymous usernames (unless they are the owner)
+    const cloned = (committee.members || [])
+      .map((m) => ({
+        name: m.name,
+        username: m.username || m.id || m.name,
+        role: resolveMemberRole(m, committee),
+        avatarUrl: m.avatarUrl || "",
+      }))
+      .filter((m) => {
+        const uname = (m.username || "").toString().trim().toLowerCase();
+        const ownerKey = (committee.ownerId || "")
+          .toString()
+          .trim()
+          .toLowerCase();
+        if (!uname) return false; // drop blank
+        if (ownerKey && uname === ownerKey) return true; // always keep owner
+        // drop obvious placeholders
+        if (uname === "anon" || uname === "guest") return false;
+        return true;
+      });
 
     // Enforce single chair when loading: keep first chair, demote others to MEMBER.
     let chairSeen = false;
@@ -886,6 +948,9 @@ export default function CreateCommittee() {
                         .toLowerCase();
                       return u && u !== "guest" && u !== "anon";
                     }).length;
+                    const { role: tileRole } = whoAmI(c, currentUser);
+                    const canEditTile =
+                      tileRole === ROLE.OWNER || tileRole === ROLE.CHAIR;
                     return (
                       <div
                         key={c.id}
@@ -900,17 +965,19 @@ export default function CreateCommittee() {
                             {visibleCount === 1 ? "" : "s"}
                           </div>
                         </div>
-                        <button
-                          className="edit-btn"
-                          aria-label="Edit committee"
-                          title="Edit committee"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            loadCommitteeIntoForm(c);
-                          }}
-                        >
-                          ✎
-                        </button>
+                        {canEditTile && (
+                          <button
+                            className="edit-btn"
+                            aria-label="Edit committee"
+                            title="Edit committee"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              loadCommitteeIntoForm(c);
+                            }}
+                          >
+                            ✎
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -946,6 +1013,7 @@ export default function CreateCommittee() {
                   className="role-select-wrap"
                   style={{ minWidth: "140px" }}
                   onClick={() => {
+                    if (!canEdit) return;
                     const el = roleSelectRef.current;
                     if (!el) return;
                     if (typeof el.showPicker === "function") {
@@ -961,6 +1029,7 @@ export default function CreateCommittee() {
                     className="pill role-select"
                     value={memberRoleInput}
                     onChange={(e) => setMemberRoleInput(e.target.value)}
+                    disabled={!canEdit}
                   >
                     <option value={ROLE.OWNER}>Owner</option>
                     <option value={ROLE.CHAIR}>Chair</option>
@@ -981,6 +1050,7 @@ export default function CreateCommittee() {
                       boxSizing: "border-box",
                     }}
                     onChange={(e) => {
+                      if (!canEdit) return;
                       setMemberInput(e.target.value);
                       // Clear error while editing; we only validate on Add/Enter
                       setMemberInputError("");
@@ -996,6 +1066,7 @@ export default function CreateCommittee() {
                     aria-describedby={
                       memberInputError ? "member-input-error" : undefined
                     }
+                    disabled={!canEdit}
                   />
 
                   {memberInputError && (
@@ -1021,7 +1092,16 @@ export default function CreateCommittee() {
                   )}
                 </div>
 
-                <button className="submit-button" onClick={addMember}>
+                <button
+                  className="submit-button"
+                  onClick={addMember}
+                  disabled={!canEdit}
+                  title={
+                    !canEdit
+                      ? "Only the Owner or Chair can modify members"
+                      : undefined
+                  }
+                >
                   Add
                 </button>
               </div>
@@ -1036,7 +1116,20 @@ export default function CreateCommittee() {
                         <span>Owner</span>
                       </div>
                       <div className="role-members">
-                        <OwnerProfileCard user={currentUser} />
+                        {owners.map((m) =>
+                          norm(m.username) === norm(currentUser.username) ? (
+                            <OwnerProfileCard
+                              key={m.username}
+                              user={currentUser}
+                            />
+                          ) : (
+                            <MemberProfileCard
+                              key={m.username}
+                              member={m}
+                              onRemove={canEdit ? removeStaged : undefined}
+                            />
+                          )
+                        )}
                       </div>
                     </li>
                   )}
@@ -1052,7 +1145,7 @@ export default function CreateCommittee() {
                           <MemberProfileCard
                             key={m.username}
                             member={m}
-                            onRemove={removeStaged}
+                            onRemove={canEdit ? removeStaged : undefined}
                           />
                         ))}
                       </div>
@@ -1071,7 +1164,7 @@ export default function CreateCommittee() {
                           <MemberProfileCard
                             key={m.username}
                             member={m}
-                            onRemove={removeStaged}
+                            onRemove={canEdit ? removeStaged : undefined}
                           />
                         ))}
                       </div>
@@ -1090,7 +1183,7 @@ export default function CreateCommittee() {
                           <MemberProfileCard
                             key={m.username}
                             member={m}
-                            onRemove={removeStaged}
+                            onRemove={canEdit ? removeStaged : undefined}
                           />
                         ))}
                       </div>

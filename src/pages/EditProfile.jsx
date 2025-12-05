@@ -47,9 +47,19 @@ export default function EditProfile() {
 
       setLoading(true);
       try {
-        // Get ID token (JWT with sub/email/etc.)
-        const claims = await getIdTokenClaims().catch(() => null);
-        const token = claims?.__raw;
+        // Request an access token for the API (preferred). If that fails,
+        // fall back to the ID token so the UI can still load in edge cases.
+        let token = await getAccessTokenSilently({
+          authorizationParams: {
+            audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+            scope: "openid profile email",
+          },
+        }).catch(() => null);
+
+        if (!token) {
+          const claims = await getIdTokenClaims().catch(() => null);
+          token = claims?.__raw;
+        }
 
         if (!token) {
           throw new Error("Unable to get auth token");
@@ -115,8 +125,17 @@ export default function EditProfile() {
 
     setSaving(true);
     try {
-      const claims = await getIdTokenClaims().catch(() => null);
-      const token = claims?.__raw;
+      let token = await getAccessTokenSilently({
+        authorizationParams: {
+          audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+          scope: "openid profile email",
+        },
+      }).catch(() => null);
+
+      if (!token) {
+        const claims = await getIdTokenClaims().catch(() => null);
+        token = claims?.__raw;
+      }
       if (!token) throw new Error("Missing auth token");
 
       const updated = await updateProfile(token, {
