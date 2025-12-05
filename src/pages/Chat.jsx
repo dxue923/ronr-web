@@ -952,22 +952,29 @@ export default function Chat() {
       );
   }
   // Normalize members to a unified client shape from server data
-  // Normalize members to a unified client shape from server data
+  // Filter out anonymous/placeholder entries like "guest"/"anon" or blank usernames
   const normalizeMembers = (c) => {
     if (!c) return [];
     const list = c.members || c.memberships || [];
 
-    return (list || []).map((m) => {
-      const username = (m.username || m.id || m.name || "").toString();
-      const name = (m.name || "").toString();
-      return {
-        id: username, // use username as stable id
-        username,
-        name,
-        role: (m.role || "member").toLowerCase(),
-        avatarUrl: m.avatarUrl || "",
-      };
-    });
+    return (list || [])
+      .map((m) => {
+        const username = (m.username || m.id || m.name || "").toString().trim();
+        const name = (m.name || "").toString().trim();
+        return {
+          id: username, // use username as stable id
+          username,
+          name,
+          role: (m.role || "member").toLowerCase(),
+          avatarUrl: m.avatarUrl || "",
+        };
+      })
+      .filter(
+        (m) =>
+          m.username &&
+          m.username.toLowerCase() !== "guest" &&
+          m.username.toLowerCase() !== "anon"
+      );
 
     // // Member profile card for chat participants
     // function MemberProfileCard({ username, role }) {
@@ -1052,16 +1059,22 @@ export default function Chat() {
   const persistMembers = async (nextMembers) => {
     try {
       if (!committee?.id) return;
-      const payloadMembers = nextMembers.map((m) => {
-        const username = (m.username || m.id || m.name || "").toString();
-        const name = (m.name || "").toString() || username;
-        return {
-          username,
-          name,
-          role: (m.role || "member").toLowerCase(),
-          avatarUrl: m.avatarUrl || "",
-        };
-      });
+      const payloadMembers = nextMembers
+        .map((m) => {
+          const username = (m.username || m.id || m.name || "")
+            .toString()
+            .trim();
+          const name = (m.name || "").toString().trim() || username;
+          if (!username) return null;
+          if (["guest", "anon"].includes(username.toLowerCase())) return null;
+          return {
+            username,
+            name,
+            role: (m.role || "member").toLowerCase(),
+            avatarUrl: m.avatarUrl || "",
+          };
+        })
+        .filter(Boolean);
 
       const updated = await apiUpdateCommittee(committee.id, {
         name: committee.name,
