@@ -17,6 +17,22 @@ const ProfileModel =
     ? Profile
     : mongoose.models.Profile || mongoose.model("Profile");
 
+// Resolve other models robustly to account for bundler/import shape differences
+const CommitteeModel =
+  Committee && typeof Committee.find === "function"
+    ? Committee
+    : mongoose.models.Committee || mongoose.model("Committee");
+
+const MotionModel =
+  Motion && typeof Motion.find === "function"
+    ? Motion
+    : mongoose.models.Motion || mongoose.model("Motion");
+
+const DiscussionModel =
+  Discussion && typeof Discussion.find === "function"
+    ? Discussion
+    : mongoose.models.Discussion || mongoose.model("Discussion");
+
 function decodeAuth(authHeader = "") {
   if (!authHeader.startsWith("Bearer ")) {
     if (IS_DEV) return { sub: "dev-user", nickname: "dev" };
@@ -163,7 +179,7 @@ export async function handler(event) {
           };
         }
 
-        const docs = await Committee.find({
+        const docs = await CommitteeModel.find({
           "members.username": new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
         });
 
@@ -286,7 +302,7 @@ export async function handler(event) {
 
       let docs = [];
       try {
-        docs = await Committee.find().sort({ createdAt: 1 });
+        docs = await CommitteeModel.find().sort({ createdAt: 1 });
       } catch (e) {
         console.warn("[committee] list find error", e?.message || e);
         docs = [];
@@ -418,7 +434,7 @@ export async function handler(event) {
         return m;
       });
 
-      const doc = await Committee.create({
+      const doc = await CommitteeModel.create({
         _id: body.id || `committee-${Date.now()}`,
         name,
         ownerId,
@@ -448,7 +464,7 @@ export async function handler(event) {
         };
       }
 
-      let doc = await Committee.findById(committeeId);
+      let doc = await CommitteeModel.findById(committeeId);
       if (!doc) {
         // Upsert: create if not found (legacy/local-only committee IDs)
         const name =
@@ -500,7 +516,7 @@ export async function handler(event) {
           : finalMembers;
 
         try {
-          doc = await Committee.create({
+          doc = await CommitteeModel.create({
             _id: committeeId,
             name,
             ownerId: ownerId || withOwner[0]?.username || "",
@@ -619,7 +635,9 @@ export async function handler(event) {
         };
       }
 
-      const deletedCommittee = await Committee.findByIdAndDelete(committeeId);
+      const deletedCommittee = await CommitteeModel.findByIdAndDelete(
+        committeeId
+      );
 
       if (!deletedCommittee) {
         return {
@@ -633,13 +651,13 @@ export async function handler(event) {
       let deletedDiscussions = 0;
       let deletedMotions = 0;
       try {
-        const motionsToDelete = await Motion.find({ committeeId })
+        const motionsToDelete = await MotionModel.find({ committeeId })
           .select("_id")
           .lean();
         const motionIds = (motionsToDelete || []).map((m) => m._id);
         if (motionIds.length > 0) {
           try {
-            const discussionResult = await Discussion.deleteMany({
+            const discussionResult = await DiscussionModel.deleteMany({
               motionId: { $in: motionIds },
             });
             deletedDiscussions = discussionResult.deletedCount || 0;
@@ -648,7 +666,7 @@ export async function handler(event) {
           }
         }
         try {
-          const motionResult = await Motion.deleteMany({ committeeId });
+          const motionResult = await MotionModel.deleteMany({ committeeId });
           deletedMotions = motionResult.deletedCount || 0;
         } catch (e) {
           console.warn("Failed to delete motions:", e);
