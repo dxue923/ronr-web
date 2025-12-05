@@ -1,16 +1,21 @@
 const AVATAR_SIZE = 40;
 function Avatar({ src, alt }) {
-  const [imgError, setImgError] = React.useState(false);
-  const hasImage =
-    src && typeof src === "string" && src.trim().length > 0 && !imgError;
+  const hasImage = src && src.trim().length > 0;
   if (hasImage) {
     return (
       <img
         src={src}
         alt={alt || "avatar"}
         className="member-avatar"
-        onError={() => setImgError(true)}
-        title={src}
+        style={{
+          width: AVATAR_SIZE,
+          height: AVATAR_SIZE,
+          borderRadius: "9999px",
+          objectFit: "cover",
+          border: "1px solid #d1d5db",
+          background: "#e5e7eb",
+          flexShrink: 0,
+        }}
       />
     );
   }
@@ -18,16 +23,24 @@ function Avatar({ src, alt }) {
   return (
     <div
       className="member-avatar"
-      title={imgError ? "Avatar failed to load" : "No avatar"}
-    >
-      {imgError ? "!" : null}
-    </div>
+      style={{
+        width: AVATAR_SIZE,
+        height: AVATAR_SIZE,
+        borderRadius: "9999px",
+        background: "#e5e7eb",
+        border: "1px solid #d1d5db",
+        flexShrink: 0,
+      }}
+    />
   );
 }
 // Helper to render a message row in the discussion panel
 function MessageRow({ authorName, avatarUrl, text, time, stance }) {
   return (
     <div className="chat-message-row">
+      <span className="chat-discussion-avatar">
+        <Avatar src={avatarUrl} alt={authorName} />
+      </span>
       <div className="chat-message-content">
         <div className="chat-message-meta">
           <span className="chat-message-author">{authorName}</span>
@@ -40,9 +53,6 @@ function MessageRow({ authorName, avatarUrl, text, time, stance }) {
         </div>
         <div className="chat-message-bubble">{text}</div>
       </div>
-      <span className="chat-discussion-avatar">
-        <Avatar src={avatarUrl} alt={authorName} />
-      </span>
     </div>
   );
 }
@@ -174,27 +184,7 @@ function SendIcon() {
 }
 
 export default function Chat() {
-  const { isAuthenticated, user, getIdTokenClaims } = useAuth0();
-  const currentUserId = React.useMemo(() => {
-    try {
-      if (user) {
-        const nickname = (user.nickname || user.preferred_username || "")
-          .toString()
-          .trim();
-        if (nickname) return nickname;
-
-        const email = (user.email || "").toString().trim();
-        if (email) return email.split("@")[0];
-      }
-
-      const stored = localStorage.getItem("ronr:currentUserId");
-      if (stored && stored.trim()) return stored.trim();
-
-      return "guest";
-    } catch {
-      return "guest";
-    }
-  }, [user, isAuthenticated]);
+  const { isAuthenticated, getIdTokenClaims } = useAuth0();
   // Show a temporary 'Referred' pill for 10 seconds after motion arrives
   const isRecentlyReferred = (m) => {
     const rf = m?.meta?.referredFrom;
@@ -343,11 +333,7 @@ export default function Chat() {
   );
   const [chatForceLoading, setChatForceLoading] = useState(true);
   const [motionsLoadedOnce, setMotionsLoadedOnce] = useState(false);
-  const [me, setMe] = useState(() => ({
-    ...getFallbackUser(),
-    id: currentUserId || "guest",
-    username: currentUserId || "guest",
-  }));
+  const [me, setMe] = useState(getFallbackUser());
   // Load current user from Profile API when authenticated and refresh on profile updates
   useEffect(() => {
     let cancelled = false;
@@ -378,9 +364,6 @@ export default function Chat() {
           name,
           avatarUrl: profile.avatarUrl || "",
         };
-        try {
-          localStorage.setItem("ronr:currentUserId", stableId);
-        } catch {}
         setMe(next);
       } catch (e) {
         setMe(getFallbackUser());
@@ -627,10 +610,7 @@ export default function Chat() {
   // whether the current session for the active motion is closed
   const sessionClosed = activeMotion?.state === "closed";
   // whether the current user voted 'yes' on the active motion
-  const votesArray = Array.isArray(activeMotion?.votes)
-    ? activeMotion.votes
-    : [];
-  const userVotedYes = votesArray.some(
+  const userVotedYes = (activeMotion?.votes || []).some(
     (v) =>
       (v.voterId || "") === (me.id || "") &&
       (v.choice || "").toString().toLowerCase() === "yes"
@@ -909,22 +889,17 @@ export default function Chat() {
                 displayName = profile.name.trim();
               }
             } catch {}
-            const authorId = (c.authorId || "").toString().trim();
+            // Fallback: always use authorId if no name found
             if (!displayName) {
-              displayName = authorId;
+              displayName = (c.authorId || "").toString().trim();
             }
-            const isOwn =
-              !!currentUserId &&
-              authorId &&
-              authorId.toLowerCase() === currentUserId.toLowerCase();
             return {
               id: c.id,
-              authorId,
+              authorId: c.authorId,
               authorName: displayName,
               text: c.text,
               time: c.createdAt || new Date().toISOString(),
               stance: c.position || "neutral",
-              isOwn,
             };
           })
         );
@@ -1757,8 +1732,6 @@ export default function Chat() {
           ? "referred"
           : next === "closed"
           ? "closed"
-          : next === "voting"
-          ? "voting"
           : "in-progress";
       if (next === "closed") {
         // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
@@ -1775,81 +1748,128 @@ export default function Chat() {
         await updateMotion(activeMotion.id, { decisionDetails: detail });
       } else {
         await updateMotionStatus(activeMotion.id, status);
+        // After moving to vote, refetch motions from backend so all members see the change
+        if (next === "voting" && committee?.id) {
+          try {
+            const remote = await fetchMotions(committee.id);
+            const mapped = (remote || []).map((m) => {
+              const state =
+                m.status === "paused"
+                  ? "paused"
+                  : m.status === "postponed"
+                  ? "postponed"
+                  : m.status === "referred"
+                  ? "referred"
+                  : m.status === "closed" ||
+                    m.status === "passed" ||
+                    m.status === "failed"
+                  ? "closed"
+                  : "discussion";
+              const meta = { ...(m.meta || {}) };
+              const isSub =
+                (m.type === "submotion" && m.parentMotionId) ||
+                !!meta.submotionOf ||
+                !!meta.parentMotionId;
+              if (isSub) {
+                meta.kind = "sub";
+                meta.parentMotionId =
+                  m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+                if (meta.submotionType && !meta.subType)
+                  meta.subType = meta.submotionType;
+              }
+              return {
+                id: m.id,
+                title: m.title,
+                description: m.description,
+                state,
+                messages: [],
+                decisionLog: [],
+                votes: m.votes || [],
+                meta,
+                decisionDetails: m.decisionDetails || undefined,
+              };
+            });
+            setMotions(mapped);
+          } catch (err) {
+            console.error(
+              "Failed to refetch motions after moving to vote",
+              err
+            );
+          }
+        }
       }
     } catch (err) {
       console.warn("Failed to update motion status", err);
     }
+    // ...existing code...
+    // Poll motions from backend every 3 seconds while any motion is in voting state
+    useEffect(() => {
+      if (!committee?.id) return;
+      const anyVoting =
+        Array.isArray(motions) && motions.some((m) => m.state === "voting");
+      if (!anyVoting) return;
+      let cancelled = false;
+      const poll = async () => {
+        try {
+          const remote = await fetchMotions(committee.id);
+          if (cancelled) return;
+          const mapped = (remote || []).map((m) => {
+            const state =
+              m.status === "paused"
+                ? "paused"
+                : m.status === "postponed"
+                ? "postponed"
+                : m.status === "referred"
+                ? "referred"
+                : m.status === "closed" ||
+                  m.status === "passed" ||
+                  m.status === "failed"
+                ? "closed"
+                : "discussion";
+            const meta = { ...(m.meta || {}) };
+            const isSub =
+              (m.type === "submotion" && m.parentMotionId) ||
+              !!meta.submotionOf ||
+              !!meta.parentMotionId;
+            if (isSub) {
+              meta.kind = "sub";
+              meta.parentMotionId =
+                m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+              if (meta.submotionType && !meta.subType)
+                meta.subType = meta.submotionType;
+            }
+            return {
+              id: m.id,
+              title: m.title,
+              description: m.description,
+              state,
+              messages: [],
+              decisionLog: [],
+              votes: m.votes || [],
+              meta,
+              decisionDetails: m.decisionDetails || undefined,
+            };
+          });
+          setMotions(mapped);
+        } catch (err) {
+          console.error("Failed to poll motions during voting", err);
+        }
+      };
+      const interval = setInterval(poll, 3000);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }, [committee?.id, motions]);
   };
 
-  // While any motion is in voting, poll backend so all members see voting state
-  useEffect(() => {
-    if (!committee?.id) return;
-    const anyVoting =
-      Array.isArray(motions) && motions.some((m) => m.state === "voting");
-    if (!anyVoting) return;
+  // start/end meeting handlers removed with the toggle UI
 
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const remote = await fetchMotions(committee.id);
-        if (cancelled) return;
-        const mapped = (remote || []).map((m) => {
-          const state =
-            m.status === "paused"
-              ? "paused"
-              : m.status === "postponed"
-              ? "postponed"
-              : m.status === "referred"
-              ? "referred"
-              : m.status === "closed" ||
-                m.status === "passed" ||
-                m.status === "failed"
-              ? "closed"
-              : m.status === "voting"
-              ? "voting"
-              : "discussion";
-          const meta = { ...(m.meta || {}) };
-          const isSub =
-            (m.type === "submotion" && m.parentMotionId) ||
-            !!meta.submotionOf ||
-            !!meta.parentMotionId;
-          if (isSub) {
-            meta.kind = "sub";
-            meta.parentMotionId =
-              m.parentMotionId || meta.submotionOf || meta.parentMotionId;
-            if (meta.submotionType && !meta.subType)
-              meta.subType = meta.submotionType;
-          }
-          return {
-            id: m.id,
-            title: m.title,
-            description: m.description,
-            state,
-            messages: [],
-            decisionLog: [],
-            votes: Array.isArray(m.votes) ? m.votes : [],
-            meta,
-            decisionDetails: m.decisionDetails || undefined,
-          };
-        });
-        setMotions(mapped);
-      } catch (err) {
-        console.error("Failed to poll motions during voting", err);
-      }
-    };
-
-    // initial sync then interval polling
-    poll();
-    const interval = setInterval(poll, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [committee?.id, motions]);
-
-  const handleSaveDecisionSummary = async (event) => {
-    event.preventDefault();
+  const handleSaveDecisionSummary = async (e) => {
+    e && e.preventDefault();
+    if (!activeMotion || activeMotion.state !== "closed") return;
+    if (!amIManager) return;
+    const summary = decisionSummary.trim();
     const pros = decisionPros.trim();
     const cons = decisionCons.trim();
     if (!summary && !pros && !cons && !decisionOutcome) return; // require at least one field
@@ -2203,7 +2223,7 @@ export default function Chat() {
       try {
         // Compute and persist outcome so Final Decision tab shows Passed/Failed
         const target = (updated || []).find((mm) => mm.id === motionId) || {};
-        const votes = Array.isArray(target.votes) ? target.votes : [];
+        const votes = target.votes || [];
         const outcome = computeOutcome(votes);
         const detail = {
           outcome,
@@ -2230,8 +2250,7 @@ export default function Chat() {
   };
 
   // compute tally from votes array: [{ voterId, choice }]
-  const computeTally = (votesInput = []) => {
-    const votes = Array.isArray(votesInput) ? votesInput : [];
+  const computeTally = (votes = []) => {
     const tally = { yes: 0, no: 0, abstain: 0 };
     for (const v of votes) {
       const c = (v.choice || "").toString().toLowerCase();
@@ -2243,8 +2262,8 @@ export default function Chat() {
   };
 
   // derive a simple outcome label from votes when an explicit outcome isn't set
-  const computeOutcome = (votesInput = []) => {
-    const tally = computeTally(votesInput);
+  const computeOutcome = (votes = []) => {
+    const tally = computeTally(votes);
     const votesCast = tally.yes + tally.no; // abstentions excluded for supermajority calc
     // Only Adopted or Rejected outcomes
     // Tie handling rules: yes==abstain => Adopt; no==abstain => Reject
@@ -4171,7 +4190,7 @@ export default function Chat() {
             </div>
           </div>
 
-          {isSplit && (
+          {isSplit ? (
             <div className="member-list">
               <div className="member-list-header">
                 <h3>Participants</h3>
@@ -4230,6 +4249,65 @@ export default function Chat() {
                 ))}
               </div>
             </div>
+          ) : (
+            <aside className="member-list right-panel">
+              <div className="member-list-header">
+                <h3>Participants</h3>
+                <button
+                  className="participants-collapse-toggle"
+                  onClick={() => setMembersCollapsed((s) => !s)}
+                  aria-expanded={!membersCollapsed}
+                  title={
+                    membersCollapsed ? "Show participants" : "Hide participants"
+                  }
+                  aria-label={
+                    membersCollapsed
+                      ? "Expand participants"
+                      : "Collapse participants"
+                  }
+                  style={{ float: "right" }}
+                >
+                  {membersCollapsed ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M9 6l6 6-6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M6 9l6 6 6-6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              <div
+                className={`member-list-body ${
+                  membersCollapsed ? "collapsed" : ""
+                }`}
+              >
+                {members.map((p) => (
+                  <LiveProfileMemberCard
+                    key={p.id || p.name}
+                    username={p.username}
+                    fallbackName={p.name || p.id}
+                    role={p.role}
+                    avatarUrl={p.avatarUrl}
+                  />
+                ))}
+              </div>
+            </aside>
           )}
         </div>
       </aside>
@@ -4438,28 +4516,21 @@ export default function Chat() {
                 {!loadingComments &&
                   !commentsError &&
                   (activeMotion.messages || []).map((msg) => {
-                    const isMine =
-                      typeof msg.isOwn === "boolean"
-                        ? msg.isOwn
-                        : (() => {
-                            const aid = (msg.authorId || "")
-                              .toString()
-                              .trim()
-                              .toLowerCase();
-                            const myId = (currentUserId || "")
-                              .toString()
-                              .trim()
-                              .toLowerCase();
-                            const myUser = (me.username || "")
-                              .toString()
-                              .trim()
-                              .toLowerCase();
-                            return (
-                              !!aid &&
-                              ((!!myId && aid === myId) ||
-                                (!!myUser && aid === myUser))
-                            );
-                          })();
+                    const isMine = (() => {
+                      const aid = (msg.authorId || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      const myId = (me.id || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      const myUser = (me.username || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      return aid && (aid === myId || aid === myUser);
+                    })();
                     const memberForMessage = (members || []).find((m) => {
                       const mid = (m.id || "").toString();
                       const muser = (m.username || "").toString();
@@ -4487,47 +4558,35 @@ export default function Chat() {
                       <div
                         key={msg.id}
                         className={"message-row " + (isMine ? "mine" : "")}
-                        style={{ display: "flex", alignItems: "flex-start" }}
                       >
-                        <div
-                          style={{
-                            flex: 1,
-                            display: "flex",
-                            alignItems: "center",
-                          }}
-                        >
-                          <div>
-                            {/* top line: name + chosen stance */}
-                            <div
-                              className="message-header"
-                              style={{ display: "flex", alignItems: "center" }}
+                        {/* AUTHOR + STANCE */}
+                        <div className="message-header">
+                          <span className="message-author">
+                            {displayNameFromMembers}
+                          </span>
+                          {msg.stance && (
+                            <span
+                              className="stance-dot-wrapper"
+                              title={msg.stance}
                             >
-                              <span className="message-author">
-                                {displayNameFromMembers}
-                              </span>
-                              {msg.stance ? (
-                                <span
-                                  className="stance-dot-wrapper"
-                                  title={msg.stance}
-                                >
-                                  <span
-                                    className={
-                                      "stance-dot " +
-                                      (msg.stance === "pro"
-                                        ? "dot-pro"
-                                        : msg.stance === "con"
-                                        ? "dot-con"
-                                        : "dot-neutral")
-                                    }
-                                  />
-                                </span>
-                              ) : null}
-                            </div>
-                            {/* actual text bubble */}
-                            <div className="message-bubble" style={{}}>
-                              {msg.text}
-                            </div>
-                            {/* time */}
+                              <span
+                                className={
+                                  "stance-dot " +
+                                  (msg.stance === "pro"
+                                    ? "dot-pro"
+                                    : msg.stance === "con"
+                                    ? "dot-con"
+                                    : "dot-neutral")
+                                }
+                              />
+                            </span>
+                          )}
+                        </div>
+
+                        {/* NEW: WRAP LEFT STACK + AVATAR */}
+                        <div className="message-row-inner">
+                          <div className="message-left-stack">
+                            <div className="message-bubble">{msg.text}</div>
                             <div className="message-time">
                               {new Date(msg.time).toLocaleTimeString([], {
                                 hour: "numeric",
@@ -4535,9 +4594,7 @@ export default function Chat() {
                               })}
                             </div>
                           </div>
-                        </div>
-                        {/* Avatar on right side, aligned with top */}
-                        <div style={{ marginLeft: 12, marginTop: 2 }}>
+
                           <Avatar
                             src={memberForMessage?.avatarUrl}
                             alt={displayNameFromMembers}
@@ -4593,9 +4650,7 @@ export default function Chat() {
                 activeMotion.state === "closed") && (
                 <div className="vote-tally-panel">
                   {(() => {
-                    const votes = Array.isArray(activeMotion?.votes)
-                      ? activeMotion.votes
-                      : [];
+                    const votes = activeMotion?.votes || [];
                     const tally = activeMotion?.tally || computeTally(votes);
                     const myVote = votes.find(
                       (v) => v.voterId === me.id
@@ -5203,9 +5258,7 @@ export default function Chat() {
                           <label className="decision-label">Outcome</label>
                           <div className="final-outcome" aria-live="polite">
                             {(() => {
-                              const votes = Array.isArray(activeMotion?.votes)
-                                ? activeMotion.votes
-                                : [];
+                              const votes = activeMotion?.votes || [];
                               const tally =
                                 activeMotion?.tally || computeTally(votes);
                               const outcomeText =
@@ -5275,9 +5328,7 @@ export default function Chat() {
                             <strong>Outcome:</strong>
                             <div className="final-outcome">
                               {(() => {
-                                const votes = Array.isArray(activeMotion?.votes)
-                                  ? activeMotion.votes
-                                  : [];
+                                const votes = activeMotion?.votes || [];
                                 const tally =
                                   activeMotion?.tally || computeTally(votes);
                                 const outcomeText =
@@ -5453,9 +5504,7 @@ export default function Chat() {
                         <label className="decision-label">Outcome</label>
                         <div className="final-outcome" aria-live="polite">
                           {(() => {
-                            const votes = Array.isArray(activeMotion?.votes)
-                              ? activeMotion.votes
-                              : [];
+                            const votes = activeMotion?.votes || [];
                             const tally =
                               activeMotion?.tally || computeTally(votes);
                             const outcomeText = computeOutcome(votes);
@@ -5589,7 +5638,6 @@ export default function Chat() {
                   username={p.username}
                   fallbackName={p.name || p.id}
                   role={p.role}
-                  avatarUrl={p.avatarUrl}
                 />
               ))}
             </div>
