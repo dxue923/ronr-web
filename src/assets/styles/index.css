@@ -1543,6 +1543,7 @@ START NEW CHAT PAGE CSS
   height: 38px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 10px;
 }
 
 /* Time sits DIRECTLY under bubble */

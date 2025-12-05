@@ -4557,35 +4557,43 @@ export default function Chat() {
                     return (
                       <div
                         key={msg.id}
-                        className={"message-row " + (isMine ? "mine" : "")}
+                        className={
+                          "message-row " + (isMine ? "mine" : "theirs")
+                        }
                       >
-                        {/* AUTHOR + STANCE */}
-                        <div className="message-header">
-                          <span className="message-author">
-                            {displayNameFromMembers}
-                          </span>
-                          {msg.stance && (
-                            <span
-                              className="stance-dot-wrapper"
-                              title={msg.stance}
-                            >
-                              <span
-                                className={
-                                  "stance-dot " +
-                                  (msg.stance === "pro"
-                                    ? "dot-pro"
-                                    : msg.stance === "con"
-                                    ? "dot-con"
-                                    : "dot-neutral")
-                                }
-                              />
-                            </span>
-                          )}
-                        </div>
-
-                        {/* NEW: WRAP LEFT STACK + AVATAR */}
+                        {/* Mirror layout: theirs avatar-left, mine avatar-right */}
                         <div className="message-row-inner">
+                          {!isMine && (
+                            <Avatar
+                              src={memberForMessage?.avatarUrl}
+                              alt={displayNameFromMembers}
+                            />
+                          )}
+
                           <div className="message-left-stack">
+                            {/* AUTHOR + STANCE above bubble */}
+                            <div className="message-header">
+                              <span className="message-author">
+                                {displayNameFromMembers}
+                              </span>
+                              {msg.stance && (
+                                <span
+                                  className="stance-dot-wrapper"
+                                  title={msg.stance}
+                                >
+                                  <span
+                                    className={
+                                      "stance-dot " +
+                                      (msg.stance === "pro"
+                                        ? "dot-pro"
+                                        : msg.stance === "con"
+                                        ? "dot-con"
+                                        : "dot-neutral")
+                                    }
+                                  />
+                                </span>
+                              )}
+                            </div>
                             <div className="message-bubble">{msg.text}</div>
                             <div className="message-time">
                               {new Date(msg.time).toLocaleTimeString([], {
@@ -4595,10 +4603,12 @@ export default function Chat() {
                             </div>
                           </div>
 
-                          <Avatar
-                            src={memberForMessage?.avatarUrl}
-                            alt={displayNameFromMembers}
-                          />
+                          {isMine && (
+                            <Avatar
+                              src={memberForMessage?.avatarUrl}
+                              alt={displayNameFromMembers}
+                            />
+                          )}
                         </div>
                       </div>
                     );
