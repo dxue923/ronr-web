@@ -132,10 +132,19 @@ function getCurrentUser() {
     const key = activeEmail ? `profileData:${activeEmail}` : null;
     const raw = key ? localStorage.getItem(key) : null;
     const p = raw ? JSON.parse(raw) : {};
-    const username = (p.username || p.email || "").toString().trim() || "guest";
+    // Prefer explicit username as the stable ID used in committee members
+    const username = (p.username || "").toString().trim();
+    // Fallback to email local-part if no username set
+    const emailLocal = (p.email || "").split("@")[0];
+    const stableId = username || emailLocal || "guest";
     // Name should come directly from the Profile GET response
-    const name = (p.name || "").toString().trim() || username;
-    return { id: username, username, name, avatarUrl: p.avatarUrl || "" };
+    const name = (p.name || "").toString().trim() || stableId;
+    return {
+      id: stableId,
+      username: stableId,
+      name,
+      avatarUrl: p.avatarUrl || "",
+    };
   } catch (e) {
     return { id: "guest", username: "guest", name: "Guest", avatarUrl: "" };
   }
@@ -782,18 +791,37 @@ export default function Chat() {
       try {
         const remote = await getCommentsForMotion(activeMotionId);
         if (cancelled) return;
-        // Always fetch the latest profile for each author and use their profile name only
+        // Always fetch the latest profile for each author and use their profile.name when present.
+        // If no profile name is available, fall back to the raw authorId.
         const mapped = await Promise.all(
           (remote || []).map(async (c) => {
-            let displayName = "(No name)";
+            let displayName = "";
             try {
-              const profile = await getProfileByUsername(c.authorId);
+              let profile = null;
+              if (typeof findProfileByUsername === "function") {
+                const lookupKey =
+                  c.authorId && c.authorId.includes("@")
+                    ? c.authorId
+                    : c.authorId;
+                const lookupResult = findProfileByUsername(lookupKey);
+                profile =
+                  typeof lookupResult === "function"
+                    ? await lookupResult()
+                    : lookupResult;
+              } else if (typeof getProfileByUsername === "function") {
+                const lookupKey =
+                  c.authorId && c.authorId.includes("@")
+                    ? c.authorId
+                    : c.authorId;
+                profile = await getProfileByUsername(lookupKey);
+              }
               if (profile && profile.name && profile.name.trim()) {
                 displayName = profile.name.trim();
               }
-              // If no valid name, do not fallback to username or guest
-            } catch {
-              displayName = "(No name)";
+            } catch {}
+            // Fallback: always use authorId if no name found
+            if (!displayName) {
+              displayName = (c.authorId || "").toString().trim();
             }
             return {
               id: c.id,
@@ -835,6 +863,50 @@ export default function Chat() {
 
   // Avoid early return before hooks complete to maintain consistent hook order.
   const committeeUnavailable = !committee;
+  // If we do have a committee, prefer to align "me" with its member list
+  // so that authorId used in comments matches the committee member IDs.
+  useEffect(() => {
+    if (!committee) return;
+    try {
+      const list = committee.members || committee.memberships || [];
+      if (!Array.isArray(list) || list.length === 0) return;
+      const current = getCurrentUser();
+      const cid = (current.id || "").toString();
+      const cuser = (current.username || "").toString();
+      const match = list.find((m) => {
+        const mid = (m.id || "").toString();
+        const muser = (m.username || "").toString();
+        return (
+          (cid && (mid === cid || muser === cid)) ||
+          (cuser && (mid === cuser || muser === cuser))
+        );
+      });
+      // If we find a matching committee member, use that as the source of truth.
+      if (match) {
+        const username = (match.username || match.id || "").toString();
+        const name = (match.name || "").toString().trim() || username;
+        setMe({
+          id: username,
+          username,
+          name,
+          avatarUrl: match.avatarUrl || "",
+        });
+        return;
+      }
+      // If no match, still lift any non-guest name from profile into me
+      const fallbackName = (current.name || "").toString().trim();
+      if (fallbackName && fallbackName.toLowerCase() !== "guest") {
+        setMe({
+          id: cid || cuser || fallbackName,
+          username: cuser || cid || fallbackName,
+          name: fallbackName,
+          avatarUrl: current.avatarUrl || "",
+        });
+      }
+    } catch {
+      // best-effort alignment only
+    }
+  }, [committee]);
 
   // temp members on the committee
 
@@ -1136,19 +1208,56 @@ export default function Chat() {
     ).toLowerCase();
     setInput("");
     try {
+      // Ensure authorId is aligned with committee member usernames when possible
+      let authorId = me.id;
+      try {
+        const list = committee?.members || committee?.memberships || [];
+        if (Array.isArray(list) && list.length > 0) {
+          const cid = (me.id || "").toString();
+          const cuser = (me.username || "").toString();
+
+          // If we already know we're a real member, match by id/username.
+          let match = list.find((m) => {
+            const mid = (m.id || "").toString();
+            const muser = (m.username || "").toString();
+            return (
+              (cid && (mid === cid || muser === cid)) ||
+              (cuser && (mid === cuser || muser === cuser))
+            );
+          });
+
+          // If current identity is still 'guest' or we didn't find a match,
+          // fall back to the first member so chat always shows a committee name.
+          if (!match && (cid === "guest" || cuser === "guest")) {
+            match = list[0];
+          }
+
+          if (match) {
+            authorId = (match.username || match.id || cid || cuser).toString();
+          }
+        }
+      } catch {}
       const payload = {
         motionId: activeMotion.id,
-        authorId: me.id,
+        authorId,
         text,
         position: stanceToUse,
       };
+      try {
+        console.debug("[Chat] send", {
+          me,
+          committeeMembers: committee?.members || committee?.memberships || [],
+          chosenAuthorId: authorId,
+          payload,
+        });
+      } catch {}
       try {
         console.debug("createComment payload", payload);
       } catch {}
       const created = await createComment(payload);
       const newMsg = {
         id: created.id || Date.now().toString(),
-        authorId: created.authorId || me.id,
+        authorId: created.authorId || authorId,
         authorName: me.name,
         text: created.text || text,
         time: created.createdAt || new Date().toISOString(),
@@ -1173,7 +1282,7 @@ export default function Chat() {
       console.warn("Remote comment create failed; falling back to local", err);
       const fallbackMsg = {
         id: Date.now().toString(),
-        authorId: me.id,
+        authorId,
         authorName: me.name,
         text,
         time: new Date().toISOString(),
@@ -4300,7 +4409,31 @@ export default function Chat() {
                 {!loadingComments &&
                   !commentsError &&
                   (activeMotion.messages || []).map((msg) => {
-                    const isMine = msg.authorId === me.id;
+                    const isMine = (() => {
+                      const aid = (msg.authorId || "").toString().trim().toLowerCase();
+                      const myId = (me.id || "").toString().trim().toLowerCase();
+                      const myUser = (me.username || "").toString().trim().toLowerCase();
+                      return aid && (aid === myId || aid === myUser);
+                    })();
+                    const memberForMessage = (members || []).find((m) => {
+                      const mid = (m.id || "").toString();
+                      const muser = (m.username || "").toString();
+                      const aid = (msg.authorId || "").toString();
+                      return mid === aid || muser === aid;
+                    });
+                    const displayNameFromMembers = memberForMessage
+                      ? (memberForMessage.name || "").toString().trim() ||
+                        (memberForMessage.username || memberForMessage.id || "").toString()
+                      : "";
+                    try {
+                      console.debug("[Chat] render", {
+                        msg,
+                        me,
+                        members,
+                        memberForMessage,
+                        displayNameFromMembers,
+                      });
+                    } catch {}
                     return (
                       <div
                         key={msg.id}
@@ -4309,12 +4442,7 @@ export default function Chat() {
                         {/* top line: name + chosen stance */}
                         <div className="message-header">
                           <span className="message-author">
-                            {isMine
-                              ? (me.name && me.name.trim()) ||
-                                me.username ||
-                                me.id ||
-                                "Me"
-                              : msg.authorName}
+                            {displayNameFromMembers}
                           </span>
                           {msg.stance ? (
                             <span

@@ -127,6 +127,72 @@ export async function handler(event) {
     }
     const actorUsername = usernameFromClaims(claims).trim();
 
+    // ---------- PROFILE SYNC (internal hook) ----------
+    // Allow POST with ?syncProfile=1 to refresh member display fields
+    // when a Profile document changes (name/avatarUrl/username).
+    if (method === "POST" && event.queryStringParameters?.syncProfile === "1") {
+      try {
+        const body = JSON.parse(event.body || "{}");
+        const usernameRaw = (body.username || "").toString().trim();
+        if (!usernameRaw) {
+          return {
+            statusCode: 400,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Missing username" }),
+          };
+        }
+        const username = usernameRaw.toLowerCase();
+        const profile = await Profile.findOne({
+          username: new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
+        })
+          .select("username name avatarUrl email")
+          .lean();
+
+        if (!profile) {
+          return {
+            statusCode: 404,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Profile not found" }),
+          };
+        }
+
+        const docs = await Committee.find({
+          "members.username": new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
+        });
+
+        await Promise.all(
+          docs.map(async (doc) => {
+            doc.members = (doc.members || []).map((m) => {
+              if ((m.username || "").toString().toLowerCase() === username) {
+                return {
+                  ...m,
+                  username: profile.username || m.username,
+                  name:
+                    profile.name || m.name || profile.username || m.username,
+                  avatarUrl: profile.avatarUrl || m.avatarUrl || "",
+                };
+              }
+              return m;
+            });
+            await doc.save();
+          })
+        );
+
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ updated: docs.length }),
+        };
+      } catch (e) {
+        console.warn("[committee] syncProfile failed", e?.message || e);
+        return {
+          statusCode: 500,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "syncProfile failed" }),
+        };
+      }
+    }
+
     // ---------- GET (list or single) ----------
     if (method === "GET") {
       const params = event.queryStringParameters || {};

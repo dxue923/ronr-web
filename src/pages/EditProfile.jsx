@@ -114,6 +114,23 @@ export default function EditProfile() {
       }));
       setAvatar(updated.avatarUrl || avatar);
 
+      // Ask backend to refresh this user's entry in all committees
+      try {
+        await fetch("/.netlify/functions/committee?syncProfile=1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            username: updated.username || payload.username,
+          }),
+        });
+      } catch (e) {
+        // Non-fatal: committee member display names may lag until next fetch
+        console.warn("[EditProfile] committee sync failed", e);
+      }
+
       // Dispatch profile-updated event so other pages refresh user info
       window.dispatchEvent(new Event("profile-updated"));
 
