@@ -627,7 +627,10 @@ export default function Chat() {
   // whether the current session for the active motion is closed
   const sessionClosed = activeMotion?.state === "closed";
   // whether the current user voted 'yes' on the active motion
-  const userVotedYes = (activeMotion?.votes || []).some(
+  const votesArray = Array.isArray(activeMotion?.votes)
+    ? activeMotion.votes
+    : [];
+  const userVotedYes = votesArray.some(
     (v) =>
       (v.voterId || "") === (me.id || "") &&
       (v.choice || "").toString().toLowerCase() === "yes"
@@ -1770,128 +1773,14 @@ export default function Chat() {
         await updateMotion(activeMotion.id, { decisionDetails: detail });
       } else {
         await updateMotionStatus(activeMotion.id, status);
-        // After moving to vote, refetch motions from backend so all members see the change
-        if (next === "voting" && committee?.id) {
-          try {
-            const remote = await fetchMotions(committee.id);
-            const mapped = (remote || []).map((m) => {
-              const state =
-                m.status === "paused"
-                  ? "paused"
-                  : m.status === "postponed"
-                  ? "postponed"
-                  : m.status === "referred"
-                  ? "referred"
-                  : m.status === "closed" ||
-                    m.status === "passed" ||
-                    m.status === "failed"
-                  ? "closed"
-                  : "discussion";
-              const meta = { ...(m.meta || {}) };
-              const isSub =
-                (m.type === "submotion" && m.parentMotionId) ||
-                !!meta.submotionOf ||
-                !!meta.parentMotionId;
-              if (isSub) {
-                meta.kind = "sub";
-                meta.parentMotionId =
-                  m.parentMotionId || meta.submotionOf || meta.parentMotionId;
-                if (meta.submotionType && !meta.subType)
-                  meta.subType = meta.submotionType;
-              }
-              return {
-                id: m.id,
-                title: m.title,
-                description: m.description,
-                state,
-                messages: [],
-                decisionLog: [],
-                votes: m.votes || [],
-                meta,
-                decisionDetails: m.decisionDetails || undefined,
-              };
-            });
-            setMotions(mapped);
-          } catch (err) {
-            console.error(
-              "Failed to refetch motions after moving to vote",
-              err
-            );
-          }
-        }
       }
     } catch (err) {
       console.warn("Failed to update motion status", err);
     }
-    // ...existing code...
-    // Poll motions from backend every 3 seconds while any motion is in voting state
-    useEffect(() => {
-      if (!committee?.id) return;
-      const anyVoting =
-        Array.isArray(motions) && motions.some((m) => m.state === "voting");
-      if (!anyVoting) return;
-      let cancelled = false;
-      const poll = async () => {
-        try {
-          const remote = await fetchMotions(committee.id);
-          if (cancelled) return;
-          const mapped = (remote || []).map((m) => {
-            const state =
-              m.status === "paused"
-                ? "paused"
-                : m.status === "postponed"
-                ? "postponed"
-                : m.status === "referred"
-                ? "referred"
-                : m.status === "closed" ||
-                  m.status === "passed" ||
-                  m.status === "failed"
-                ? "closed"
-                : "discussion";
-            const meta = { ...(m.meta || {}) };
-            const isSub =
-              (m.type === "submotion" && m.parentMotionId) ||
-              !!meta.submotionOf ||
-              !!meta.parentMotionId;
-            if (isSub) {
-              meta.kind = "sub";
-              meta.parentMotionId =
-                m.parentMotionId || meta.submotionOf || meta.parentMotionId;
-              if (meta.submotionType && !meta.subType)
-                meta.subType = meta.submotionType;
-            }
-            return {
-              id: m.id,
-              title: m.title,
-              description: m.description,
-              state,
-              messages: [],
-              decisionLog: [],
-              votes: m.votes || [],
-              meta,
-              decisionDetails: m.decisionDetails || undefined,
-            };
-          });
-          setMotions(mapped);
-        } catch (err) {
-          console.error("Failed to poll motions during voting", err);
-        }
-      };
-      const interval = setInterval(poll, 3000);
-      return () => {
-        cancelled = true;
-        clearInterval(interval);
-      };
-    }, [committee?.id, motions]);
   };
 
-  // start/end meeting handlers removed with the toggle UI
-
-  const handleSaveDecisionSummary = async (e) => {
-    e && e.preventDefault();
-    if (!activeMotion || activeMotion.state !== "closed") return;
-    if (!amIManager) return;
-    const summary = decisionSummary.trim();
+  const handleSaveDecisionSummary = async (event) => {
+    event.preventDefault();
     const pros = decisionPros.trim();
     const cons = decisionCons.trim();
     if (!summary && !pros && !cons && !decisionOutcome) return; // require at least one field
@@ -2245,7 +2134,7 @@ export default function Chat() {
       try {
         // Compute and persist outcome so Final Decision tab shows Passed/Failed
         const target = (updated || []).find((mm) => mm.id === motionId) || {};
-        const votes = target.votes || [];
+        const votes = Array.isArray(target.votes) ? target.votes : [];
         const outcome = computeOutcome(votes);
         const detail = {
           outcome,
@@ -2272,7 +2161,8 @@ export default function Chat() {
   };
 
   // compute tally from votes array: [{ voterId, choice }]
-  const computeTally = (votes = []) => {
+  const computeTally = (votesInput = []) => {
+    const votes = Array.isArray(votesInput) ? votesInput : [];
     const tally = { yes: 0, no: 0, abstain: 0 };
     for (const v of votes) {
       const c = (v.choice || "").toString().toLowerCase();
@@ -2284,8 +2174,8 @@ export default function Chat() {
   };
 
   // derive a simple outcome label from votes when an explicit outcome isn't set
-  const computeOutcome = (votes = []) => {
-    const tally = computeTally(votes);
+  const computeOutcome = (votesInput = []) => {
+    const tally = computeTally(votesInput);
     const votesCast = tally.yes + tally.no; // abstentions excluded for supermajority calc
     // Only Adopted or Rejected outcomes
     // Tie handling rules: yes==abstain => Adopt; no==abstain => Reject
@@ -4634,7 +4524,9 @@ export default function Chat() {
                 activeMotion.state === "closed") && (
                 <div className="vote-tally-panel">
                   {(() => {
-                    const votes = activeMotion?.votes || [];
+                    const votes = Array.isArray(activeMotion?.votes)
+                      ? activeMotion.votes
+                      : [];
                     const tally = activeMotion?.tally || computeTally(votes);
                     const myVote = votes.find(
                       (v) => v.voterId === me.id
@@ -5242,7 +5134,9 @@ export default function Chat() {
                           <label className="decision-label">Outcome</label>
                           <div className="final-outcome" aria-live="polite">
                             {(() => {
-                              const votes = activeMotion?.votes || [];
+                              const votes = Array.isArray(activeMotion?.votes)
+                                ? activeMotion.votes
+                                : [];
                               const tally =
                                 activeMotion?.tally || computeTally(votes);
                               const outcomeText =
@@ -5312,7 +5206,9 @@ export default function Chat() {
                             <strong>Outcome:</strong>
                             <div className="final-outcome">
                               {(() => {
-                                const votes = activeMotion?.votes || [];
+                                const votes = Array.isArray(activeMotion?.votes)
+                                  ? activeMotion.votes
+                                  : [];
                                 const tally =
                                   activeMotion?.tally || computeTally(votes);
                                 const outcomeText =
@@ -5488,7 +5384,9 @@ export default function Chat() {
                         <label className="decision-label">Outcome</label>
                         <div className="final-outcome" aria-live="polite">
                           {(() => {
-                            const votes = activeMotion?.votes || [];
+                            const votes = Array.isArray(activeMotion?.votes)
+                              ? activeMotion.votes
+                              : [];
                             const tally =
                               activeMotion?.tally || computeTally(votes);
                             const outcomeText = computeOutcome(votes);
