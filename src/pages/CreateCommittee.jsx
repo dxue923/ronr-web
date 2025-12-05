@@ -807,9 +807,7 @@ export default function CreateCommittee() {
             {!loadingCommittees &&
               !errorCommittees &&
               hasLoadedOnce &&
-              sortedCommittees.length === 0 && (
-                <div className="empty-hint">No committees yet</div>
-              )}
+              sortedCommittees.length === 0 }
             {!loadingCommittees &&
               !errorCommittees &&
               sortedCommittees.length > 0 &&
