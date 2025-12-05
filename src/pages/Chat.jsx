@@ -1,32 +1,64 @@
-// Render a member card. We no longer call an undefined getProfileByUsername
-// here; Chat already refreshes committee members on profile updates.
+const AVATAR_SIZE = 40;
+function Avatar({ src, alt }) {
+  const [imgError, setImgError] = React.useState(false);
+  const hasImage =
+    src && typeof src === "string" && src.trim().length > 0 && !imgError;
+  if (hasImage) {
+    return (
+      <img
+        src={src}
+        alt={alt || "avatar"}
+        className="member-avatar"
+        onError={() => setImgError(true)}
+        title={src}
+      />
+    );
+  }
+  // fallback: blank avatar
+  return (
+    <div
+      className="member-avatar"
+      title={imgError ? "Avatar failed to load" : "No avatar"}
+    >
+      {imgError ? "!" : null}
+    </div>
+  );
+}
+// Helper to render a message row in the discussion panel
+function MessageRow({ authorName, avatarUrl, text, time, stance }) {
+  return (
+    <div className="chat-message-row">
+      <div className="chat-message-content">
+        <div className="chat-message-meta">
+          <span className="chat-message-author">{authorName}</span>
+          <span className="chat-message-time">
+            {new Date(time).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+        <div className="chat-message-bubble">{text}</div>
+      </div>
+      <span className="chat-discussion-avatar">
+        <Avatar src={avatarUrl} alt={authorName} />
+      </span>
+    </div>
+  );
+}
+
 function LiveProfileMemberCard({
   username,
   fallbackName,
   role,
+  avatarUrl,
   canRemove,
   onRemove,
 }) {
   const displayName = fallbackName || username;
-  const avatarSrc = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    displayName || username
-  )}&background=e5e7eb&color=374151&size=40`;
   return (
     <div className="member-row">
-      <img
-        src={avatarSrc}
-        alt={displayName}
-        className="member-avatar"
-        style={{
-          width: 30,
-          height: 30,
-          borderRadius: "50%",
-          objectFit: "cover",
-          border: "1px solid #d1d5db",
-          background: "#e5e7eb",
-          flexShrink: 0,
-        }}
-      />
+      <Avatar src={avatarUrl} alt={displayName} />
       <div>
         <div className="member-name">{displayName}</div>
         <RoleBadge role={role} />
@@ -4164,6 +4196,7 @@ export default function Chat() {
                     username={p.username}
                     fallbackName={p.name || p.id}
                     role={p.role}
+                    avatarUrl={p.avatarUrl}
                   />
                 ))}
               </div>
@@ -4418,44 +4451,61 @@ export default function Chat() {
                       <div
                         key={msg.id}
                         className={"message-row " + (isMine ? "mine" : "")}
+                        style={{ display: "flex", alignItems: "flex-start" }}
                       >
-                        {/* top line: name + chosen stance */}
-                        <div className="message-header">
-                          <span className="message-author">
-                            {displayNameFromMembers}
-                          </span>
-                          {msg.stance ? (
-                            <span
-                              className="stance-dot-wrapper"
-                              title={msg.stance}
+                        <div
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            {/* top line: name + chosen stance */}
+                            <div
+                              className="message-header"
+                              style={{ display: "flex", alignItems: "center" }}
                             >
-                              <span
-                                className={
-                                  "stance-dot " +
-                                  (msg.stance === "pro"
-                                    ? "dot-pro"
-                                    : msg.stance === "con"
-                                    ? "dot-con"
-                                    : "dot-neutral")
-                                }
-                              />
-                            </span>
-                          ) : null}
+                              <span className="message-author">
+                                {displayNameFromMembers}
+                              </span>
+                              {msg.stance ? (
+                                <span
+                                  className="stance-dot-wrapper"
+                                  title={msg.stance}
+                                >
+                                  <span
+                                    className={
+                                      "stance-dot " +
+                                      (msg.stance === "pro"
+                                        ? "dot-pro"
+                                        : msg.stance === "con"
+                                        ? "dot-con"
+                                        : "dot-neutral")
+                                    }
+                                  />
+                                </span>
+                              ) : null}
+                            </div>
+                            {/* actual text bubble */}
+                            <div className="message-bubble" style={{}}>
+                              {msg.text}
+                            </div>
+                            {/* time */}
+                            <div className="message-time">
+                              {new Date(msg.time).toLocaleTimeString([], {
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </div>
+                          </div>
                         </div>
-
-                        {/* stance options moved to composer; inline controls removed */}
-
-                        {/* actual text bubble */}
-                        <div className="message-bubble" style={{}}>
-                          {msg.text}
-                        </div>
-
-                        {/* time */}
-                        <div className="message-time">
-                          {new Date(msg.time).toLocaleTimeString([], {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
+                        {/* Avatar on right side, aligned with top */}
+                        <div style={{ marginLeft: 12, marginTop: 2 }}>
+                          <Avatar
+                            src={memberForMessage?.avatarUrl}
+                            alt={displayNameFromMembers}
+                          />
                         </div>
                       </div>
                     );

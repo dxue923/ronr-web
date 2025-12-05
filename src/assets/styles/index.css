@@ -3650,7 +3650,7 @@ label[for="myCheckbox"] {
   gap: 12px;
 }
 
-.create-committee-page .member-avatar {
+.member-avatar {
   width: 40px;
   height: 40px;
   border-radius: 9999px;
@@ -3690,6 +3690,58 @@ label[for="myCheckbox"] {
 }
 .create-committee-page .member-item button:hover {
   background: #fee2e2;
+}
+
+/* Chat message row layout */
+.chat-message-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+/* Chat message meta (author and time) */
+.chat-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-message-author {
+  font-weight: 500;
+}
+
+.chat-message-time {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.chat-message-bubble {
+  margin-top: 2px;
+}
+/* Chat message avatar for targeted styling */
+.chat-message-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  border: 1px solid #d1d5db;
+  object-fit: cover;
+  flex-shrink: 0;
+  transition: margin 0.2s, left 0.2s, right 0.2s;
+}
+/* Chat message content area */
+.chat-message-content {
+  flex: 1;
+  min-width: 0;
+}
+/* Chat discussion panel avatar positioning */
+.chat-discussion-avatar {
+  margin-left: 40px;
+  display: flex;
+  width: 40px;
+  height: 40px;
 }
 
 .create-committee-page .role-members .member-item:last-child {
