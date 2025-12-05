@@ -1,5 +1,6 @@
 // src/pages/CreateCommittee.jsx
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import logo from "../assets/logo.png";
 import { useNavigate } from "react-router-dom";
 import "../assets/styles/index.css";
 import { ROLE } from "../utils/permissions";
@@ -95,9 +96,7 @@ function OwnerProfileCard({ user }) {
       <div className="member-left">
         <Avatar src={user.avatarUrl} alt={user.name || user.username || ""} />
         <div className="member-meta">
-          <p className="member-name">
-            {user.name || user.username}
-          </p>
+          <p className="member-name">{user.name || user.username}</p>
           <p className="member-username">{user.username}</p>
         </div>
       </div>
@@ -334,6 +333,7 @@ export default function CreateCommittee() {
   const roleSelectRef = useRef(null);
   const membersScrollRef = useRef(null);
   const [lastAddedId, setLastAddedId] = useState(null);
+  const [forceLoading, setForceLoading] = useState(true);
 
   /* ---------- tiny helper to render avatar ---------- */
   const Avatar = ({ src, alt }) => {
@@ -762,6 +762,37 @@ export default function CreateCommittee() {
     (m) => m.role === ROLE.OBSERVER && norm(m.username) !== norm(stagedOwnerId)
   );
 
+  useEffect(() => {
+    const t = setTimeout(() => setForceLoading(false), 200);
+    return () => clearTimeout(t);
+  }, []);
+
+  const showInitialOverlay =
+    (loadingCommittees || forceLoading) && !hasLoadedOnce && !errorCommittees;
+
+  if (showInitialOverlay) {
+    return (
+      <div className="create-committee-page two-pane">
+        <div className="ronr-loading-screen">
+          <div className="ronr-loading-card">
+            <div className="ronr-loading-icon">
+              <div className="ronr-loading-pulse" />
+              <img
+                src={logo}
+                alt="Rules of Order logo"
+                className="ronr-loading-logo"
+              />
+            </div>
+            <h1 className="ronr-loading-title">Rules of Order</h1>
+            <p className="ronr-loading-subtitle">
+              Fetching your committees and preparing the floor…
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`create-committee-page two-pane ${
@@ -793,53 +824,59 @@ export default function CreateCommittee() {
           </div>
 
           <div className="side-list">
-            {loadingCommittees && <div className="empty-hint">Loading...</div>}
-            {errorCommittees && !loadingCommittees && (
-              <div className="empty-hint">{errorCommittees}</div>
-            )}
-            {!loadingCommittees &&
-              !errorCommittees &&
-              hasLoadedOnce &&
-              sortedCommittees.length === 0}
-            {!loadingCommittees &&
-              !errorCommittees &&
-              sortedCommittees.length > 0 &&
-              sortedCommittees.map((c) => {
-                const visibleCount = (c.members || []).filter((m) => {
-                  const u = (m?.username || m?.id || "")
-                    .toString()
-                    .trim()
-                    .toLowerCase();
-                  return u && u !== "guest" && u !== "anon";
-                }).length;
-                return (
-                  <div
-                    key={c.id}
-                    className="committee-tile committee-tile-row"
-                    onClick={() => gotoChat(c.id)}
-                    title={`Open ${c.name}`}
-                  >
-                    <div className="tile-body">
-                      <div className="tile-title">{c.name}</div>
-                      <div className="tile-sub">
-                        {visibleCount} member
-                        {visibleCount === 1 ? "" : "s"}
+            {!showInitialOverlay && (
+              <>
+                {loadingCommittees && (
+                  <div className="empty-hint">Loading...</div>
+                )}
+                {errorCommittees && !loadingCommittees && (
+                  <div className="empty-hint">{errorCommittees}</div>
+                )}
+                {!loadingCommittees &&
+                  !errorCommittees &&
+                  hasLoadedOnce &&
+                  sortedCommittees.length === 0}
+                {!loadingCommittees &&
+                  !errorCommittees &&
+                  sortedCommittees.length > 0 &&
+                  sortedCommittees.map((c) => {
+                    const visibleCount = (c.members || []).filter((m) => {
+                      const u = (m?.username || m?.id || "")
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                      return u && u !== "guest" && u !== "anon";
+                    }).length;
+                    return (
+                      <div
+                        key={c.id}
+                        className="committee-tile committee-tile-row"
+                        onClick={() => gotoChat(c.id)}
+                        title={`Open ${c.name}`}
+                      >
+                        <div className="tile-body">
+                          <div className="tile-title">{c.name}</div>
+                          <div className="tile-sub">
+                            {visibleCount} member
+                            {visibleCount === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <button
+                          className="edit-btn"
+                          aria-label="Edit committee"
+                          title="Edit committee"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            loadCommitteeIntoForm(c);
+                          }}
+                        >
+                          ✎
+                        </button>
                       </div>
-                    </div>
-                    <button
-                      className="edit-btn"
-                      aria-label="Edit committee"
-                      title="Edit committee"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        loadCommitteeIntoForm(c);
-                      }}
-                    >
-                      ✎
-                    </button>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+              </>
+            )}
           </div>
         </div>
       </aside>
