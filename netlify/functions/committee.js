@@ -6,9 +6,16 @@ import Committee from "../../models/Committee.js";
 import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // related discussions
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import Profile from "../../models/Profile.js";
 
 const IS_DEV = process.env.NETLIFY_DEV === "true";
+
+// Resolve Profile model robustly to account for bundler/import shape differences
+const ProfileModel =
+  Profile && typeof Profile.findOne === "function"
+    ? Profile
+    : mongoose.models.Profile || mongoose.model("Profile");
 
 function decodeAuth(authHeader = "") {
   if (!authHeader.startsWith("Bearer ")) {
@@ -142,7 +149,7 @@ export async function handler(event) {
           };
         }
         const username = usernameRaw.toLowerCase();
-        const profile = await Profile.findOne({
+        const profile = await ProfileModel.findOne({
           username: new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
         })
           .select("username name avatarUrl email")
@@ -245,7 +252,7 @@ export async function handler(event) {
           ).filter(Boolean);
           let profiles = [];
           if (usernames.length) {
-            profiles = await Profile.find({ username: { $in: usernames } })
+            profiles = await ProfileModel.find({ username: { $in: usernames } })
               .select("username name avatarUrl email")
               .lean();
           }
@@ -295,7 +302,7 @@ export async function handler(event) {
         ).filter(Boolean);
         let profiles = [];
         if (usernames.length) {
-          profiles = await Profile.find({ username: { $in: usernames } })
+          profiles = await ProfileModel.find({ username: { $in: usernames } })
             .select("username name avatarUrl email")
             .lean();
         }
@@ -385,7 +392,7 @@ export async function handler(event) {
       if (!haveOwner) {
         let ownerProfile = null;
         try {
-          ownerProfile = await Profile.findOne({ username: ownerId })
+          ownerProfile = await ProfileModel.findOne({ username: ownerId })
             .select("username name avatarUrl")
             .lean();
         } catch {}
