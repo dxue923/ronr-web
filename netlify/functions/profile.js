@@ -6,6 +6,7 @@ import jwksClient from "jwks-rsa";
 
 import { connectToDatabase } from "../../db/mongoose.js";
 import Profile from "../../models/Profile.js";
+import mongoose from "mongoose";
 
 const DOMAIN = process.env.AUTH0_DOMAIN;
 const AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -153,17 +154,34 @@ export async function handler(event) {
 
     // Ensure profile exists or create/update/merge by email
     let profileDoc;
+    // Resolve a reliable Profile model reference — prefer the imported model
+    // when it exposes static methods, otherwise fall back to mongoose.models
+    const ProfileModel =
+      Profile && typeof Profile.findOne === "function"
+        ? Profile
+        : mongoose.models.Profile ||
+          (typeof mongoose.model === "function"
+            ? mongoose.model("Profile")
+            : Profile);
+    if (!ProfileModel || typeof ProfileModel.findOne !== "function") {
+      console.error(
+        "[profile] Profile model not available or missing static methods",
+        typeof Profile
+      );
+    }
     try {
       // Try to find by email first
-      profileDoc = await Profile.findOne({ email: tokenProfile.email }).lean();
+      profileDoc = await ProfileModel.findOne({
+        email: tokenProfile.email,
+      }).lean();
       // If not found by email, fallback to Auth0 ID
       if (!profileDoc) {
-        profileDoc = await Profile.findById(tokenProfile.id).lean();
+        profileDoc = await ProfileModel.findById(tokenProfile.id).lean();
       }
       // If still not found, create new
       if (!profileDoc) {
         const defaultUsername = tokenProfile.username;
-        const created = await Profile.create({
+        const created = await ProfileModel.create({
           _id: tokenProfile.id,
           username: defaultUsername,
           name: "",
@@ -175,15 +193,15 @@ export async function handler(event) {
         // If found by email but _id is different, merge and remove duplicate
         if (profileDoc._id !== tokenProfile.id) {
           // Update the found profile to use the current Auth0 ID
-          await Profile.deleteOne({ _id: tokenProfile.id }); // Remove any old profile with this Auth0 ID
-          await Profile.updateOne(
+          await ProfileModel.deleteOne({ _id: tokenProfile.id }); // Remove any old profile with this Auth0 ID
+          await ProfileModel.updateOne(
             { email: tokenProfile.email },
             { $set: { _id: tokenProfile.id } }
           );
           profileDoc._id = tokenProfile.id;
         }
         // Remove any other duplicate profiles with the same email but different _id
-        await Profile.deleteMany({
+        await ProfileModel.deleteMany({
           email: tokenProfile.email,
           _id: { $ne: tokenProfile.id },
         });
@@ -207,7 +225,7 @@ export async function handler(event) {
           let doc = null;
           if (lookup.includes("@")) {
             // Exact email match
-            doc = await Profile.findOne({ email: lookup }).lean();
+            doc = await ProfileModel.findOne({ email: lookup }).lean();
           }
           if (!doc) {
             // Fallback: username exact, case-insensitive
@@ -215,7 +233,7 @@ export async function handler(event) {
               `^${lookup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
               "i"
             );
-            doc = await Profile.findOne({ username: re }).lean();
+            doc = await ProfileModel.findOne({ username: re }).lean();
           }
           if (!doc) {
             return {
@@ -264,10 +282,12 @@ export async function handler(event) {
 
       // Always update by email (enforced unique)
       try {
-        let docForUpdate = await Profile.findOne({ email: tokenProfile.email });
+        let docForUpdate = await ProfileModel.findOne({
+          email: tokenProfile.email,
+        });
         if (!docForUpdate) {
           // Fallback: try by Auth0 ID
-          docForUpdate = await Profile.findById(tokenProfile.id);
+          docForUpdate = await ProfileModel.findById(tokenProfile.id);
         }
         if (!docForUpdate) {
           return {
@@ -281,7 +301,7 @@ export async function handler(event) {
         }
         if (incomingUsername) {
           // Guard: prevent setting a username that belongs to a different email/user
-          const existing = await Profile.findOne({
+          const existing = await ProfileModel.findOne({
             username: incomingUsername,
           }).lean();
           if (existing && String(existing._id) !== String(docForUpdate._id)) {
@@ -301,7 +321,7 @@ export async function handler(event) {
           docForUpdate.avatarUrl = incomingAvatar;
         await docForUpdate.save();
         // Remove any other duplicate profiles with the same email but different _id
-        await Profile.deleteMany({
+        await ProfileModel.deleteMany({
           email: tokenProfile.email,
           _id: { $ne: docForUpdate._id },
         });
