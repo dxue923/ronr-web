@@ -9,7 +9,6 @@ import {
   deleteCommittee as apiDeleteCommittee,
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
-import { joinCommittee } from "../api/profileMemberships";
 import { fetchProfile, findProfileByUsername } from "../api/profile";
 
 const AVATAR_SIZE = 40;
@@ -639,12 +638,6 @@ export default function CreateCommittee() {
         })),
         settings: local.settings,
       });
-      // Ensure the creator (self) has a server-side membership set to owner
-      try {
-        await joinCommittee(created.id, "owner", authToken || undefined);
-      } catch (e) {
-        console.warn("Failed to set owner membership", e);
-      }
       setCommittees((prev) => {
         const exists = prev.some((c) => c.id === created.id);
         const next = exists

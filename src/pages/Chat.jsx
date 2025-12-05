@@ -70,7 +70,6 @@ import { useParams, Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ROLE } from "../utils/permissions";
 import { getCommentsForMotion, createComment } from "../api/discussion";
-import { joinCommittee } from "../api/profileMemberships";
 import {
   getCommittee as apiGetCommittee,
   updateCommittee as apiUpdateCommittee,

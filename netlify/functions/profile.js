@@ -133,7 +133,6 @@ export async function handler(event) {
           email: tokenProfile.email,
           // Leave avatar empty for users without a saved profile
           avatarUrl: "",
-          memberships: [],
         };
         return {
           statusCode: 200,
@@ -170,7 +169,6 @@ export async function handler(event) {
           name: "",
           email: tokenProfile.email,
           avatarUrl: "",
-          memberships: [],
         });
         profileDoc = toClient(created);
       } else {
