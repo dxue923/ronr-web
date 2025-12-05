@@ -174,17 +174,16 @@ export default function EditProfile() {
           {/* Name */}
           <div className="form-field">
             <label className="form-label" htmlFor="name">
-              Name <span className="required">*</span>
+              Name
             </label>
             <input
               className="form-input"
               id="name"
               name="name"
               type="text"
-              placeholder="Enter your name"
+              placeholder="Enter your name (optional)"
               value={formData.name}
               onChange={handleChange}
-              required
             />
           </div>
 
