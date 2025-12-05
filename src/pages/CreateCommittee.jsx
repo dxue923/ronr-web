@@ -96,7 +96,7 @@ function OwnerProfileCard({ user }) {
         <Avatar src={user.avatarUrl} alt={user.name || user.username || ""} />
         <div className="member-meta">
           <p className="member-name">
-            {user.name || user.username || "(No name)"}
+            {user.name || user.username}
           </p>
           <p className="member-username">{user.username}</p>
         </div>
