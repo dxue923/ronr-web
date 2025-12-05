@@ -1358,6 +1358,7 @@ START NEW CHAT PAGE CSS
 .message-author {
   font-weight: 700;
   font-size: 0.78rem;
+  margin-bottom: 4px;
 }
 
 .stance-dot-wrapper {

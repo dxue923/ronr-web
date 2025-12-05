@@ -20,8 +20,8 @@ function decodeAuth(authHeader = "") {
   try {
     const decoded = jwt.decode(token) || {};
     return decoded || { sub: "anonymous" };
-  } catch {
-    return { sub: "anonymous", nickname: "anon" };
+  } catch (e) {
+    return { sub: "anonymous" };
   }
 }
 
@@ -388,14 +388,43 @@ export async function handler(event) {
 
       // Save decision details if provided
       if (body.decisionDetails && typeof body.decisionDetails === "object") {
-        // Permissive: allow any actor to record decision outcome (frontend now locks by tally)
-        // Persist ONLY the outcome to avoid summaries/pros/cons spreading across motions
+        // Permissive: allow any actor to record decision outcome and details.
+        // Persist outcome, summary, pros, cons and recorder metadata so
+        // final decisions survive reloads and are visible to all clients.
         const outcomeVal =
           body.decisionDetails.outcome ||
           motionDoc.decisionDetails?.outcome ||
           undefined;
+        const summaryVal =
+          typeof body.decisionDetails.summary === "string"
+            ? body.decisionDetails.summary.trim()
+            : motionDoc.decisionDetails?.summary || "";
+
+        const prosVal = (function () {
+          if (Array.isArray(body.decisionDetails.pros)) return body.decisionDetails.pros;
+          if (typeof body.decisionDetails.pros === "string")
+            return body.decisionDetails.pros
+              .split(/\n+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+          return motionDoc.decisionDetails?.pros || [];
+        })();
+
+        const consVal = (function () {
+          if (Array.isArray(body.decisionDetails.cons)) return body.decisionDetails.cons;
+          if (typeof body.decisionDetails.cons === "string")
+            return body.decisionDetails.cons
+              .split(/\n+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+          return motionDoc.decisionDetails?.cons || [];
+        })();
+
         motionDoc.decisionDetails = {
           outcome: outcomeVal,
+          summary: summaryVal || undefined,
+          pros: prosVal,
+          cons: consVal,
           recordedAt:
             body.decisionDetails.recordedAt || new Date().toISOString(),
           recordedBy: body.decisionDetails.recordedBy || undefined,
@@ -430,22 +459,43 @@ export async function handler(event) {
         if (body.meta.postponeInfo || body.meta.postponeOption) {
           motionDoc.status = "postponed";
         }
-        // If refer info provided, set status to referred
+        // If refer info provided, persist the refer metadata and mark the
+        // motion as closed so it remains in the Closed/Concluded list
+        // on clients after reload. The server will also duplicate the
+        // motion into the destination committee below.
         if (body.meta.referInfo || body.meta.referDetails) {
-          motionDoc.status = "referred";
+          // Capture original status and decision note so destination copies
+          // can preserve the original lifecycle state.
+          const originalStatus = motionDoc.status || "in-progress";
+          const originalDecisionNote = motionDoc.decisionNote || null;
+          motionDoc.status = "closed";
           const info = body.meta.referInfo || body.meta.referDetails;
           const destId = String(
             info.destinationCommitteeId || info.toCommitteeId || ""
           ).trim();
+          const destName = (
+            info.destinationCommitteeName ||
+            info.toCommitteeName ||
+            destId
+          ).trim();
+          // Persist a short decision note so clients show the 'Referred'
+          // pill for the parent motion after reload. Preserve any existing
+          // note where present; otherwise write a generic marker.
+          try {
+            motionDoc.decisionNote = originalDecisionNote || "Referred";
+          } catch (e) {
+            // ignore
+          }
           if (destId) {
             try {
-              const newId = Date.now().toString();
+              // Create a new parent motion in the destination committee
+              const newParentId = Date.now().toString();
               await Motion.create({
-                _id: newId,
+                _id: newParentId,
                 committeeId: destId,
                 title: motionDoc.title,
                 description: motionDoc.description,
-                status: "in-progress",
+                status: originalStatus,
                 votes: { yes: 0, no: 0, abstain: 0 },
                 meta: {
                   referredFrom: {
@@ -454,7 +504,73 @@ export async function handler(event) {
                     receivedAt: new Date().toISOString(),
                   },
                 },
+                // Use original decision note on destination if present, otherwise
+                // mark as received so destination UI can show appropriate pill.
+                decisionNote: originalDecisionNote || "Received by referral",
               });
+
+              // Find submotions belonging to the original parent and duplicate
+              // each one into the destination committee, linking them to the
+              // newly created parent id so structure is preserved.
+              const subs = await Motion.find({
+                committeeId: motionDoc.committeeId,
+                parentMotionId: motionDoc._id,
+              }).lean();
+              if (Array.isArray(subs) && subs.length > 0) {
+                for (let i = 0; i < subs.length; i++) {
+                  const s = subs[i];
+                  const newSubId =
+                    Date.now().toString() +
+                    String(Math.floor(Math.random() * 10000));
+                  try {
+                    await Motion.create({
+                      _id: newSubId,
+                      committeeId: destId,
+                      title: s.title,
+                      description: s.description,
+                      status: s.status || originalStatus || "in-progress",
+                      votes: { yes: 0, no: 0, abstain: 0 },
+                      type: s.type === "submotion" ? "submotion" : "submotion",
+                      parentMotionId: newParentId,
+                      meta: {
+                        ...(s.meta || {}),
+                        referredFrom: {
+                          committeeId: motionDoc.committeeId,
+                          referredAt: new Date().toISOString(),
+                          receivedAt: new Date().toISOString(),
+                        },
+                      },
+                      decisionNote: s.decisionNote || "Received by referral",
+                    });
+                  } catch (e) {
+                    console.warn(
+                      "Failed to duplicate submotion:",
+                      e?.message || e
+                    );
+                  }
+                }
+
+                // Mark source submotions as closed but do not overwrite their
+                // existing decision notes so the original outcomes are preserved.
+                try {
+                  await Motion.updateMany(
+                    {
+                      committeeId: motionDoc.committeeId,
+                      parentMotionId: motionDoc._id,
+                    },
+                    {
+                      $set: {
+                        status: "closed",
+                      },
+                    }
+                  );
+                } catch (e) {
+                  console.warn(
+                    "Failed to mark source submotions closed:",
+                    e?.message || e
+                  );
+                }
+              }
             } catch (e) {
               console.warn(
                 "Failed to duplicate motion to destination committee:",

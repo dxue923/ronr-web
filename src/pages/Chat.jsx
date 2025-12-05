@@ -90,9 +90,10 @@ function LiveProfileMemberCard({
 import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ROLE } from "../utils/permissions";
+import { ROLE, Can } from "../utils/permissions";
 import { getCommentsForMotion, createComment } from "../api/discussion";
 import {
+  getCommittees,
   getCommittee as apiGetCommittee,
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
@@ -190,14 +191,16 @@ export default function Chat() {
     user,
     isLoading: authLoading,
   } = useAuth0();
-  // Show a temporary 'Referred' pill for 10 seconds after motion arrives
+  // Show a temporary 'Referred' pill for 5 seconds after motion arrives
   const isRecentlyReferred = (m) => {
     const rf = m?.meta?.referredFrom;
     if (!rf) return false;
-    const ts = rf.receivedAt || rf.timestamp || rf.time || rf.createdAt;
+    // backend may use different timestamp fields; include common variants
+    const ts =
+      rf.referredAt || rf.receivedAt || rf.timestamp || rf.time || rf.createdAt;
     const t = typeof ts === "string" ? Date.parse(ts) : Number(ts);
     if (!t || Number.isNaN(t)) return false;
-    return Date.now() - t < 10000;
+    return Date.now() - t < 5000;
   };
   const [submotionCollapsed, setSubmotionCollapsed] = React.useState({});
   const [submotionMenuOpen, setSubmotionMenuOpen] = useState(false);
@@ -575,6 +578,7 @@ export default function Chat() {
   // refer submotion: selected destination committee id
   const [referDestId, setReferDestId] = useState("");
   const [allCommittees, setAllCommittees] = useState([]);
+  const [referredNames, setReferredNames] = useState({});
   // special motions: meeting-level procedural flags and transient banner
   const [meetingRecessed, setMeetingRecessed] = useState(false);
   // removed: other specials not used per current scope
@@ -584,6 +588,47 @@ export default function Chat() {
     const t = setTimeout(() => setSpecialBanner(""), 8000);
     return () => clearTimeout(t);
   };
+
+  // Ensure we have readable committee names for referred motions.
+  useEffect(() => {
+    let cancelled = false;
+    const ids = new Set();
+    (motions || []).forEach((m) => {
+      const rf = m?.meta?.referredFrom;
+      const id = rf && (rf.committeeId || rf.committee || rf.fromCommitteeId);
+      const name = rf && (rf.committeeName || rf.fromCommitteeName);
+      if (id && !name && !referredNames[id]) ids.add(id);
+    });
+    if (ids.size === 0) return;
+    (async () => {
+      for (const cid of Array.from(ids)) {
+        if (cancelled) return;
+        try {
+          // Prefer cached list of committees first
+          const found = (allCommittees || []).find(
+            (c) => c && (c.id === cid || c._id === cid)
+          );
+          if (found && (found.name || found.title)) {
+            setReferredNames((p) => ({
+              ...p,
+              [cid]: found.name || found.title,
+            }));
+            continue;
+          }
+          // Fallback: fetch committee from backend
+          const remote = await apiGetCommittee(cid).catch(() => null);
+          const name =
+            remote && (remote.name || remote.title || remote.displayName);
+          if (name) setReferredNames((p) => ({ ...p, [cid]: name }));
+        } catch (e) {
+          // ignore individual failures
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [motions, allCommittees, referredNames]);
   // Start an Objection to Consideration vote (only on main motion with no comments)
   const startObjectionVote = () => {
     if (!activeMotion || meetingRecessed) return;
@@ -661,9 +706,7 @@ export default function Chat() {
   // normalize votes into an array of { voterId, choice } for UI usage
   const voteEntries = (motion) => {
     if (!motion) return [];
-    // preferred: motion.votes is already an array of vote entries
-    if (Array.isArray(motion.votes)) return motion.votes;
-    // fallback: per-voter choices stored in meta.voterChoices (object mapping voterId -> choice)
+    // preferred authoritative source: meta.voterChoices (object mapping voterId -> choice)
     const choices =
       motion.meta && typeof motion.meta.voterChoices === "object"
         ? motion.meta.voterChoices
@@ -674,6 +717,8 @@ export default function Chat() {
         choice: choices[voterId],
       }));
     }
+    // fallback: motion.votes may already be an array of entries
+    if (Array.isArray(motion.votes)) return motion.votes;
     return [];
   };
   const otcClosed = isOtcClosed(activeMotion);
@@ -681,6 +726,10 @@ export default function Chat() {
   const sessionPaused = activeMotion?.state === "paused";
   // whether the current session for the active motion is closed
   const sessionClosed = activeMotion?.state === "closed";
+  // convenience flags used by chair controls
+  const isPaused = sessionPaused;
+  const isVoting = activeMotion?.state === "voting";
+  const isDiscussion = (activeMotion?.state || "discussion") === "discussion";
   // whether the current user voted 'yes' on the active motion
   const userVotedYes = voteEntries(activeMotion).some(
     (v) =>
@@ -1262,6 +1311,7 @@ export default function Chat() {
       ? ROLE.OWNER
       : ROLE.MEMBER);
   const amIManager = myRole === ROLE.CHAIR || myRole === ROLE.OWNER;
+  const canComment = Can.comment(myRole);
 
   // Load meeting status from backend per-committee
   useEffect(() => {
@@ -1467,7 +1517,7 @@ export default function Chat() {
     setShowAddModal(true);
   };
 
-  const handleOpenSubmotion = (type, targetMotion) => {
+  const handleOpenSubmotion = async (type, targetMotion) => {
     // prefer explicit target, then currently active motion, then first active motion
     const target =
       targetMotion || activeMotion || (activeMotions && activeMotions[0]);
@@ -1512,9 +1562,29 @@ export default function Chat() {
       // Do not prefill description for refer; keep blank
       setNewMotionDesc("");
       try {
-        const list = (loadCommittees() || []).filter(
-          (c) => c.id !== committee.id
-        );
+        const uid = (me?.id || me?.username || "").toString();
+        // Prefer authoritative source: fetch committees from backend filtered by membership
+        const fetched = await getCommittees(uid).catch(() => []);
+        const all = Array.isArray(fetched) ? fetched : [];
+        // Only include committees that look valid, exist, and are not the current committee.
+        // Keep committees where the user is still listed as a member/owner.
+        const list = all
+          .filter((c) => c && c.id && c.name && c.id !== committee.id)
+          .filter((c) => {
+            if (!uid) return false;
+            if (
+              c.ownerId &&
+              (c.ownerId === uid || (c.owner && c.owner === uid))
+            )
+              return true;
+            const members = c.members || [];
+            if (!Array.isArray(members) || members.length === 0) return false;
+            return members.some((m) => {
+              const mid = (m.id || "").toString();
+              const muser = (m.username || "").toString();
+              return mid === uid || muser === uid;
+            });
+          });
         setAllCommittees(list);
         setReferDestId("");
       } catch (e) {
@@ -2110,14 +2180,14 @@ export default function Chat() {
             try {
               if (destId) {
                 const destMotions = loadMotionsForCommittee(destId) || [];
-                const moved = {
-                  ...m,
-                  state: "discussion",
-                  decisionNote: "Received by referral",
-                  messages: [],
-                  votes: [],
-                  carryOver: false,
-                  meetingId: undefined,
+                // Prefer creating the referred motion on the backend first
+                // to avoid creating a local shadow copy and then duplicating
+                // when the remote record appears.
+                const payload = {
+                  title: m.title,
+                  description: m.description,
+                  committeeId: destId,
+                  type: "main",
                   meta: {
                     ...(m.meta || {}),
                     referredFrom: {
@@ -2125,38 +2195,36 @@ export default function Chat() {
                       committeeName: originName,
                       referredAt: new Date().toISOString(),
                     },
-                    // clear postpone flags that don't carry across
-                    postponeInfo: undefined,
-                    postponePrevState: undefined,
+                  },
+                  createdBy: {
+                    id: me.id,
+                    name: me.name,
+                    username: me.username,
+                    avatarUrl: me.avatarUrl,
                   },
                 };
-                const nextList = [moved, ...destMotions];
-                saveMotionsForCommittee(destId, nextList);
-                // Also persist to backend (fire-and-forget)
-                (async () => {
-                  try {
-                    await apiCreateMotion({
-                      title: moved.title,
-                      description: moved.description,
-                      committeeId: destId,
-                      type: "main",
-                      meta: moved.meta,
-                      createdBy: {
-                        id: me.id,
-                        name: me.name,
-                        username: me.username,
-                        avatarUrl: me.avatarUrl,
-                      },
-                    });
-                  } catch (err) {
-                    console.warn(
-                      "Failed to create referred motion in destination",
-                      err
-                    );
-                  }
-                })();
+                const referredMeta = {
+                  ...(m.meta || {}),
+                  referredFrom: {
+                    committeeId: originId,
+                    committeeName: originName,
+                    referredAt: new Date().toISOString(),
+                  },
+                  postponeInfo: undefined,
+                  postponePrevState: undefined,
+                };
+
+                // Do not create a destination copy here via `createMotion`.
+                // The backend `updateMotion(..., { meta, status: 'referred' })`
+                // path is responsible for duplicating the motion into the
+                // destination committee. Creating it here and also updating
+                // the parent causes two destination motions to be created.
+                // We'll rely on the server-side duplication and let the
+                // client fetch/sync the destination list normally.
               }
-            } catch (e) {}
+            } catch (e) {
+              // ignore failures saving the referred copy
+            }
             // Persist refer effect to backend (fire-and-forget)
             (async () => {
               try {
@@ -2515,10 +2583,11 @@ export default function Chat() {
                 voterId,
                 choice: metaChoices[voterId],
               }))
-            : // fallback to existing array-shaped votes in-memory, updating current user
-              (() => {
-                const votes = Array.isArray(m.votes) ? [...m.votes] : [];
-                const filtered = votes.filter((v) => v.voterId !== me.id);
+            : (() => {
+                const existing = voteEntries(activeMotion) || [];
+                const filtered = existing.filter(
+                  (v) => (v.voterId || "") !== (me.id || "")
+                );
                 filtered.push({
                   voterId: me.id,
                   choice: String(choice).toLowerCase(),
@@ -3276,10 +3345,15 @@ export default function Chat() {
                                           c.__isOverturn ||
                                           (c.meta && c.meta.overturnOf)
                                         );
-                                        // Do not show the parent line for postpone submotions
+                                        // Do not show the parent line for postpone, revision,
+                                        // or refer submotions; also hide when the title
+                                        // already contains the parent text.
                                         const showParent =
                                           !isPostpone &&
                                           !isRevision &&
+                                          !(
+                                            c.meta && c.meta.subType === "refer"
+                                          ) &&
                                           !titleText
                                             .toLowerCase()
                                             .includes(
@@ -3661,6 +3735,9 @@ export default function Chat() {
                                         const showParent =
                                           !isPostpone &&
                                           !isRevision &&
+                                          !(
+                                            c.meta && c.meta.subType === "refer"
+                                          ) &&
                                           !titleText
                                             .toLowerCase()
                                             .includes(
@@ -4006,6 +4083,9 @@ export default function Chat() {
                                       const showParent =
                                         !isPostpone &&
                                         !isRevision &&
+                                        !(
+                                          c.meta && c.meta.subType === "refer"
+                                        ) &&
                                         !titleText
                                           .toLowerCase()
                                           .includes(parentTitle.toLowerCase());
@@ -4307,10 +4387,15 @@ export default function Chat() {
                                         c.__isOverturn ||
                                         (c.meta && c.meta.overturnOf)
                                       );
-                                      // Do not show the parent line for postpone submotions
+                                      // Do not show the parent line for postpone, revision,
+                                      // or refer submotions; also hide when title already
+                                      // includes the parent text.
                                       const showParent =
                                         !isPostpone &&
                                         !isRevision &&
+                                        !(
+                                          c.meta && c.meta.subType === "refer"
+                                        ) &&
                                         !titleText
                                           .toLowerCase()
                                           .includes(parentTitle.toLowerCase());
@@ -4433,7 +4518,12 @@ export default function Chat() {
                     Meeting in recess. Actions are temporarily disabled.
                   </div>
                 )}
-                {activeMotion?.state === "referred" && (
+                {(activeMotion?.state === "referred" ||
+                  activeMotion?.meta?.referredFrom ||
+                  (activeMotion?.decisionNote || "")
+                    .toString()
+                    .toLowerCase()
+                    .includes("received by referral")) && (
                   <div
                     className="special-banner"
                     role="status"
@@ -4442,9 +4532,17 @@ export default function Chat() {
                     {activeMotion?.meta?.referredFrom
                       ? `Received by referral from ${
                           activeMotion.meta.referredFrom.committeeName ||
-                          activeMotion.meta.referredFrom.committeeId
+                          activeMotion.meta.referredFrom.fromCommitteeName ||
+                          referredNames[
+                            activeMotion.meta.referredFrom.committeeId
+                          ] ||
+                          referredNames[
+                            activeMotion.meta.referredFrom.fromCommitteeId
+                          ] ||
+                          activeMotion.meta.referredFrom.committeeId ||
+                          activeMotion.meta.referredFrom.fromCommitteeId
                         }.`
-                      : "Received by referral."}
+                      : activeMotion?.decisionNote || "Received by referral."}
                   </div>
                 )}
                 {activeMotion.description ? (
@@ -4463,7 +4561,8 @@ export default function Chat() {
                       activeMotion &&
                       !isSub &&
                       st !== "closed" &&
-                      st !== "postponed"
+                      st !== "postponed" &&
+                      myRole !== ROLE.OBSERVER
                     );
                     if (!show) return null;
                     return (
@@ -4770,10 +4869,17 @@ export default function Chat() {
                             onClick={() => handleVote("yes")}
                             disabled={
                               !votingOpen ||
-                              voteSubmittingFor === activeMotion.id
+                              voteSubmittingFor === activeMotion.id ||
+                              myRole === ROLE.OBSERVER
                             }
                             aria-pressed={myVote === "yes"}
-                            title={votingOpen ? "Vote Yes" : "Voting closed"}
+                            title={
+                              myRole === ROLE.OBSERVER
+                                ? "Observers cannot vote"
+                                : votingOpen
+                                ? "Vote Yes"
+                                : "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">{tally.yes}</div>
                             <div className="vote-tally-label">Yes</div>
@@ -4788,10 +4894,17 @@ export default function Chat() {
                             onClick={() => handleVote("no")}
                             disabled={
                               !votingOpen ||
-                              voteSubmittingFor === activeMotion.id
+                              voteSubmittingFor === activeMotion.id ||
+                              myRole === ROLE.OBSERVER
                             }
                             aria-pressed={myVote === "no"}
-                            title={votingOpen ? "Vote No" : "Voting closed"}
+                            title={
+                              myRole === ROLE.OBSERVER
+                                ? "Observers cannot vote"
+                                : votingOpen
+                                ? "Vote No"
+                                : "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">{tally.no}</div>
                             <div className="vote-tally-label">No</div>
@@ -4806,10 +4919,17 @@ export default function Chat() {
                             onClick={() => handleVote("abstain")}
                             disabled={
                               !votingOpen ||
-                              voteSubmittingFor === activeMotion.id
+                              voteSubmittingFor === activeMotion.id ||
+                              myRole === ROLE.OBSERVER
                             }
                             aria-pressed={myVote === "abstain"}
-                            title={votingOpen ? "Abstain" : "Voting closed"}
+                            title={
+                              myRole === ROLE.OBSERVER
+                                ? "Observers cannot vote"
+                                : votingOpen
+                                ? "Abstain"
+                                : "Voting closed"
+                            }
                           >
                             <div className="vote-tally-num">
                               {tally.abstain}
@@ -4847,510 +4967,540 @@ export default function Chat() {
             {/* Inline final-decision box removed from discussion view; final decision is shown via the segmented control's 'Final Decision' view. */}
 
             {otcClosed ? null : viewTab === "discussion" ? (
-              <form className={"discussion-composer "} onSubmit={handleSend}>
-                {amIManager &&
-                  activeMotion &&
-                  (() => {
-                    const st = activeMotion.state || "discussion";
-                    const isDiscussion = st === "discussion";
-                    const isPaused = st === "paused";
-                    const isVoting = st === "voting";
-                    const isPostponed = st === "postponed";
-                    const isClosed = st === "closed";
-                    // Hide chair menu entirely for postponed and closed motions.
-                    if (isPostponed || isClosed) return null;
-                    return (
-                      <div className="composer-chair">
-                        <button
-                          type="button"
-                          className="chair-icon-btn"
-                          aria-haspopup="true"
-                          aria-expanded={showChairMenu}
-                          onClick={() => setShowChairMenu((s) => !s)}
-                          title="Chair controls"
-                        >
-                          ⚙
-                        </button>
-                        {showChairMenu && (
-                          <div className="chair-menu" role="menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("discussion");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={!isPaused || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isPaused
-                                  ? "Disabled — discussion is already active"
-                                  : undefined
-                              }
-                            >
-                              Resume Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("paused");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={!isDiscussion || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isDiscussion
-                                  ? "Disabled — motion already paused"
-                                  : undefined
-                              }
-                            >
-                              Pause Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("voting");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={isVoting || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : isVoting
-                                  ? "Disabled — already voting"
-                                  : undefined
-                              }
-                            >
-                              Move to Vote
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!canChairClose) return;
-                                handleCloseMotionNow(activeMotion?.id);
-                                setShowChairMenu(false);
-                              }}
-                              disabled={meetingRecessed || !isVoting}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isVoting
-                                  ? "Must vote before closing motion"
-                                  : "Close motion"
-                              }
-                            >
-                              Close Motion
-                            </button>
-                            {/* inline helper removed: show message only via hover title */}
-                            {/* Special motions title will be shown below Postpone */}
-                            {(() => {
-                              const isSub = !!(
-                                activeMotion &&
-                                activeMotion.meta &&
-                                activeMotion.meta.kind === "sub"
-                              );
-                              const noComments =
-                                (activeMotion?.messages || []).length === 0;
-                              const inProgress =
-                                (activeMotion?.state || "discussion") ===
-                                "discussion";
-                              const isReferredState =
-                                (activeMotion?.state || "") === "referred";
-                              const isVotingOTC = !!(
-                                activeMotion?.meta?.specialVote?.type ===
-                                  "otc" &&
-                                (activeMotion?.state || "") === "voting"
-                              );
-                              return (
-                                <>
-                                  {!isSub && inProgress && noComments && (
-                                    <button
-                                      type="button"
-                                      onClick={startObjectionVote}
-                                      disabled={meetingRecessed}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : "Object to the consideration of the question"
-                                      }
-                                    >
-                                      Object to Consideration
-                                    </button>
-                                  )}
-                                  {isReferredState && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        changeMotionState("discussion");
-                                        setShowChairMenu(false);
-                                      }}
-                                      disabled={meetingRecessed}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : "Take up this referred motion"
-                                      }
-                                    >
-                                      Take up referred motion
-                                    </button>
-                                  )}
-                                  {isVotingOTC && (
-                                    <button
-                                      type="button"
-                                      onClick={finalizeObjectionVote}
-                                      disabled={meetingRecessed}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : "End objection vote and apply result"
-                                      }
-                                    >
-                                      End Objection Vote (decide by tally)
-                                    </button>
-                                  )}
-                                  {!(
-                                    activeMotion &&
-                                    activeMotion.meta &&
-                                    activeMotion.meta.kind === "sub"
-                                  ) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        try {
+              canComment ? (
+                <form className={"discussion-composer "} onSubmit={handleSend}>
+                  {amIManager &&
+                    activeMotion &&
+                    (() => {
+                      const votes = voteEntries(activeMotion);
+                      const tally = activeMotion?.tally || computeTally(votes);
+                      const outcomeText = computeOutcome(votes);
+                      const st = activeMotion?.state || "discussion";
+                      const isPostponed = st === "postponed";
+                      const isClosed = st === "closed";
+                      // Hide chair menu entirely for postponed and closed motions.
+                      if (isPostponed || isClosed) return null;
+                      return (
+                        <div className="composer-chair">
+                          <button
+                            type="button"
+                            className="chair-icon-btn"
+                            aria-haspopup="true"
+                            aria-expanded={showChairMenu}
+                            onClick={() => setShowChairMenu((s) => !s)}
+                            title="Chair controls"
+                          >
+                            ⚙
+                          </button>
+                          {showChairMenu && (
+                            <div className="chair-menu" role="menu">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  changeMotionState("discussion");
+                                  setShowChairMenu(false);
+                                }}
+                                disabled={!isPaused || meetingRecessed}
+                                title={
+                                  meetingRecessed
+                                    ? "Disabled — meeting in recess"
+                                    : !isPaused
+                                    ? "Disabled — discussion is already active"
+                                    : undefined
+                                }
+                              >
+                                Resume Discussion
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  changeMotionState("paused");
+                                  setShowChairMenu(false);
+                                }}
+                                disabled={!isDiscussion || meetingRecessed}
+                                title={
+                                  meetingRecessed
+                                    ? "Disabled — meeting in recess"
+                                    : !isDiscussion
+                                    ? "Disabled — motion already paused"
+                                    : undefined
+                                }
+                              >
+                                Pause Discussion
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  changeMotionState("voting");
+                                  setShowChairMenu(false);
+                                }}
+                                disabled={isVoting || meetingRecessed}
+                                title={
+                                  meetingRecessed
+                                    ? "Disabled — meeting in recess"
+                                    : isVoting
+                                    ? "Disabled — already voting"
+                                    : undefined
+                                }
+                              >
+                                Move to Vote
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!canChairClose) return;
+                                  handleCloseMotionNow(activeMotion?.id);
+                                  setShowChairMenu(false);
+                                }}
+                                disabled={meetingRecessed || !isVoting}
+                                title={
+                                  meetingRecessed
+                                    ? "Disabled — meeting in recess"
+                                    : !isVoting
+                                    ? "Must vote before closing motion"
+                                    : "Close motion"
+                                }
+                              >
+                                Close Motion
+                              </button>
+                              {/* inline helper removed: show message only via hover title */}
+                              {/* Special motions title will be shown below Postpone */}
+                              {(() => {
+                                const isSub = !!(
+                                  activeMotion &&
+                                  activeMotion.meta &&
+                                  activeMotion.meta.kind === "sub"
+                                );
+                                const noComments =
+                                  (activeMotion?.messages || []).length === 0;
+                                const inProgress =
+                                  (activeMotion?.state || "discussion") ===
+                                  "discussion";
+                                const isReferredState =
+                                  (activeMotion?.state || "") === "referred";
+                                const isVotingOTC = !!(
+                                  activeMotion?.meta?.specialVote?.type ===
+                                    "otc" &&
+                                  (activeMotion?.state || "") === "voting"
+                                );
+                                return (
+                                  <>
+                                    {!isSub && inProgress && noComments && (
+                                      <button
+                                        type="button"
+                                        onClick={startObjectionVote}
+                                        disabled={meetingRecessed}
+                                        title={
+                                          meetingRecessed
+                                            ? "Disabled — meeting in recess"
+                                            : "Object to the consideration of the question"
+                                        }
+                                      >
+                                        Object to Consideration
+                                      </button>
+                                    )}
+                                    {isReferredState && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          changeMotionState("discussion");
                                           setShowChairMenu(false);
-                                        } catch (err) {}
-                                        handleOpenSubmotion(
-                                          "postpone",
-                                          activeMotion
-                                        );
-                                      }}
-                                      disabled={isVoting || meetingRecessed}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : isVoting
-                                          ? "Disabled — voting in progress"
-                                          : "Create a postponement submotion"
-                                      }
-                                    >
-                                      Postpone Decision
-                                    </button>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            {/* Special Motions */}
-                            <div className="chair-menu-divider" />
-                            <div className="chair-menu-section-title">
-                              Special Motions
-                            </div>
-                            {/* Recess / Resume */}
-                            {meetingRecessed ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMeetingRecessed(false);
-                                  setShowChairMenu(false);
-                                }}
-                                title="Resume meeting from recess"
-                              >
-                                Resume Meeting
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMeetingRecessed(true);
-                                  setShowChairMenu(false);
-                                }}
-                                title="Recess the meeting"
-                              >
-                                Recess
-                              </button>
-                            )}
-                            {/* Adjourn Meeting last */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                try {
-                                  const prevId = currentMeetingId;
-                                  const nextId = String(Date.now());
-                                  setPreviousMeetingId(prevId);
-                                  setCurrentMeetingId(nextId);
-                                  try {
-                                    localStorage.setItem(
-                                      "previousMeetingId",
-                                      prevId
-                                    );
-                                    localStorage.setItem(
-                                      "currentMeetingId",
-                                      nextId
-                                    );
-                                  } catch (err) {}
-                                  const targetRootId = (() => {
-                                    if (
+                                        }}
+                                        disabled={meetingRecessed}
+                                        title={
+                                          meetingRecessed
+                                            ? "Disabled — meeting in recess"
+                                            : "Take up this referred motion"
+                                        }
+                                      >
+                                        Take up referred motion
+                                      </button>
+                                    )}
+                                    {isVotingOTC && (
+                                      <button
+                                        type="button"
+                                        onClick={finalizeObjectionVote}
+                                        disabled={meetingRecessed}
+                                        title={
+                                          meetingRecessed
+                                            ? "Disabled — meeting in recess"
+                                            : "End objection vote and apply result"
+                                        }
+                                      >
+                                        End Objection Vote (decide by tally)
+                                      </button>
+                                    )}
+                                    {!(
                                       activeMotion &&
                                       activeMotion.meta &&
-                                      activeMotion.meta.kind === "sub" &&
-                                      activeMotion.meta.parentMotionId
-                                    ) {
-                                      return activeMotion.meta.parentMotionId;
-                                    }
-                                    return activeMotion
-                                      ? activeMotion.id
-                                      : null;
-                                  })();
-                                  if (targetRootId) {
-                                    setMotions((old) => {
-                                      const updated = (old || []).map((m) => {
-                                        const st = m.state || "discussion";
-                                        const eligibleStates = [
-                                          "discussion",
-                                          "voting",
-                                          "paused",
-                                        ];
-                                        const isInGroup =
-                                          m.id === targetRootId ||
-                                          (m.meta &&
-                                            m.meta.kind === "sub" &&
-                                            m.meta.parentMotionId ===
-                                              targetRootId);
-                                        const isEligible =
-                                          isInGroup &&
-                                          eligibleStates.includes(st) &&
-                                          st !== "postponed" &&
-                                          st !== "closed";
-                                        if (isEligible) {
-                                          return {
-                                            ...m,
-                                            carryOver: true,
-                                            meetingId: prevId,
-                                          };
-                                        }
-                                        return m;
-                                      });
-                                      if (committee) {
-                                        try {
-                                          saveMotionsForCommittee(
-                                            committee.id,
-                                            updated
+                                      activeMotion.meta.kind === "sub"
+                                    ) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          try {
+                                            setShowChairMenu(false);
+                                          } catch (err) {}
+                                          handleOpenSubmotion(
+                                            "postpone",
+                                            activeMotion
                                           );
-                                        } catch (e) {}
+                                        }}
+                                        disabled={isVoting || meetingRecessed}
+                                        title={
+                                          meetingRecessed
+                                            ? "Disabled — meeting in recess"
+                                            : isVoting
+                                            ? "Disabled — voting in progress"
+                                            : "Create a postponement submotion"
+                                        }
+                                      >
+                                        Postpone Decision
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                              {/* Special Motions */}
+                              <div className="chair-menu-divider" />
+                              <div className="chair-menu-section-title">
+                                Special Motions
+                              </div>
+                              {/* Recess / Resume */}
+                              {meetingRecessed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMeetingRecessed(false);
+                                    setShowChairMenu(false);
+                                  }}
+                                  title="Resume meeting from recess"
+                                >
+                                  Resume Meeting
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMeetingRecessed(true);
+                                    setShowChairMenu(false);
+                                  }}
+                                  title="Recess the meeting"
+                                >
+                                  Recess
+                                </button>
+                              )}
+                              {/* Adjourn Meeting last */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  try {
+                                    const prevId = currentMeetingId;
+                                    const nextId = String(Date.now());
+                                    setPreviousMeetingId(prevId);
+                                    setCurrentMeetingId(nextId);
+                                    try {
+                                      localStorage.setItem(
+                                        "previousMeetingId",
+                                        prevId
+                                      );
+                                      localStorage.setItem(
+                                        "currentMeetingId",
+                                        nextId
+                                      );
+                                    } catch (err) {}
+                                    const targetRootId = (() => {
+                                      if (
+                                        activeMotion &&
+                                        activeMotion.meta &&
+                                        activeMotion.meta.kind === "sub" &&
+                                        activeMotion.meta.parentMotionId
+                                      ) {
+                                        return activeMotion.meta.parentMotionId;
                                       }
-                                      return updated;
-                                    });
-                                  }
-                                } catch (err) {}
-                                setShowChairMenu(false);
-                              }}
-                            >
-                              Adjourn Meeting
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                <input
-                  ref={composerInputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    sessionClosed
-                      ? "Session closed"
-                      : sessionPaused
-                      ? "Session paused"
-                      : activeMotion?.state === "postponed"
-                      ? "Motion postponed"
-                      : activeMotion?.state === "referred"
-                      ? `Write a comment for ${activeMotion.title}…`
-                      : activeMotion
-                      ? `Write a comment for ${activeMotion.title}…`
-                      : "Select a motion to comment"
-                  }
-                  disabled={
-                    sessionPaused ||
-                    sessionClosed ||
-                    meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
-                    !activeMotion
-                  }
-                  aria-disabled={
-                    sessionPaused ||
-                    sessionClosed ||
-                    meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
-                    !activeMotion
-                  }
-                  title={
-                    sessionClosed
-                      ? "Session closed"
-                      : sessionPaused
-                      ? "Session paused"
-                      : meetingRecessed
-                      ? "Meeting in recess"
-                      : activeMotion && activeMotion.state === "postponed"
-                      ? "Motion postponed"
-                      : undefined
-                  }
-                />
-                <div className="composer-controls">
-                  <div className="composer-stance">
-                    <button
-                      type="button"
-                      className={
-                        "stance-inline-btn " +
-                        (composerStanceVisual === "pro" ? "is-active" : "")
-                      }
-                      onClick={() => {
-                        setComposerStanceVisual("pro");
-                        setComposerStance("pro");
-                      }}
-                      onFocus={() => {
-                        setComposerStanceVisual("pro");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleSendWithStance(e, "pro");
+                                      return activeMotion
+                                        ? activeMotion.id
+                                        : null;
+                                    })();
+                                    if (targetRootId) {
+                                      setMotions((old) => {
+                                        const updated = (old || []).map((m) => {
+                                          const st = m.state || "discussion";
+                                          const eligibleStates = [
+                                            "discussion",
+                                            "voting",
+                                            "paused",
+                                          ];
+                                          const isInGroup =
+                                            m.id === targetRootId ||
+                                            (m.meta &&
+                                              m.meta.kind === "sub" &&
+                                              m.meta.parentMotionId ===
+                                                targetRootId);
+                                          const isEligible =
+                                            isInGroup &&
+                                            eligibleStates.includes(st) &&
+                                            st !== "postponed" &&
+                                            st !== "closed";
+                                          if (isEligible) {
+                                            return {
+                                              ...m,
+                                              carryOver: true,
+                                              meetingId: prevId,
+                                            };
+                                          }
+                                          return m;
+                                        });
+                                        if (committee) {
+                                          try {
+                                            saveMotionsForCommittee(
+                                              committee.id,
+                                              updated
+                                            );
+                                          } catch (e) {}
+                                        }
+                                        return updated;
+                                      });
+                                    }
+                                  } catch (err) {}
+                                  setShowChairMenu(false);
+                                }}
+                              >
+                                Adjourn Meeting
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  <input
+                    ref={composerInputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      sessionClosed
+                        ? "Session closed"
+                        : sessionPaused
+                        ? "Session paused"
+                        : activeMotion?.state === "postponed"
+                        ? "Motion postponed"
+                        : activeMotion?.state === "referred"
+                        ? `Write a comment for ${activeMotion.title}…`
+                        : activeMotion
+                        ? `Write a comment for ${activeMotion.title}…`
+                        : "Select a motion to comment"
+                    }
+                    disabled={
+                      sessionPaused ||
+                      sessionClosed ||
+                      meetingRecessed ||
+                      (activeMotion && activeMotion.state === "postponed") ||
+                      !activeMotion
+                    }
+                    aria-disabled={
+                      sessionPaused ||
+                      sessionClosed ||
+                      meetingRecessed ||
+                      (activeMotion && activeMotion.state === "postponed") ||
+                      !activeMotion
+                    }
+                    title={
+                      sessionClosed
+                        ? "Session closed"
+                        : sessionPaused
+                        ? "Session paused"
+                        : meetingRecessed
+                        ? "Meeting in recess"
+                        : activeMotion && activeMotion.state === "postponed"
+                        ? "Motion postponed"
+                        : undefined
+                    }
+                  />
+                  <div className="composer-controls">
+                    <div className="composer-stance">
+                      <button
+                        type="button"
+                        className={
+                          "stance-inline-btn " +
+                          (composerStanceVisual === "pro" ? "is-active" : "")
                         }
-                      }}
-                      aria-pressed={composerStance === "pro"}
-                      disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-label="Pro stance"
-                      title="Pro stance"
-                    >
-                      <span className="stance-dot dot-pro" />
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "stance-inline-btn " +
-                        (composerStanceVisual === "con" ? "is-active" : "")
-                      }
-                      onClick={() => {
-                        setComposerStanceVisual("con");
-                        setComposerStance("con");
-                      }}
-                      onFocus={() => {
-                        setComposerStanceVisual("con");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleSendWithStance(e, "con");
+                        onClick={() => {
+                          setComposerStanceVisual("pro");
+                          setComposerStance("pro");
+                        }}
+                        onFocus={() => {
+                          setComposerStanceVisual("pro");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSendWithStance(e, "pro");
+                          }
+                        }}
+                        aria-pressed={composerStance === "pro"}
+                        disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
                         }
-                      }}
-                      aria-pressed={composerStance === "con"}
-                      disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-label="Con stance"
-                      title="Con stance"
-                    >
-                      <span className="stance-dot dot-con" />
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "stance-inline-btn " +
-                        (composerStanceVisual === "neutral" ? "is-active" : "")
-                      }
-                      onClick={() => {
-                        setComposerStanceVisual("neutral");
-                        setComposerStance("neutral");
-                      }}
-                      onFocus={() => {
-                        setComposerStanceVisual("neutral");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleSendWithStance(e, "neutral");
+                        aria-disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
                         }
-                      }}
-                      aria-pressed={composerStance === "neutral"}
-                      disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-disabled={
-                        sessionPaused ||
-                        sessionClosed ||
-                        meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
-                        !activeMotion
-                      }
-                      aria-label="Neutral stance"
-                      title="Neutral stance"
-                    >
-                      <span className="stance-dot dot-neutral" />
-                    </button>
+                        aria-label="Pro stance"
+                        title="Pro stance"
+                      >
+                        <span className="stance-dot dot-pro" />
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          "stance-inline-btn " +
+                          (composerStanceVisual === "con" ? "is-active" : "")
+                        }
+                        onClick={() => {
+                          setComposerStanceVisual("con");
+                          setComposerStance("con");
+                        }}
+                        onFocus={() => {
+                          setComposerStanceVisual("con");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSendWithStance(e, "con");
+                          }
+                        }}
+                        aria-pressed={composerStance === "con"}
+                        disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
+                        }
+                        aria-disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
+                        }
+                        aria-label="Con stance"
+                        title="Con stance"
+                      >
+                        <span className="stance-dot dot-con" />
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          "stance-inline-btn " +
+                          (composerStanceVisual === "neutral"
+                            ? "is-active"
+                            : "")
+                        }
+                        onClick={() => {
+                          setComposerStanceVisual("neutral");
+                          setComposerStance("neutral");
+                        }}
+                        onFocus={() => {
+                          setComposerStanceVisual("neutral");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSendWithStance(e, "neutral");
+                          }
+                        }}
+                        aria-pressed={composerStance === "neutral"}
+                        disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
+                        }
+                        aria-disabled={
+                          sessionPaused ||
+                          sessionClosed ||
+                          meetingRecessed ||
+                          (activeMotion &&
+                            activeMotion.state === "postponed") ||
+                          !activeMotion
+                        }
+                        aria-label="Neutral stance"
+                        title="Neutral stance"
+                      >
+                        <span className="stance-dot dot-neutral" />
+                      </button>
+                    </div>
                   </div>
+                  <button
+                    type="submit"
+                    className="send-btn"
+                    aria-label="Send"
+                    disabled={
+                      sessionPaused ||
+                      sessionClosed ||
+                      meetingRecessed ||
+                      (activeMotion && activeMotion.state === "postponed") ||
+                      !activeMotion ||
+                      !input.trim()
+                    }
+                    aria-disabled={
+                      sessionPaused ||
+                      sessionClosed ||
+                      meetingRecessed ||
+                      (activeMotion && activeMotion.state === "postponed") ||
+                      !activeMotion ||
+                      !input.trim()
+                    }
+                    title={
+                      sessionClosed
+                        ? "Session closed"
+                        : sessionPaused
+                        ? "Session paused"
+                        : meetingRecessed
+                        ? "Meeting in recess"
+                        : activeMotion && activeMotion.state === "postponed"
+                        ? "Motion postponed"
+                        : undefined
+                    }
+                  >
+                    <SendIcon />
+                  </button>
+                </form>
+              ) : (
+                <div className={"discussion-composer read-only"}>
+                  <input
+                    value={""}
+                    disabled={true}
+                    placeholder={
+                      sessionClosed
+                        ? "Read-only — session closed"
+                        : sessionPaused
+                        ? "Read-only — session paused"
+                        : meetingRecessed
+                        ? "Read-only — meeting in recess"
+                        : activeMotion
+                        ? `Read-only — observers cannot comment or vote on ${activeMotion.title}`
+                        : "Read-only — observers cannot comment or vote"
+                    }
+                    aria-disabled={true}
+                    title={"Observers have read-only access"}
+                  />
                 </div>
-                <button
-                  type="submit"
-                  className="send-btn"
-                  aria-label="Send"
-                  disabled={
-                    sessionPaused ||
-                    sessionClosed ||
-                    meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
-                    !activeMotion ||
-                    !input.trim()
-                  }
-                  aria-disabled={
-                    sessionPaused ||
-                    sessionClosed ||
-                    meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
-                    !activeMotion ||
-                    !input.trim()
-                  }
-                  title={
-                    sessionClosed
-                      ? "Session closed"
-                      : sessionPaused
-                      ? "Session paused"
-                      : meetingRecessed
-                      ? "Meeting in recess"
-                      : activeMotion && activeMotion.state === "postponed"
-                      ? "Motion postponed"
-                      : undefined
-                  }
-                >
-                  <SendIcon />
-                </button>
-              </form>
+              )
             ) : !otcClosed ? (
               <div className={"discussion-composer final-decision-panel "}>
                 {activeMotion?.decisionDetails ? (
