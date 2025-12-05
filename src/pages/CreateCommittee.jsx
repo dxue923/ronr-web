@@ -221,7 +221,7 @@ export default function CreateCommittee() {
     };
   }, [user?.email, isAuthenticated, getAccessTokenSilently]);
 
-  /* ---------- committees list (remote only) ---------- */
+  /* ---------- committees list with cache-first & background refresh ---------- */
   const [committees, setCommittees] = useState([]);
   const [loadingCommittees, setLoadingCommittees] = useState(false);
   const [errorCommittees, setErrorCommittees] = useState("");
@@ -230,27 +230,66 @@ export default function CreateCommittee() {
   // Seed with cached committees so we show content while fetching
   useEffect(() => {
     try {
-      const cached = JSON.parse(localStorage.getItem("committees") || "[]");
+      const raw = localStorage.getItem("committeesLite");
+      if (!raw) return;
+      const cached = JSON.parse(raw);
       if (Array.isArray(cached) && cached.length) {
         setCommittees(cached);
+        setHasLoadedOnce(true);
+        setLoadingCommittees(false);
       }
-    } catch {}
+    } catch {
+      // ignore cache parse errors
+    }
   }, []);
 
-  // Initial fetch
+  // Initial fetch (also serves as background refresh when cache exists)
   useEffect(() => {
     if (!currentUser.username) return; // wait until profile loaded
     let cancelled = false;
     (async () => {
-      setLoadingCommittees(true);
       setErrorCommittees("");
+
+      // Check if we already have cached committees
+      let hasCached = false;
+      try {
+        const cached = JSON.parse(
+          localStorage.getItem("committeesLite") || "[]"
+        );
+        hasCached = Array.isArray(cached) && cached.length > 0;
+      } catch {}
+
+      // Only show blocking loading state if there is no cache at all
+      if (!hasCached) {
+        setLoadingCommittees(true);
+      }
+
       try {
         const memberOverride = currentUser.username;
         const remote = await apiGetCommittees(memberOverride);
-        if (!cancelled) setCommittees(Array.isArray(remote) ? remote : []);
+        if (!cancelled) {
+          const next = Array.isArray(remote) ? remote : [];
+          setCommittees(next);
+          try {
+            // Store a lightweight snapshot to avoid exceeding quota.
+            const lite = next.map((c) => ({
+              id: c.id,
+              name: c.name,
+              createdAt: c.createdAt,
+              members: Array.isArray(c.members)
+                ? c.members.map((m) => ({ username: m.username, role: m.role }))
+                : [],
+            }));
+            const serialized = JSON.stringify(lite);
+            localStorage.setItem("committeesLite", serialized);
+          } catch (e) {
+            // ignore cache write errors
+          }
+        }
       } catch (err) {
-        if (!cancelled)
+        if (!cancelled) {
           setErrorCommittees(err.message || "Failed to load committees");
+        }
       } finally {
         if (!cancelled) {
           setLoadingCommittees(false);

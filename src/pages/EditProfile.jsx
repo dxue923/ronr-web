@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { fetchProfile, updateProfile } from "../api/profile";
+import {
+  fetchProfile,
+  updateProfile,
+  loadProfileFromStorage,
+  saveProfileToStorage,
+} from "../api/profile";
 import "../assets/styles/index.css";
 
 const PLACEHOLDER_AVATAR = null;
@@ -27,6 +32,18 @@ export default function EditProfile() {
         setError("Please sign in to load your profile.");
         return;
       }
+      // Try to seed from local cache first so the UI appears instantly
+      const email = user?.email || "";
+      const cached = loadProfileFromStorage(email);
+      if (cached && !cancelled) {
+        setFormData({
+          name: cached.name || "",
+          username: cached.username || "",
+          email: cached.email || email,
+          bio: "",
+        });
+        setAvatar(cached.avatarUrl || null);
+      }
 
       setLoading(true);
       try {
@@ -39,17 +56,19 @@ export default function EditProfile() {
         }
 
         const profile = await fetchProfile(token);
-        if (profile) {
+        if (profile && !cancelled) {
+          const emailForCache = profile.email || user?.email || "";
           setFormData({
             name: profile.name || "",
             username: profile.username || "",
-            email: profile.email || user?.email || "",
+            email: emailForCache,
             bio: "", // or profile.bio if you later add it
           });
           setAvatar(profile.avatarUrl || null);
+          // Persist a lightweight snapshot to localStorage for next load
+          saveProfileToStorage(emailForCache, profile);
         }
       } catch (err) {
-        console.error("[EditProfile] load error", err);
         setError(err.message || "Failed to load profile");
       } finally {
         if (!cancelled) setLoading(false);
@@ -136,7 +155,6 @@ export default function EditProfile() {
 
       alert("Profile synced!");
     } catch (err) {
-      console.error("[EditProfile] update error", err);
       setError(err.message || "Update failed");
     } finally {
       setSaving(false);
