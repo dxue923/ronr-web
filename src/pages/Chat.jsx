@@ -1757,6 +1757,8 @@ export default function Chat() {
           ? "referred"
           : next === "closed"
           ? "closed"
+          : next === "voting"
+          ? "voting"
           : "in-progress";
       if (next === "closed") {
         // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
@@ -1778,6 +1780,73 @@ export default function Chat() {
       console.warn("Failed to update motion status", err);
     }
   };
+
+  // While any motion is in voting, poll backend so all members see voting state
+  useEffect(() => {
+    if (!committee?.id) return;
+    const anyVoting =
+      Array.isArray(motions) && motions.some((m) => m.state === "voting");
+    if (!anyVoting) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const remote = await fetchMotions(committee.id);
+        if (cancelled) return;
+        const mapped = (remote || []).map((m) => {
+          const state =
+            m.status === "paused"
+              ? "paused"
+              : m.status === "postponed"
+              ? "postponed"
+              : m.status === "referred"
+              ? "referred"
+              : m.status === "closed" ||
+                m.status === "passed" ||
+                m.status === "failed"
+              ? "closed"
+              : m.status === "voting"
+              ? "voting"
+              : "discussion";
+          const meta = { ...(m.meta || {}) };
+          const isSub =
+            (m.type === "submotion" && m.parentMotionId) ||
+            !!meta.submotionOf ||
+            !!meta.parentMotionId;
+          if (isSub) {
+            meta.kind = "sub";
+            meta.parentMotionId =
+              m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+            if (meta.submotionType && !meta.subType)
+              meta.subType = meta.submotionType;
+          }
+          return {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            state,
+            messages: [],
+            decisionLog: [],
+            votes: Array.isArray(m.votes) ? m.votes : [],
+            meta,
+            decisionDetails: m.decisionDetails || undefined,
+          };
+        });
+        setMotions(mapped);
+      } catch (err) {
+        console.error("Failed to poll motions during voting", err);
+      }
+    };
+
+    // initial sync then interval polling
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [committee?.id, motions]);
 
   const handleSaveDecisionSummary = async (event) => {
     event.preventDefault();
