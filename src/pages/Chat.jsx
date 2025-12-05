@@ -249,9 +249,7 @@ export default function Chat() {
   };
   const scrollRef = useRef(null);
   const composerInputRef = useRef(null);
-  const [showManagePanel, setShowManagePanel] = useState(false);
-  const [memberInput, setMemberInput] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState("member");
+  // Manage participants logic removed
   //  force re-read of committee from localStorage after edits
   const [membersRev, setMembersRev] = useState(0);
   // collapse participants on narrow screens to save vertical space
@@ -1152,48 +1150,7 @@ export default function Chat() {
 
   // OLD
   // const handleAddMember = () => {
-  const handleAddMember = async () => {
-    const raw = memberInput.trim();
-    if (!raw) return;
-
-    // user should type the username as stored in Profile
-    const usernameInput = raw;
-
-    // avoid duplicates by username
-    const exists = (members || []).some(
-      (m) =>
-        (m.username || m.id || "").toString().toLowerCase() ===
-        usernameInput.toLowerCase()
-    );
-    if (exists) {
-      setMemberInput("");
-      return;
-    }
-
-    // look up the profile from backend
-    const profile = await getProfileByUsername(usernameInput);
-    if (!profile) {
-      alert("User not found. Only registered users can be added.");
-      return;
-    }
-
-    const username = profile.username;
-    const name = (profile.name && profile.name.toString().trim()) || username;
-    const avatarUrl = profile.avatarUrl || "";
-
-    const newMember = {
-      id: username,
-      username,
-      name,
-      role: (newMemberRole || "member").toLowerCase(),
-      avatarUrl,
-    };
-
-    const next = [...(members || []), newMember];
-    await persistMembers(next);
-    setMemberInput("");
-    setNewMemberRole("member");
-  };
+  // handleAddMember removed
 
   // Hide chair menu when switching active motion (e.g., user clicks another motion)
   useEffect(() => {
@@ -1201,12 +1158,7 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMotionId]);
 
-  const handleRemoveMember = (memberId) => {
-    const ownerId = committee?.ownerId || committee?.owner;
-    if (ownerId && memberId === ownerId) return; // cannot remove owner
-    const next = (members || []).filter((m) => m.id !== memberId);
-    persistMembers(next);
-  };
+  // handleRemoveMember removed
 
   const handleSend = async (e) => {
     return handleSendWithStance(e);
@@ -1738,13 +1690,121 @@ export default function Chat() {
           recordedBy: me.id,
         };
         await updateMotion(activeMotion.id, { decisionDetails: detail });
-        // Server maps outcome to status (passed/failed/closed) so UI reflects it on reload
       } else {
         await updateMotionStatus(activeMotion.id, status);
+        // After moving to vote, refetch motions from backend so all members see the change
+        if (next === "voting" && committee?.id) {
+          try {
+            const remote = await fetchMotions(committee.id);
+            const mapped = (remote || []).map((m) => {
+              const state =
+                m.status === "paused"
+                  ? "paused"
+                  : m.status === "postponed"
+                  ? "postponed"
+                  : m.status === "referred"
+                  ? "referred"
+                  : m.status === "closed" ||
+                    m.status === "passed" ||
+                    m.status === "failed"
+                  ? "closed"
+                  : "discussion";
+              const meta = { ...(m.meta || {}) };
+              const isSub =
+                (m.type === "submotion" && m.parentMotionId) ||
+                !!meta.submotionOf ||
+                !!meta.parentMotionId;
+              if (isSub) {
+                meta.kind = "sub";
+                meta.parentMotionId =
+                  m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+                if (meta.submotionType && !meta.subType)
+                  meta.subType = meta.submotionType;
+              }
+              return {
+                id: m.id,
+                title: m.title,
+                description: m.description,
+                state,
+                messages: [],
+                decisionLog: [],
+                votes: m.votes || [],
+                meta,
+                decisionDetails: m.decisionDetails || undefined,
+              };
+            });
+            setMotions(mapped);
+          } catch (err) {
+            console.error(
+              "Failed to refetch motions after moving to vote",
+              err
+            );
+          }
+        }
       }
     } catch (err) {
       console.warn("Failed to update motion status", err);
     }
+    // ...existing code...
+    // Poll motions from backend every 3 seconds while any motion is in voting state
+    useEffect(() => {
+      if (!committee?.id) return;
+      const anyVoting =
+        Array.isArray(motions) && motions.some((m) => m.state === "voting");
+      if (!anyVoting) return;
+      let cancelled = false;
+      const poll = async () => {
+        try {
+          const remote = await fetchMotions(committee.id);
+          if (cancelled) return;
+          const mapped = (remote || []).map((m) => {
+            const state =
+              m.status === "paused"
+                ? "paused"
+                : m.status === "postponed"
+                ? "postponed"
+                : m.status === "referred"
+                ? "referred"
+                : m.status === "closed" ||
+                  m.status === "passed" ||
+                  m.status === "failed"
+                ? "closed"
+                : "discussion";
+            const meta = { ...(m.meta || {}) };
+            const isSub =
+              (m.type === "submotion" && m.parentMotionId) ||
+              !!meta.submotionOf ||
+              !!meta.parentMotionId;
+            if (isSub) {
+              meta.kind = "sub";
+              meta.parentMotionId =
+                m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+              if (meta.submotionType && !meta.subType)
+                meta.subType = meta.submotionType;
+            }
+            return {
+              id: m.id,
+              title: m.title,
+              description: m.description,
+              state,
+              messages: [],
+              decisionLog: [],
+              votes: m.votes || [],
+              meta,
+              decisionDetails: m.decisionDetails || undefined,
+            };
+          });
+          setMotions(mapped);
+        } catch (err) {
+          console.error("Failed to poll motions during voting", err);
+        }
+      };
+      const interval = setInterval(poll, 3000);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }, [committee?.id, motions]);
   };
 
   // start/end meeting handlers removed with the toggle UI
@@ -4093,60 +4153,7 @@ export default function Chat() {
                     </svg>
                   )}
                 </button>
-                <button
-                  className="participants-toggle-btn"
-                  onClick={() => setShowManagePanel((s) => !s)}
-                  aria-expanded={showManagePanel}
-                  title="Manage participants"
-                  aria-label="Manage participants"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-                    <path
-                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                </button>
               </div>
-
-              {showManagePanel && (
-                <div className="participants-tools visible">
-                  <div className="participant-add-row">
-                    <input
-                      value={memberInput}
-                      onChange={(e) => setMemberInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddMember();
-                        }
-                      }}
-                      placeholder="Add by username"
-                      aria-label="Add participant by username"
-                    />
-                    <select
-                      className="member-role-select"
-                      value={newMemberRole}
-                      onChange={(e) => setNewMemberRole(e.target.value)}
-                      aria-label="Membership role"
-                    >
-                      <option value="member">Member</option>
-                      <option value="observer">Observer</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="add-member-btn"
-                      onClick={handleAddMember}
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
-              )}
 
               <div
                 className={`member-list-body ${
@@ -4159,11 +4166,6 @@ export default function Chat() {
                     username={p.username}
                     fallbackName={p.name || p.id}
                     role={p.role}
-                    canRemove={
-                      showManagePanel &&
-                      p.id !== (committee?.ownerId || committee?.owner)
-                    }
-                    onRemove={() => handleRemoveMember(p.id)}
                   />
                 ))}
               </div>
@@ -5446,98 +5448,55 @@ export default function Chat() {
             <div className="member-list-header">
               <h3>Participants</h3>
               {/* collapse toggle always visible */}
-              <button
-                className="participants-collapse-toggle"
-                onClick={() => setMembersCollapsed((s) => !s)}
-                aria-expanded={!membersCollapsed}
-                title={
-                  membersCollapsed ? "Show participants" : "Hide participants"
-                }
-                aria-label={
-                  membersCollapsed
-                    ? "Expand participants"
-                    : "Collapse participants"
-                }
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
               >
-                {membersCollapsed ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                    <path
-                      d="M9 6l6 6-6 6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                    <path
-                      d="M6 9l6 6 6-6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </button>
-              <button
-                className="participants-toggle-btn"
-                onClick={() => setShowManagePanel((s) => !s)}
-                aria-expanded={showManagePanel}
-                title="Manage participants"
-                aria-label="Manage participants"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-                  <path
-                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"
-                    fill="currentColor"
-                  />
-                  <path
-                    d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </button>
+                <button
+                  className="participants-collapse-toggle"
+                  onClick={() => setMembersCollapsed((s) => !s)}
+                  aria-expanded={!membersCollapsed}
+                  title={
+                    membersCollapsed ? "Show participants" : "Hide participants"
+                  }
+                  aria-label={
+                    membersCollapsed
+                      ? "Expand participants"
+                      : "Collapse participants"
+                  }
+                >
+                  {membersCollapsed ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M9 6l6 6-6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        d="M6 9l6 6 6-6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* manage tools: add member input; visible only in manage mode for managers */}
-            {showManagePanel && (
-              <div className="participants-tools visible">
-                <div className="participant-add-row">
-                  <input
-                    value={memberInput}
-                    onChange={(e) => setMemberInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddMember();
-                      }
-                    }}
-                    placeholder="Add by username"
-                    aria-label="Add participant by username"
-                  />
-                  <select
-                    className="member-role-select"
-                    value={newMemberRole}
-                    onChange={(e) => setNewMemberRole(e.target.value)}
-                    aria-label="Membership role"
-                  >
-                    <option value="member">Member</option>
-                    <option value="observer">Observer</option>
-                  </select>
-                  <button
-                    type="button"
-                    className="add-member-btn"
-                    onClick={handleAddMember}
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* manage participants logic removed */}
 
             <div
               className={`member-list-body ${
@@ -5550,11 +5509,6 @@ export default function Chat() {
                   username={p.username}
                   fallbackName={p.name || p.id}
                   role={p.role}
-                  canRemove={
-                    showManagePanel &&
-                    p.id !== (committee?.ownerId || committee?.owner)
-                  }
-                  onRemove={() => handleRemoveMember(p.id)}
                 />
               ))}
             </div>

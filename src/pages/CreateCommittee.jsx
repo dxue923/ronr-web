@@ -1066,7 +1066,7 @@ export default function CreateCommittee() {
         </div>
       ) : (
         <div className="empty-panel-message">
-          <h1>Welcome to e-motions Committees</h1>
+          <h1>Welcome to e-motions</h1>
           <p>
             Here you can organize your groups, assign roles, and manage
             discussions for each committee. To get started, click the{" "}
