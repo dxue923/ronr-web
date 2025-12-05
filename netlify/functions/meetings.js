@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 import Meeting from "../../models/Meeting.js";
 import Motion from "../../models/Motions.js";
+import Meeting from "../../models/Meeting.js";
+import Motion from "../../models/Motions.js";
 import Committee from "../../models/Committee.js";
-import jwt from "jsonwebtoken";
-
 const IS_DEV = process.env.NETLIFY_DEV === "true";
 
 function decodeAuth(authHeader = "") {

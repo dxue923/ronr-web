@@ -5,11 +5,28 @@ import { connectToDatabase } from "../../db/mongoose.js";
 import Motion from "../../models/Motions.js";
 import Committee from "../../models/Committee.js";
 import Discussion from "../../models/Discussion.js"; // for cascading deletes
+import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 
 const DOMAIN = process.env.AUTH0_DOMAIN;
 const AUDIENCE = process.env.AUTH0_AUDIENCE;
 const IS_DEV = process.env.NETLIFY_DEV === "true";
+
+// Robust model fallbacks to handle bundler/import shape differences
+const MotionModel =
+  Motion && typeof Motion.find === "function"
+    ? Motion
+    : mongoose.models.Motion || (typeof mongoose.model === "function" ? mongoose.model("Motion") : Motion);
+
+const CommitteeModel =
+  Committee && typeof Committee.find === "function"
+    ? Committee
+    : mongoose.models.Committee || (typeof mongoose.model === "function" ? mongoose.model("Committee") : Committee);
+
+const DiscussionModel =
+  Discussion && typeof Discussion.find === "function"
+    ? Discussion
+    : mongoose.models.Discussion || (typeof mongoose.model === "function" ? mongoose.model("Discussion") : Discussion);
 
 function decodeAuth(authHeader = "") {
   // Permissive: allow missing/invalid tokens and return anonymous claims
@@ -38,7 +55,7 @@ function usernameFromClaims(c = {}) {
 
 async function getRoleForCommittee(committeeId, username) {
   if (!committeeId || !username) return null;
-  const committee = await Committee.findById(committeeId).lean();
+    const committee = await CommitteeModel.findById(committeeId).lean();
   if (!committee) return null;
   const uLower = username.toLowerCase();
   const member = (committee.members || []).find(
@@ -70,7 +87,7 @@ function normalizeMotion(motion) {
   // Treat legacy "active" as "in-progress". Preserve explicit "voting"
   if (normalized.status === "active") {
     normalized.status = "in-progress";
-  }
+        const motions = await MotionModel.find(query).lean();
 
   if (!VALID_STATUSES.includes(normalized.status)) {
     normalized.status = "in-progress";
@@ -87,7 +104,7 @@ function normalizeMotion(motion) {
     };
   }
 
-  return normalized;
+        const committee = await CommitteeModel.findById(committeeId).lean();
 }
 
 function serializeMotion(doc) {

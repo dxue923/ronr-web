@@ -3,7 +3,18 @@
 
 import Discussion from "../../models/Discussion.js";
 import Motion from "../../models/Motions.js";
+import mongoose from "mongoose";
 import { connectToDatabase } from "../../db/mongoose.js";
+
+// Robust model fallbacks for serverless bundling differences
+const DiscussionModel =
+  Discussion && typeof Discussion.find === "function"
+    ? Discussion
+    : mongoose.models.Discussion || (typeof mongoose.model === "function" ? mongoose.model("Discussion") : Discussion);
+const MotionModel =
+  Motion && typeof Motion.find === "function"
+    ? Motion
+    : mongoose.models.Motion || (typeof mongoose.model === "function" ? mongoose.model("Motion") : Motion);
 
 const VALID_POSITIONS = ["pro", "con", "neutral"];
 
@@ -41,7 +52,7 @@ export async function handler(event) {
 
       // single comment
       if (commentId) {
-        const comment = await Discussion.findById(commentId).lean();
+        const comment = await DiscussionModel.findById(commentId).lean();
         if (!comment) {
           return {
             statusCode: 404,
@@ -60,7 +71,7 @@ export async function handler(event) {
       const query = {};
       if (motionId) query.motionId = motionId;
 
-      const comments = await Discussion.find(query)
+      const comments = await DiscussionModel.find(query)
         .sort({ createdAt: 1 })
         .lean();
       const result = comments.map(serializeComment);
@@ -103,7 +114,7 @@ export async function handler(event) {
       }
 
       // Strictly enforce that the motion exists
-      const motionExists = await Motion.findById(motionId).lean();
+      const motionExists = await MotionModel.findById(motionId).lean();
       if (!motionExists) {
         return {
           statusCode: 404,
@@ -120,7 +131,7 @@ export async function handler(event) {
 
       const commentId = "msg-" + Date.now().toString();
 
-      const newCommentDoc = await Discussion.create({
+      const newCommentDoc = await DiscussionModel.create({
         _id: commentId,
         motionId,
         authorId,
@@ -145,7 +156,7 @@ export async function handler(event) {
 
       // Case 1: delete a single comment by id
       if (commentId) {
-        const comment = await Discussion.findById(commentId);
+        const comment = await DiscussionModel.findById(commentId);
         if (!comment) {
           return {
             statusCode: 404,
@@ -154,7 +165,7 @@ export async function handler(event) {
           };
         }
 
-        await Discussion.findByIdAndDelete(commentId);
+        await DiscussionModel.findByIdAndDelete(commentId);
 
         return {
           statusCode: 200,
@@ -170,7 +181,7 @@ export async function handler(event) {
 
       // Case 2: delete all comments for a motion
       if (motionId) {
-        const motionExists = await Motion.findById(motionId).lean();
+        const motionExists = await MotionModel.findById(motionId).lean();
         if (!motionExists) {
           return {
             statusCode: 404,
@@ -181,7 +192,7 @@ export async function handler(event) {
           };
         }
 
-        const result = await Discussion.deleteMany({ motionId });
+        const result = await DiscussionModel.deleteMany({ motionId });
 
         return {
           statusCode: 200,
