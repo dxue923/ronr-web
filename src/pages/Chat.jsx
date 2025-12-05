@@ -67,6 +67,7 @@ function LiveProfileMemberCard({
 // src/pages/Chat.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 import { ROLE } from "../utils/permissions";
 import { getCommentsForMotion, createComment } from "../api/discussion";
 import { joinCommittee } from "../api/profileMemberships";
@@ -126,28 +127,8 @@ function yyyyMmDd(d = new Date()) {
 }
 
 /* ---------- current user ---------- */
-function getCurrentUser() {
-  try {
-    const activeEmail = localStorage.getItem("activeProfileEmail") || "";
-    const key = activeEmail ? `profileData:${activeEmail}` : null;
-    const raw = key ? localStorage.getItem(key) : null;
-    const p = raw ? JSON.parse(raw) : {};
-    // Prefer explicit username as the stable ID used in committee members
-    const username = (p.username || "").toString().trim();
-    // Fallback to email local-part if no username set
-    const emailLocal = (p.email || "").split("@")[0];
-    const stableId = username || emailLocal || "guest";
-    // Name should come directly from the Profile GET response
-    const name = (p.name || "").toString().trim() || stableId;
-    return {
-      id: stableId,
-      username: stableId,
-      name,
-      avatarUrl: p.avatarUrl || "",
-    };
-  } catch (e) {
-    return { id: "guest", username: "guest", name: "Guest", avatarUrl: "" };
-  }
+function getFallbackUser() {
+  return { id: "guest", username: "guest", name: "Guest", avatarUrl: "" };
 }
 
 /* quick role badge helper */
@@ -181,6 +162,7 @@ function SendIcon() {
 }
 
 export default function Chat() {
+  const { isAuthenticated, getIdTokenClaims } = useAuth0();
   // Show a temporary 'Referred' pill for 10 seconds after motion arrives
   const isRecentlyReferred = (m) => {
     const rf = m?.meta?.referredFrom;
@@ -329,7 +311,60 @@ export default function Chat() {
   const [motionsCollapsed, setMotionsCollapsed] = useState(
     initialMotionsCollapsed
   );
-  const [me, setMe] = useState(getCurrentUser());
+  const [me, setMe] = useState(getFallbackUser());
+  // Load current user from Profile API when authenticated and refresh on profile updates
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMe() {
+      try {
+        if (!isAuthenticated) {
+          setMe(getFallbackUser());
+          return;
+        }
+        const claims = await getIdTokenClaims().catch(() => null);
+        const rawIdToken = claims?.__raw || null;
+        if (!rawIdToken) {
+          setMe(getFallbackUser());
+          return;
+        }
+        const profile = await apiFetchProfile(rawIdToken);
+        if (!profile || cancelled) return;
+        const emailLocal = (profile.email || "").split("@")[0] || "";
+        const username = (profile.username || emailLocal || "")
+          .toString()
+          .trim();
+        const stableId = username || "guest";
+        const name = (profile.name || "").toString().trim() || stableId;
+        const next = {
+          id: stableId,
+          username: stableId,
+          name,
+          avatarUrl: profile.avatarUrl || "",
+        };
+        setMe(next);
+      } catch (e) {
+        setMe(getFallbackUser());
+      }
+    }
+
+    loadMe();
+
+    const onProfileUpdated = () => {
+      loadMe();
+    };
+    window.addEventListener("profile-updated", onProfileUpdated);
+    const onStorage = (e) => {
+      if (e.key === "profileUpdatedAt") loadMe();
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("profile-updated", onProfileUpdated);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [isAuthenticated, getIdTokenClaims]);
   const authToken = (() => {
     try {
       return localStorage.getItem("authToken") || null;
@@ -870,9 +905,8 @@ export default function Chat() {
     try {
       const list = committee.members || committee.memberships || [];
       if (!Array.isArray(list) || list.length === 0) return;
-      const current = getCurrentUser();
-      const cid = (current.id || "").toString();
-      const cuser = (current.username || "").toString();
+      const cid = (me.id || "").toString();
+      const cuser = (me.username || "").toString();
       const match = list.find((m) => {
         const mid = (m.id || "").toString();
         const muser = (m.username || "").toString();
@@ -893,16 +927,7 @@ export default function Chat() {
         });
         return;
       }
-      // If no match, still lift any non-guest name from profile into me
-      const fallbackName = (current.name || "").toString().trim();
-      if (fallbackName && fallbackName.toLowerCase() !== "guest") {
-        setMe({
-          id: cid || cuser || fallbackName,
-          username: cuser || cid || fallbackName,
-          name: fallbackName,
-          avatarUrl: current.avatarUrl || "",
-        });
-      }
+      // If no match, keep existing `me` as-is
     } catch {
       // best-effort alignment only
     }
@@ -1208,35 +1233,11 @@ export default function Chat() {
     ).toLowerCase();
     setInput("");
     try {
-      // Ensure authorId is aligned with committee member usernames when possible
-      let authorId = me.id;
-      try {
-        const list = committee?.members || committee?.memberships || [];
-        if (Array.isArray(list) && list.length > 0) {
-          const cid = (me.id || "").toString();
-          const cuser = (me.username || "").toString();
-
-          // If we already know we're a real member, match by id/username.
-          let match = list.find((m) => {
-            const mid = (m.id || "").toString();
-            const muser = (m.username || "").toString();
-            return (
-              (cid && (mid === cid || muser === cid)) ||
-              (cuser && (mid === cuser || muser === cuser))
-            );
-          });
-
-          // If current identity is still 'guest' or we didn't find a match,
-          // fall back to the first member so chat always shows a committee name.
-          if (!match && (cid === "guest" || cuser === "guest")) {
-            match = list[0];
-          }
-
-          if (match) {
-            authorId = (match.username || match.id || cid || cuser).toString();
-          }
-        }
-      } catch {}
+      // Always use the current user's own identity for authorId.
+      // Never borrow another member's username.
+      const cid = (me.id || "").toString();
+      const cuser = (me.username || "").toString();
+      const authorId = cuser || cid || "guest";
       const payload = {
         motionId: activeMotion.id,
         authorId,
@@ -1446,7 +1447,6 @@ export default function Chat() {
         ? { submotionOf: submotionTarget.id, submotionType }
         : undefined;
       let created;
-      const user = getCurrentUser();
       try {
         // Prepare payload for API: include submotion or overturn metadata so backend can persist hierarchy
         let apiType;
@@ -1487,10 +1487,10 @@ export default function Chat() {
           parentMotionId: apiParentId,
           meta: Object.keys(apiMeta).length > 0 ? apiMeta : undefined,
           createdBy: {
-            id: user.id,
-            name: user.name,
-            username: user.username,
-            avatarUrl: user.avatarUrl,
+            id: me.id,
+            name: me.name,
+            username: me.username,
+            avatarUrl: me.avatarUrl,
           },
         });
       } catch (err) {
@@ -1505,10 +1505,10 @@ export default function Chat() {
           description: desc,
           status: "in-progress",
           createdAt: nowIso,
-          createdById: user?.id || "",
-          createdByName: user?.name || "",
-          createdByUsername: user?.username || "",
-          createdByAvatarUrl: user?.avatarUrl || "",
+          createdById: me?.id || "",
+          createdByName: me?.name || "",
+          createdByUsername: me?.username || "",
+          createdByAvatarUrl: me?.avatarUrl || "",
         };
       }
       const newMotion = {
