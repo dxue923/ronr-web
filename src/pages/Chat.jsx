@@ -2432,31 +2432,6 @@ export default function Chat() {
   );
   const concludedRoots = filterRoots(concludedMotions);
 
-  // Debug: log counts to help diagnose why motions appear in the wrong section
-  useEffect(() => {
-    try {
-      console.debug("motions-debug", {
-        motions: motions.length,
-        activeRoots: activeRoots.length,
-        unfinishedRoots: unfinishedRoots.length,
-        otherActiveRoots: otherActiveRoots.length,
-        previousMeetingId,
-        currentMeetingId,
-      });
-      // temporary diagnostic: list the unfinished motions so we can inspect why
-      try {
-        const list = (unfinishedRoots || []).map((m) => ({
-          id: m.id,
-          title: m.title,
-          meetingId: m.meetingId,
-          carryOver: m.carryOver,
-          state: m.state,
-        }));
-        console.debug("motions-debug-unfinished-list", list);
-      } catch (e) {}
-    } catch (err) {}
-  }, [motions, previousMeetingId, currentMeetingId, unfinishedRoots]);
-
   // Removed lifting for the next meeting; only date/time-based lifting remains
 
   // Lift postponed motions scheduled for a specific date/time when reached

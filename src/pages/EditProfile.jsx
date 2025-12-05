@@ -192,17 +192,17 @@ export default function EditProfile() {
           {/* Username */}
           <div className="form-field">
             <label className="form-label" htmlFor="username">
-              Username <span className="required">*</span>
+              Username
             </label>
             <input
-              className="form-input"
+              className="form-input form-input--disabled"
               id="username"
               name="username"
               type="text"
               placeholder="Enter your username"
               value={formData.username}
-              onChange={handleChange}
-              required
+              readOnly
+              disabled
             />
           </div>
 

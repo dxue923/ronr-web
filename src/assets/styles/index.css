@@ -34,6 +34,12 @@ button,
   font-family: "IBM Plex Sans", sans-serif !important;
 }
 
+.form-input--disabled {
+  background-color: #f1f3f5;
+  color: #868e96;
+  cursor: not-allowed;
+}
+
 /* ==================================================
    HOME PAGE
 ================================================== */
