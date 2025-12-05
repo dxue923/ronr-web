@@ -911,21 +911,15 @@ START NEW CHAT PAGE CSS
   color: #3b1a56;
 }
 
-/* participants under the motions */
+/* participants under the motions - consolidated */
 .member-list {
   border-top: 1px solid #edf0f4;
-  padding-top: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.member-list {
-  flex: 0 0 auto; /* keep members section sized after motions list */
-}
-
-/* participants tools in chat left rail */
-.member-list {
+  /* keep members section sized after motions list */
+  flex: 0 0 auto;
+  /* panel padding and positioning */
   position: relative;
   padding: 12px;
 }
@@ -2906,17 +2900,11 @@ START NEW CHAT PAGE CSS
   .discussion-shell.hide-left .discussion-left {
     display: none;
   }
-  .discussion-shell.hide-left .discussion-right {
-    display: flex;
-  }
   /* when user toggles left panel back open */
   .discussion-shell.show-left {
     grid-template-columns: 240px minmax(0, 1fr) 280px;
   }
   .discussion-shell.show-left .discussion-left {
-    display: flex;
-  }
-  .discussion-shell.show-left .discussion-right {
     display: flex;
   }
   .toggle-left-panel-btn {
