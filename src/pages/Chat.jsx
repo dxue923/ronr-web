@@ -95,6 +95,7 @@ import {
 } from "../api/motions";
 import "../assets/styles/index.css";
 import { getMeeting } from "../api/meetings";
+import logo from "../assets/logo.png";
 import { fetchProfile as apiFetchProfile } from "../api/profile";
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
@@ -320,6 +321,8 @@ export default function Chat() {
   const [motionsCollapsed, setMotionsCollapsed] = useState(
     initialMotionsCollapsed
   );
+  const [chatForceLoading, setChatForceLoading] = useState(true);
+  const [motionsLoadedOnce, setMotionsLoadedOnce] = useState(false);
   const [me, setMe] = useState(getFallbackUser());
   // Load current user from Profile API when authenticated and refresh on profile updates
   useEffect(() => {
@@ -389,6 +392,11 @@ export default function Chat() {
   const [viewTab, setViewTab] = useState("discussion");
   // per-motion remembered tabs (remember last-opened tab per motion)
   const [motionTabs, setMotionTabs] = useState({});
+
+  useEffect(() => {
+    const t = setTimeout(() => setChatForceLoading(false), 200);
+    return () => clearTimeout(t);
+  }, []);
 
   const setMotionView = (tab, motionId = activeMotionId) => {
     // debug logging to help trace per-motion tab behavior
@@ -577,6 +585,13 @@ export default function Chat() {
   };
   // toast notification for saves (removed)
 
+  const showInitialOverlay =
+    ((committeeLoading && !committee) ||
+      (!motionsLoadedOnce && !motions.length) ||
+      (loadingComments && !motionsLoadedOnce) ||
+      chatForceLoading) &&
+    !commentsError;
+
   // find active motion object
   const activeMotion = motions.find((m) => m.id === activeMotionId) || null;
   const otcClosed = isOtcClosed(activeMotion);
@@ -650,6 +665,7 @@ export default function Chat() {
           };
         });
         setMotions(mapped);
+        setMotionsLoadedOnce(true);
         // Default: collapse all submotions on initial load
         try {
           const parents = new Set();
@@ -2575,6 +2591,28 @@ export default function Chat() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMotion?.id, activeMotion?.state]);
+  if (showInitialOverlay) {
+    return (
+      <div className="chat-page two-pane">
+        <div className="ronr-loading-screen">
+          <div className="ronr-loading-card">
+            <div className="ronr-loading-icon">
+              <div className="ronr-loading-pulse" />
+              <img
+                src={logo}
+                alt="Rules of Order logo"
+                className="ronr-loading-logo"
+              />
+            </div>
+            <h1 className="ronr-loading-title">Rules of Order</h1>
+            <p className="ronr-loading-subtitle">
+              Loading motions, members, and discussion…
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
