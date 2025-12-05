@@ -10,11 +10,17 @@ import { connectToDatabase } from "../../db/mongoose.js";
 const DiscussionModel =
   Discussion && typeof Discussion.find === "function"
     ? Discussion
-    : mongoose.models.Discussion || (typeof mongoose.model === "function" ? mongoose.model("Discussion") : Discussion);
+    : mongoose.models.Discussion ||
+      (typeof mongoose.model === "function"
+        ? mongoose.model("Discussion")
+        : Discussion);
 const MotionModel =
   Motion && typeof Motion.find === "function"
     ? Motion
-    : mongoose.models.Motion || (typeof mongoose.model === "function" ? mongoose.model("Motion") : Motion);
+    : mongoose.models.Motion ||
+      (typeof mongoose.model === "function"
+        ? mongoose.model("Motion")
+        : Motion);
 
 const VALID_POSITIONS = ["pro", "con", "neutral"];
 
