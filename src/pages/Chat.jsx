@@ -184,7 +184,12 @@ function SendIcon() {
 }
 
 export default function Chat() {
-  const { isAuthenticated, getIdTokenClaims } = useAuth0();
+  const {
+    isAuthenticated,
+    getIdTokenClaims,
+    user,
+    isLoading: authLoading,
+  } = useAuth0();
   // Show a temporary 'Referred' pill for 10 seconds after motion arrives
   const isRecentlyReferred = (m) => {
     const rf = m?.meta?.referredFrom;
@@ -291,6 +296,30 @@ export default function Chat() {
     saveMotionsForCommittee(committee.id, updated);
   };
   const scrollRef = useRef(null);
+  // Whether auto-scrolling to bottom is allowed. If the user scrolls up,
+  // we set this to false so periodic updates won't yank the view to bottom.
+  const allowAutoScroll = useRef(true);
+  // Robust scroll-to-bottom helper: uses two RAF ticks and computes the
+  // precise target as scrollHeight - clientHeight to reach the true bottom.
+  const scrollToBottom = (force = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!force && !allowAutoScroll.current) return;
+    try {
+      requestAnimationFrame(() => {
+        try {
+          const target = Math.max(0, el.scrollHeight - el.clientHeight);
+          el.scrollTop = target;
+        } catch (e) {}
+        requestAnimationFrame(() => {
+          try {
+            const target2 = Math.max(0, el.scrollHeight - el.clientHeight);
+            el.scrollTop = target2;
+          } catch (e) {}
+        });
+      });
+    } catch (e) {}
+  };
   const composerInputRef = useRef(null);
   // ...existing code...
   //  force re-read of committee from localStorage after edits
@@ -339,6 +368,31 @@ export default function Chat() {
     let cancelled = false;
 
     async function loadMe() {
+      // Quick-path: if Auth0 provided a `user` object synchronously, use it
+      // immediately so message ownership can be established on first render.
+      try {
+        if (user && !cancelled) {
+          const emailLocal = (user.email || "").split("@")[0] || "";
+          const username = (
+            user.nickname ||
+            user.preferred_username ||
+            emailLocal ||
+            user.sub ||
+            ""
+          )
+            .toString()
+            .trim();
+          const stableId = username || "guest";
+          const name = (user.name || username || "Guest").toString().trim();
+          const preview = {
+            id: stableId,
+            username: stableId,
+            name,
+            avatarUrl: user.picture || "",
+          };
+          setMe(preview);
+        }
+      } catch (e) {}
       try {
         if (!isAuthenticated) {
           setMe(getFallbackUser());
@@ -839,7 +893,8 @@ export default function Chat() {
   // scroll to bottom when messages change
   useEffect(() => {
     if (!scrollRef.current) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    // Only auto-scroll if the user hasn't scrolled up.
+    scrollToBottom();
   }, [activeMotion?.messages]);
 
   // ensure we scroll to the most recent messages when returning to Discussion view
@@ -847,10 +902,42 @@ export default function Chat() {
     if (viewTab !== "discussion") return;
     if (!scrollRef.current) return;
     const t = setTimeout(() => {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollToBottom();
     }, 0);
     return () => clearTimeout(t);
   }, [viewTab, activeMotion?.id, activeMotion?.messages]);
+
+  // Track whether the user has scrolled away from the bottom. When the
+  // user scrolls up we disable auto-scroll so polling/new-data won't force
+  // the viewport back to the bottom. Re-enable when user scrolls back near
+  // the bottom (threshold in px).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = null;
+    const THRESHOLD = 80; // px from bottom considered "at bottom"
+    const onScroll = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        try {
+          const scrollTop = el.scrollTop;
+          const clientH = el.clientHeight;
+          const scrollH = el.scrollHeight;
+          const dist = scrollH - (scrollTop + clientH);
+          allowAutoScroll.current = dist <= THRESHOLD;
+        } catch (err) {}
+      });
+    };
+    // initialize
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      try {
+        el.removeEventListener("scroll", onScroll);
+      } catch {}
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [scrollRef.current]);
 
   // fetch remote comments when active motion changes or on interval (polling)
   useEffect(() => {
@@ -1271,6 +1358,11 @@ export default function Chat() {
             : m
         )
       );
+      // Ensure we jump to the newest message the user just sent.
+      try {
+        allowAutoScroll.current = true;
+        scrollToBottom(true);
+      } catch (e) {}
       // keep visual highlight as current selection; default remains neutral
       // restore focus to composer for rapid entry
       try {
@@ -1296,6 +1388,11 @@ export default function Chat() {
             : m
         )
       );
+      // Ensure we jump to the newest message on fallback too.
+      try {
+        allowAutoScroll.current = true;
+        scrollToBottom(true);
+      } catch (e) {}
       setCommentsError(err.message || "Failed to send remotely; saved locally");
       // keep visual highlight as current selection; default remains neutral
       // restore focus to composer on failure too
@@ -4249,66 +4346,7 @@ export default function Chat() {
                 ))}
               </div>
             </div>
-          ) : (
-            <aside className="member-list right-panel">
-              <div className="member-list-header">
-                <h3>Participants</h3>
-                <button
-                  className="participants-collapse-toggle"
-                  onClick={() => setMembersCollapsed((s) => !s)}
-                  aria-expanded={!membersCollapsed}
-                  title={
-                    membersCollapsed ? "Show participants" : "Hide participants"
-                  }
-                  aria-label={
-                    membersCollapsed
-                      ? "Expand participants"
-                      : "Collapse participants"
-                  }
-                  style={{ float: "right" }}
-                >
-                  {membersCollapsed ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                      <path
-                        d="M9 6l6 6-6 6"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
-                      <path
-                        d="M6 9l6 6 6-6"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              <div
-                className={`member-list-body ${
-                  membersCollapsed ? "collapsed" : ""
-                }`}
-              >
-                {members.map((p) => (
-                  <LiveProfileMemberCard
-                    key={p.id || p.name}
-                    username={p.username}
-                    fallbackName={p.name || p.id}
-                    role={p.role}
-                    avatarUrl={p.avatarUrl}
-                  />
-                ))}
-              </div>
-            </aside>
-          )}
+          ) : null}
         </div>
       </aside>
 
@@ -5592,7 +5630,8 @@ export default function Chat() {
         )}
       </main>
 
-      {/* RIGHT: participants (only on wide screens) */}
+      {/* RIGHT: participants (only on wide screens) - render the same member list
+          as the left panel on wide screens to avoid duplication. */}
       <aside className="discussion-right">
         {!isSplit && (
           <div className="member-list">
@@ -5648,6 +5687,7 @@ export default function Chat() {
                   username={p.username}
                   fallbackName={p.name || p.id}
                   role={p.role}
+                  avatarUrl={p.avatarUrl}
                 />
               ))}
             </div>
