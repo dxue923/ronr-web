@@ -658,13 +658,31 @@ export default function Chat() {
 
   // find active motion object
   const activeMotion = motions.find((m) => m.id === activeMotionId) || null;
+  // normalize votes into an array of { voterId, choice } for UI usage
+  const voteEntries = (motion) => {
+    if (!motion) return [];
+    // preferred: motion.votes is already an array of vote entries
+    if (Array.isArray(motion.votes)) return motion.votes;
+    // fallback: per-voter choices stored in meta.voterChoices (object mapping voterId -> choice)
+    const choices =
+      motion.meta && typeof motion.meta.voterChoices === "object"
+        ? motion.meta.voterChoices
+        : null;
+    if (choices) {
+      return Object.keys(choices).map((voterId) => ({
+        voterId,
+        choice: choices[voterId],
+      }));
+    }
+    return [];
+  };
   const otcClosed = isOtcClosed(activeMotion);
   // whether the current session for the active motion is paused
   const sessionPaused = activeMotion?.state === "paused";
   // whether the current session for the active motion is closed
   const sessionClosed = activeMotion?.state === "closed";
   // whether the current user voted 'yes' on the active motion
-  const userVotedYes = (activeMotion?.votes || []).some(
+  const userVotedYes = voteEntries(activeMotion).some(
     (v) =>
       (v.voterId || "") === (me.id || "") &&
       (v.choice || "").toString().toLowerCase() === "yes"
@@ -695,6 +713,8 @@ export default function Chat() {
               ? "postponed"
               : m.status === "referred"
               ? "referred"
+              : m.status === "voting"
+              ? "voting"
               : m.status === "closed" ||
                 m.status === "passed" ||
                 m.status === "failed"
@@ -1829,10 +1849,12 @@ export default function Chat() {
           ? "referred"
           : next === "closed"
           ? "closed"
+          : next === "voting"
+          ? "voting"
           : "in-progress";
       if (next === "closed") {
         // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
-        const votes = activeMotion?.votes || [];
+        const votes = voteEntries(activeMotion);
         const outcome = computeOutcome(votes); // "Adopted" or "Rejected" or "No Votes"
         const detail = {
           outcome,
@@ -1857,6 +1879,8 @@ export default function Chat() {
                   ? "postponed"
                   : m.status === "referred"
                   ? "referred"
+                  : m.status === "voting"
+                  ? "voting"
                   : m.status === "closed" ||
                     m.status === "passed" ||
                     m.status === "failed"
@@ -1918,6 +1942,8 @@ export default function Chat() {
                 ? "postponed"
                 : m.status === "referred"
                 ? "referred"
+                : m.status === "voting"
+                ? "voting"
                 : m.status === "closed" ||
                   m.status === "passed" ||
                   m.status === "failed"
@@ -1974,7 +2000,7 @@ export default function Chat() {
     // Build the decision detail for the active motion
     const computedOutcome =
       (decisionOutcome && decisionOutcome) ||
-      computeOutcome(activeMotion?.votes || []);
+      computeOutcome(voteEntries(activeMotion));
     const detail = {
       outcome: computedOutcome || undefined,
       summary,
@@ -2171,7 +2197,7 @@ export default function Chat() {
     setEditDecisionCons((activeMotion.decisionDetails.cons || []).join("\n"));
     setEditDecisionOutcome(
       activeMotion.decisionDetails?.outcome ||
-        computeOutcome(activeMotion?.votes || []) ||
+        computeOutcome(voteEntries(activeMotion)) ||
         ""
     );
     setEditingDecision(true);
@@ -2198,7 +2224,7 @@ export default function Chat() {
       if (m.id !== activeMotion.id) return m;
       const computedOutcome =
         (editDecisionOutcome && editDecisionOutcome) ||
-        computeOutcome(activeMotion?.votes || []);
+        computeOutcome(voteEntries(activeMotion));
       const revision = {
         outcome: computedOutcome || undefined,
         summary,
@@ -2320,7 +2346,7 @@ export default function Chat() {
       try {
         // Compute and persist outcome so Final Decision tab shows Passed/Failed
         const target = (updated || []).find((mm) => mm.id === motionId) || {};
-        const votes = target.votes || [];
+        const votes = voteEntries(target);
         const outcome = computeOutcome(votes);
         const detail = {
           outcome,
@@ -4698,7 +4724,7 @@ export default function Chat() {
                 activeMotion.state === "closed") && (
                 <div className="vote-tally-panel">
                   {(() => {
-                    const votes = activeMotion?.votes || [];
+                    const votes = voteEntries(activeMotion);
                     const tally = activeMotion?.tally || computeTally(votes);
                     const myVote = votes.find(
                       (v) => v.voterId === me.id
@@ -5306,7 +5332,7 @@ export default function Chat() {
                           <label className="decision-label">Outcome</label>
                           <div className="final-outcome" aria-live="polite">
                             {(() => {
-                              const votes = activeMotion?.votes || [];
+                              const votes = voteEntries(activeMotion);
                               const tally =
                                 activeMotion?.tally || computeTally(votes);
                               const outcomeText =
@@ -5376,7 +5402,7 @@ export default function Chat() {
                             <strong>Outcome:</strong>
                             <div className="final-outcome">
                               {(() => {
-                                const votes = activeMotion?.votes || [];
+                                const votes = voteEntries(activeMotion);
                                 const tally =
                                   activeMotion?.tally || computeTally(votes);
                                 const outcomeText =
@@ -5468,7 +5494,7 @@ export default function Chat() {
                       <div className="final-tally">
                         <h4>Final Tally</h4>
                         {(() => {
-                          const votes = activeMotion?.votes || [];
+                          const votes = voteEntries(activeMotion);
                           const tally =
                             activeMotion?.tally || computeTally(votes);
                           // render the same vote-tally-panel used in Discussion, but non-interactive
@@ -5552,7 +5578,7 @@ export default function Chat() {
                         <label className="decision-label">Outcome</label>
                         <div className="final-outcome" aria-live="polite">
                           {(() => {
-                            const votes = activeMotion?.votes || [];
+                            const votes = voteEntries(activeMotion);
                             const tally =
                               activeMotion?.tally || computeTally(votes);
                             const outcomeText = computeOutcome(votes);

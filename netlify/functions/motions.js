@@ -47,9 +47,10 @@ async function getRoleForCommittee(committeeId, username) {
   return member ? member.role : null;
 }
 
-// New canonical status list
+// New canonical status list (include "voting" so it can be persisted/displayed)
 const VALID_STATUSES = [
   "in-progress",
+  "voting",
   "paused",
   "unfinished",
   "postponed",
@@ -66,7 +67,8 @@ function normalizeMotion(motion) {
   const normalized = { ...motion };
 
   // ---- normalize status ----
-  if (normalized.status === "active" || normalized.status === "voting") {
+  // Treat legacy "active" as "in-progress". Preserve explicit "voting"
+  if (normalized.status === "active") {
     normalized.status = "in-progress";
   }
 
@@ -306,10 +308,10 @@ export async function handler(event) {
         };
       }
 
-      // Normalize existing status/votes
+      // Normalize existing status/votes. Treat legacy "active" as in-progress;
+      // preserve explicit "voting" so voting can be started and persisted.
       if (
         motionDoc.status === "active" ||
-        motionDoc.status === "voting" ||
         !VALID_STATUSES.includes(motionDoc.status)
       ) {
         motionDoc.status = "in-progress";

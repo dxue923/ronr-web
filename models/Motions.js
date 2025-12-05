@@ -68,6 +68,7 @@ const motionSchema = new mongoose.Schema({
     type: String,
     enum: [
       "in-progress",
+      "voting",
       "paused",
       "unfinished",
       "postponed",
