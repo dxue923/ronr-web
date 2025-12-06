@@ -107,7 +107,12 @@ import {
 import "../assets/styles/index.css";
 import { getMeeting } from "../api/meetings";
 import logo from "../assets/logo.png";
-import { fetchProfile as apiFetchProfile } from "../api/profile";
+import {
+  fetchProfile as apiFetchProfile,
+  findProfileByUsername,
+} from "../api/profile";
+// Simple in-memory cache for profile lookups during this page session
+const profileLookupCache = new Map();
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
@@ -738,6 +743,13 @@ export default function Chat() {
     return [];
   };
   const otcClosed = isOtcClosed(activeMotion);
+  const closedBySubmotion = !!(
+    activeMotion?.meta &&
+    (activeMotion.meta.referInfo ||
+      activeMotion.meta.referDetails ||
+      activeMotion.meta.parentPreviousState ||
+      activeMotion.meta.postponePrevState)
+  );
   // whether the current session for the active motion is paused
   const sessionPaused = activeMotion?.state === "paused";
   // whether the current session for the active motion is closed
@@ -1037,29 +1049,58 @@ export default function Chat() {
       try {
         const remote = await getCommentsForMotion(activeMotionId);
         if (cancelled) return;
+        // If this motion is a received referral, also attempt to fetch the
+        // discussion from the originating motion (source motionId) and
+        // include those messages in the displayed thread (from original members).
+        let originComments = [];
+        try {
+          const originId = activeMotion?.meta?.referredFrom?.motionId;
+          if (originId) {
+            const originRemote = await getCommentsForMotion(originId);
+            originComments = originRemote || [];
+          }
+        } catch (e) {
+          // ignore origin fetch failures
+          originComments = [];
+        }
         // Always fetch the latest profile for each author and use their profile.name when present.
         // If no profile name is available, fall back to the raw authorId.
-        const mapped = await Promise.all(
-          (remote || []).map(async (c) => {
+        // Map origin comments first so the original discussion appears before
+        // any comments posted to the received copy.
+        const mappedOrigin = await Promise.all(
+          (originComments || []).map(async (c) => {
             let displayName = "";
+            let profile = null;
             try {
-              let profile = null;
               if (typeof findProfileByUsername === "function") {
                 const lookupKey =
                   c.authorId && c.authorId.includes("@")
                     ? c.authorId
                     : c.authorId;
-                const lookupResult = findProfileByUsername(lookupKey);
-                profile =
-                  typeof lookupResult === "function"
-                    ? await lookupResult()
-                    : lookupResult;
+                // Check in-memory cache first
+                const cached = profileLookupCache.get(lookupKey);
+                if (cached) {
+                  profile = cached;
+                } else {
+                  const lookupResult = findProfileByUsername(lookupKey);
+                  profile =
+                    typeof lookupResult === "function"
+                      ? await lookupResult()
+                      : lookupResult;
+                  if (profile) profileLookupCache.set(lookupKey, profile);
+                }
               } else if (typeof getProfileByUsername === "function") {
                 const lookupKey =
                   c.authorId && c.authorId.includes("@")
                     ? c.authorId
                     : c.authorId;
-                profile = await getProfileByUsername(lookupKey);
+                const cached = profileLookupCache.get(lookupKey);
+                if (cached) {
+                  profile = cached;
+                } else {
+                  profile = await getProfileByUsername(lookupKey);
+                  if (profile) profileLookupCache.set(lookupKey, profile);
+                }
               }
               if (profile && profile.name && profile.name.trim()) {
                 displayName = profile.name.trim();
@@ -1073,15 +1114,73 @@ export default function Chat() {
               id: c.id,
               authorId: c.authorId,
               authorName: displayName,
+              authorAvatar: profile?.avatarUrl || profile?.picture || "",
               text: c.text,
               time: c.createdAt || new Date().toISOString(),
               stance: c.position || "neutral",
+              _fromOrigin: true,
             };
           })
         );
+
+        const mappedRemote = await Promise.all(
+          (remote || []).map(async (c) => {
+            let displayName = "";
+            let profile = null;
+            try {
+              if (typeof findProfileByUsername === "function") {
+                const lookupKey =
+                  c.authorId && c.authorId.includes("@")
+                    ? c.authorId
+                    : c.authorId;
+                const cached = profileLookupCache.get(lookupKey);
+                if (cached) {
+                  profile = cached;
+                } else {
+                  const lookupResult = findProfileByUsername(lookupKey);
+                  profile =
+                    typeof lookupResult === "function"
+                      ? await lookupResult()
+                      : lookupResult;
+                  if (profile) profileLookupCache.set(lookupKey, profile);
+                }
+              } else if (typeof getProfileByUsername === "function") {
+                const lookupKey =
+                  c.authorId && c.authorId.includes("@")
+                    ? c.authorId
+                    : c.authorId;
+                const cached = profileLookupCache.get(lookupKey);
+                if (cached) {
+                  profile = cached;
+                } else {
+                  profile = await getProfileByUsername(lookupKey);
+                  if (profile) profileLookupCache.set(lookupKey, profile);
+                }
+              }
+              if (profile && profile.name && profile.name.trim()) {
+                displayName = profile.name.trim();
+              }
+            } catch {}
+            if (!displayName)
+              displayName = (c.authorId || "").toString().trim();
+            return {
+              id: c.id,
+              authorId: c.authorId,
+              authorName: displayName,
+              authorAvatar: profile?.avatarUrl || profile?.picture || "",
+              text: c.text,
+              time: c.createdAt || new Date().toISOString(),
+              stance: c.position || "neutral",
+              _fromOrigin: false,
+            };
+          })
+        );
+
+        const combined = [...mappedOrigin, ...mappedRemote];
+
         setMotions((prev) =>
           prev.map((m) =>
-            m.id === activeMotionId ? { ...m, messages: mapped } : m
+            m.id === activeMotionId ? { ...m, messages: combined } : m
           )
         );
       } catch (err) {
@@ -2541,7 +2640,13 @@ export default function Chat() {
 
   // ensure Final tab isn't selectable until motion is closed
   useEffect(() => {
-    if (viewTab === "final" && activeMotion?.state !== "closed") {
+    const closedBySubmotion =
+      activeMotion?.meta &&
+      (activeMotion.meta.referInfo || activeMotion.meta.postponePrevState);
+    if (
+      viewTab === "final" &&
+      (activeMotion?.state !== "closed" || closedBySubmotion)
+    ) {
       setMotionView("discussion");
     }
   }, [activeMotion?.state, viewTab]);
@@ -4665,7 +4770,7 @@ export default function Chat() {
                     >
                       Discussion
                     </button>
-                    {activeMotion?.state === "closed" && (
+                    {!closedBySubmotion && activeMotion?.state === "closed" && (
                       <button
                         type="button"
                         className={
@@ -4680,6 +4785,19 @@ export default function Chat() {
                         Final Decision
                       </button>
                     )}
+                  </div>
+                )}
+                {closedBySubmotion && (
+                  <div
+                    className="submotion-closed-note"
+                    title="This motion was closed automatically because a submotion passed. It did not go to a full vote and therefore has no final decision to record."
+                    style={{
+                      marginTop: 8,
+                      fontSize: "0.9rem",
+                      color: "#374151",
+                    }}
+                  >
+                    Closed by submotion — final decision not available.
                   </div>
                 )}
                 {otcClosed && (
@@ -4738,6 +4856,16 @@ export default function Chat() {
                           ""
                         ).toString()
                       : "";
+                    const displayNameFinal =
+                      displayNameFromMembers ||
+                      msg.authorName ||
+                      msg.authorId ||
+                      "";
+                    const avatarForMessage =
+                      (memberForMessage && memberForMessage.avatarUrl) ||
+                      msg.authorAvatar ||
+                      "" ||
+                      "";
                     try {
                       console.debug("[Chat] render", {
                         msg,
@@ -4758,8 +4886,8 @@ export default function Chat() {
                         <div className="message-row-inner">
                           {!isMine && (
                             <Avatar
-                              src={memberForMessage?.avatarUrl}
-                              alt={displayNameFromMembers}
+                              src={avatarForMessage}
+                              alt={displayNameFinal}
                             />
                           )}
 
@@ -4767,7 +4895,7 @@ export default function Chat() {
                             {/* AUTHOR + STANCE above bubble */}
                             <div className="message-header">
                               <span className="message-author">
-                                {displayNameFromMembers}
+                                {displayNameFinal}
                               </span>
                               {msg.stance && (
                                 <span
@@ -4798,8 +4926,8 @@ export default function Chat() {
 
                           {isMine && (
                             <Avatar
-                              src={memberForMessage?.avatarUrl}
-                              alt={displayNameFromMembers}
+                              src={avatarForMessage}
+                              alt={displayNameFinal}
                             />
                           )}
                         </div>

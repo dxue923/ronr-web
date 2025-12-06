@@ -533,6 +533,7 @@ export async function handler(event) {
                 meta: {
                   referredFrom: {
                     committeeId: motionDoc.committeeId,
+                    motionId: motionDoc._id,
                     referredAt: new Date().toISOString(),
                     receivedAt: new Date().toISOString(),
                   },
