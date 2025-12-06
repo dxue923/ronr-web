@@ -111,6 +111,17 @@ export function saveProfileToStorage(email, profile) {
       avatarUrl: profile.avatarUrl || null,
     };
     localStorage.setItem(key, JSON.stringify(snapshot));
+    // Also write a generic `profileData` entry so other code that reads
+    // `profileData` or `profileData:<email>` can find the latest snapshot.
+    try {
+      localStorage.setItem("profileData", JSON.stringify(snapshot));
+    } catch (e) {}
+    try {
+      localStorage.setItem(`profileData:${email}`, JSON.stringify(snapshot));
+    } catch (e) {}
+    try {
+      localStorage.setItem("activeProfileEmail", email);
+    } catch (e) {}
   } catch (e) {
     // ignore storage errors
   }
