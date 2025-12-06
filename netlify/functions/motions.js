@@ -112,6 +112,7 @@ function normalizeMotion(motion) {
       abstain: Number(normalized.votes.abstain) || 0,
     };
   }
+  return normalized;
 }
 
 function serializeMotion(doc) {
@@ -223,7 +224,7 @@ export async function handler(event) {
       }
 
       // verify the committee actually exists
-      const committee = await Committee.findById(committeeId).lean();
+      const committee = await CommitteeModel.findById(committeeId).lean();
       if (!committee) {
         return {
           statusCode: 404,
@@ -239,7 +240,7 @@ export async function handler(event) {
       if (!role) {
         // Auto-add actor as a member for permissive creation
         try {
-          await Committee.findByIdAndUpdate(committeeId, {
+          await CommitteeModel.findByIdAndUpdate(committeeId, {
             $push: {
               members: {
                 username: actorUsername,
@@ -283,7 +284,7 @@ export async function handler(event) {
           ""
       ).trim();
 
-      const newMotionDoc = await Motion.create({
+      const newMotionDoc = await MotionModel.create({
         _id: motionId,
         committeeId,
         title,
@@ -516,7 +517,7 @@ export async function handler(event) {
             try {
               // Create a new parent motion in the destination committee
               const newParentId = Date.now().toString();
-              await Motion.create({
+              await MotionModel.create({
                 _id: newParentId,
                 committeeId: destId,
                 title: motionDoc.title,
@@ -549,7 +550,7 @@ export async function handler(event) {
                     Date.now().toString() +
                     String(Math.floor(Math.random() * 10000));
                   try {
-                    await Motion.create({
+                    await MotionModel.create({
                       _id: newSubId,
                       committeeId: destId,
                       title: s.title,
@@ -579,7 +580,7 @@ export async function handler(event) {
                 // Mark source submotions as closed but do not overwrite their
                 // existing decision notes so the original outcomes are preserved.
                 try {
-                  await Motion.updateMany(
+                  await MotionModel.updateMany(
                     {
                       committeeId: motionDoc.committeeId,
                       parentMotionId: motionDoc._id,
@@ -639,7 +640,9 @@ export async function handler(event) {
         }
 
         // 🔻 Cascade delete discussions for this motion
-        const discussionResult = await Discussion.deleteMany({ motionId: id });
+        const discussionResult = await DiscussionModel.deleteMany({
+          motionId: id,
+        });
 
         await MotionModel.findByIdAndDelete(id);
 
@@ -666,7 +669,7 @@ export async function handler(event) {
 
         let deletedDiscussions = 0;
         if (motionIds.length > 0) {
-          const discussionResult = await Discussion.deleteMany({
+          const discussionResult = await DiscussionModel.deleteMany({
             motionId: { $in: motionIds },
           });
           deletedDiscussions = discussionResult.deletedCount || 0;
@@ -691,7 +694,7 @@ export async function handler(event) {
       const motionResult = await MotionModel.deleteMany({});
 
       // 🔻 Delete all discussions (since all motions are gone)
-      const discussionResult = await Discussion.deleteMany({});
+      const discussionResult = await DiscussionModel.deleteMany({});
 
       return {
         statusCode: 200,
