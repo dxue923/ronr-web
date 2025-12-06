@@ -226,9 +226,36 @@ export async function handler(event) {
       if (committeeId) {
         let found = null;
         try {
-          found = await Committee.findById(committeeId);
+          found = await CommitteeModel.findById(committeeId);
         } catch (e) {
           console.warn("[committee] findById error", e?.message || e);
+        }
+        // Fallback attempts: some clients may pass an id that doesn't map
+        // directly to _id (or bundling changed shapes). Try a few heuristics.
+        if (!found) {
+          try {
+            // Try findOne by exact _id field (same as findById but defensive)
+            found = await CommitteeModel.findOne({ _id: committeeId });
+          } catch (e) {
+            console.warn("[committee] findOne(_id) error", e?.message || e);
+          }
+        }
+        if (!found) {
+          try {
+            // Try legacy 'id' field (some clients may have saved id separately)
+            found = await CommitteeModel.findOne({ id: committeeId }).lean();
+          } catch (e) {
+            // ignore
+          }
+        }
+        if (!found) {
+          try {
+            // Last resort: try name match (URL-friendly names sometimes used)
+            const re = new RegExp(`^${escapeRegex(committeeId)}$`, "i");
+            found = await CommitteeModel.findOne({ name: re }).lean();
+          } catch (e) {
+            // ignore
+          }
         }
         if (!found) {
           return {
@@ -249,7 +276,7 @@ export async function handler(event) {
         const usernameRegex = new RegExp(`^${escapeRegex(member)}$`, "i");
         let docs = [];
         try {
-          docs = await Committee.find({
+          docs = await CommitteeModel.find({
             "members.username": usernameRegex,
           }).sort({ createdAt: 1 });
         } catch (e) {
