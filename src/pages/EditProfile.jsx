@@ -13,6 +13,7 @@ const PLACEHOLDER_AVATAR = null;
 export default function EditProfile() {
   const { user, isAuthenticated, getAccessTokenSilently, getIdTokenClaims } =
     useAuth0();
+  const deriveUsername = (email) => (email ? String(email).split("@")[0] : "");
   const [formData, setFormData] = useState({
     name: "",
     username: "",
@@ -34,11 +35,19 @@ export default function EditProfile() {
       }
       // Try to seed from local cache first so the UI appears instantly
       const email = user?.email || "";
+      // Preload email/username from Auth0 user so fields show immediately
+      if (email && !cancelled) {
+        setFormData((prev) => ({
+          ...prev,
+          email,
+          username: prev.username || deriveUsername(email),
+        }));
+      }
       const cached = loadProfileFromStorage(email);
       if (cached && !cancelled) {
         setFormData({
           name: cached.name || "",
-          username: cached.username || "",
+          username: cached.username || deriveUsername(email),
           email: cached.email || email,
           bio: "",
         });
@@ -70,13 +79,22 @@ export default function EditProfile() {
           const emailForCache = profile.email || user?.email || "";
           setFormData({
             name: profile.name || "",
-            username: profile.username || "",
+            username:
+              profile.username ||
+              deriveUsername(emailForCache) ||
+              profile.username ||
+              "",
             email: emailForCache,
             bio: "", // or profile.bio if you later add it
           });
           setAvatar(profile.avatarUrl || null);
           // Persist a lightweight snapshot to localStorage for next load
-          saveProfileToStorage(emailForCache, profile);
+          saveProfileToStorage(emailForCache, {
+            name: profile.name || "",
+            username: profile.username || deriveUsername(emailForCache),
+            email: emailForCache,
+            avatarUrl: profile.avatarUrl || null,
+          });
         }
       } catch (err) {
         setError(err.message || "Failed to load profile");
@@ -111,15 +129,32 @@ export default function EditProfile() {
     setError("");
     const payload = {
       name: formData.name?.trim(),
-      username: formData.username?.trim() || formData.name?.trim() || "You",
+      username:
+        formData.username?.trim() ||
+        deriveUsername(formData.email) ||
+        formData.name?.trim() ||
+        "You",
       email: formData.email?.trim() || "",
       bio: formData.bio || "",
       avatarUrl: avatar || "",
     };
 
     if (!isAuthenticated) {
-      setError("You must be signed in to update your profile.");
-      alert("You must be signed in to update your profile.");
+      // Save locally when not authenticated so the page still reflects changes.
+      const emailForCache = payload.email || user?.email || "";
+      try {
+        saveProfileToStorage(emailForCache, {
+          name: payload.name,
+          username: payload.username,
+          email: emailForCache,
+          avatarUrl: payload.avatarUrl,
+        });
+        // Notify other pages to refresh their cached view
+        window.dispatchEvent(new Event("profile-updated"));
+        alert("Changes saved locally. Sign in to sync with the server.");
+      } catch (err) {
+        setError("Failed to save locally");
+      }
       return;
     }
 
@@ -151,6 +186,20 @@ export default function EditProfile() {
         email: updated.email || prev.email,
       }));
       setAvatar(updated.avatarUrl || avatar);
+
+      // Persist updated profile to localStorage so other pages can read it
+      try {
+        const emailForCache =
+          updated.email || formData.email || user?.email || "";
+        saveProfileToStorage(emailForCache, {
+          name: updated.name || payload.name,
+          username: updated.username || payload.username,
+          email: emailForCache,
+          avatarUrl: updated.avatarUrl || payload.avatarUrl,
+        });
+      } catch (e) {
+        console.warn("Failed to save updated profile to localStorage", e);
+      }
 
       // Ask backend to refresh this user's entry in all committees
       try {
