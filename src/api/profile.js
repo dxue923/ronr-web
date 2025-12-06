@@ -11,7 +11,31 @@ export async function fetchProfile(idToken) {
 
   const data = await res.json().catch(() => null);
 
-  if (!res.ok) {
+  if (!res.ok || !data || !data.email) {
+    // Fallback: try to fetch by email or username from database
+    let lookup = null;
+    try {
+      // Try to decode token for email/username
+      const base64 = idToken.split(".")[1];
+      const claims = JSON.parse(atob(base64));
+      lookup = claims.email || claims.nickname || claims.sub;
+    } catch {}
+    if (lookup) {
+      try {
+        const qs = `?lookup=${encodeURIComponent(lookup)}`;
+        const fallbackRes = await fetch(`${BASE_URL}${qs}`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${idToken}`,
+          },
+        });
+        const fallbackData = await fallbackRes.json().catch(() => null);
+        if (fallbackRes.ok && fallbackData) {
+          return fallbackData;
+        }
+      } catch {}
+    }
     throw new Error(data?.message || data?.error || "Failed to load profile");
   }
   return data;
@@ -32,26 +56,6 @@ export async function updateProfile(idToken, updates) {
 
   if (!res.ok) {
     throw new Error(data?.message || data?.error || "Failed to update profile");
-  }
-  return data;
-}
-
-// Authenticated lookup by username or email, using the caller's token
-export async function lookupProfile(idToken, lookup) {
-  const qs = `?lookup=${encodeURIComponent(lookup)}`;
-  const res = await fetch(`${BASE_URL}${qs}`, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
-  });
-
-  if (res.status === 404) return null;
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok) {
-    throw new Error(data?.message || data?.error || "Failed to lookup profile");
   }
   return data;
 }
@@ -79,15 +83,18 @@ export async function findProfileByUsername(username) {
     return data;
   };
 }
-// ----- Local cached profile helpers -----
-const PROFILE_KEY_PREFIX = "profile:";
 
+// Lightweight local cache helpers used by the UI to speed up initial render.
+// These are intentionally simple and resilient — they swallow storage
+// errors and return null when unavailable.
 export function loadProfileFromStorage(email) {
   if (!email) return null;
   try {
-    const raw = localStorage.getItem(`${PROFILE_KEY_PREFIX}${email}`);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
+    const key = `profile:${email}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
     return null;
   }
 }
@@ -95,17 +102,16 @@ export function loadProfileFromStorage(email) {
 export function saveProfileToStorage(email, profile) {
   if (!email || !profile) return;
   try {
-    const payload = {
-      name: profile.name ?? "",
-      username: profile.username ?? "",
-      email: profile.email ?? email,
-      avatarUrl: profile.avatarUrl ?? null,
+    const key = `profile:${email}`;
+    // store a lightweight snapshot only
+    const snapshot = {
+      name: profile.name || "",
+      username: profile.username || "",
+      email: profile.email || email,
+      avatarUrl: profile.avatarUrl || null,
     };
-    localStorage.setItem(
-      `${PROFILE_KEY_PREFIX}${email}`,
-      JSON.stringify(payload)
-    );
-  } catch {
+    localStorage.setItem(key, JSON.stringify(snapshot));
+  } catch (e) {
     // ignore storage errors
   }
 }
