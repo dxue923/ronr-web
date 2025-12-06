@@ -1,36 +1,15 @@
-function resolveCommitteeId(input) {
-  return (input || "").toString().trim();
-}
+// Meetings API is disabled in this build. These stubs avoid calling the
+// serverless meetings function and return safe defaults for the client.
 export async function getMeeting(committeeId) {
-  const cid = (committeeId || "").toString().trim();
-  const res = await fetch(
-    `/.netlify/functions/meetings?committeeId=${encodeURIComponent(cid)}`,
-    {
-      cache: "no-store",
-      headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-    }
-  );
-  if (!res.ok) throw new Error(`Meetings GET failed: ${res.status}`);
-  return res.json();
+  // Return null so callers keep their existing local state when meetings
+  // are not available.
+  return null;
 }
 
 export async function startMeeting(committeeId) {
-  const cid = (committeeId || "").toString().trim();
-  const res = await fetch(`/.netlify/functions/meetings`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ committeeId: cid }),
-  });
-  if (!res.ok) throw new Error(`Meetings POST failed: ${res.status}`);
-  return res.json();
+  throw new Error("Meetings API disabled");
 }
 
 export async function updateMeeting(id, patch) {
-  const res = await fetch(`/.netlify/functions/meetings`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, ...patch }),
-  });
-  if (!res.ok) throw new Error(`Meetings PATCH failed: ${res.status}`);
-  return res.json();
+  throw new Error("Meetings API disabled");
 }

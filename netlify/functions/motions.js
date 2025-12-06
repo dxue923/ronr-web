@@ -16,17 +16,26 @@ const IS_DEV = process.env.NETLIFY_DEV === "true";
 const MotionModel =
   Motion && typeof Motion.find === "function"
     ? Motion
-    : mongoose.models.Motion || (typeof mongoose.model === "function" ? mongoose.model("Motion") : Motion);
+    : mongoose.models.Motion ||
+      (typeof mongoose.model === "function"
+        ? mongoose.model("Motion")
+        : Motion);
 
 const CommitteeModel =
   Committee && typeof Committee.find === "function"
     ? Committee
-    : mongoose.models.Committee || (typeof mongoose.model === "function" ? mongoose.model("Committee") : Committee);
+    : mongoose.models.Committee ||
+      (typeof mongoose.model === "function"
+        ? mongoose.model("Committee")
+        : Committee);
 
 const DiscussionModel =
   Discussion && typeof Discussion.find === "function"
     ? Discussion
-    : mongoose.models.Discussion || (typeof mongoose.model === "function" ? mongoose.model("Discussion") : Discussion);
+    : mongoose.models.Discussion ||
+      (typeof mongoose.model === "function"
+        ? mongoose.model("Discussion")
+        : Discussion);
 
 function decodeAuth(authHeader = "") {
   // Permissive: allow missing/invalid tokens and return anonymous claims
@@ -55,7 +64,7 @@ function usernameFromClaims(c = {}) {
 
 async function getRoleForCommittee(committeeId, username) {
   if (!committeeId || !username) return null;
-    const committee = await CommitteeModel.findById(committeeId).lean();
+  const committee = await CommitteeModel.findById(committeeId).lean();
   if (!committee) return null;
   const uLower = username.toLowerCase();
   const member = (committee.members || []).find(
@@ -87,7 +96,7 @@ function normalizeMotion(motion) {
   // Treat legacy "active" as "in-progress". Preserve explicit "voting"
   if (normalized.status === "active") {
     normalized.status = "in-progress";
-        const motions = await MotionModel.find(query).lean();
+  }
 
   if (!VALID_STATUSES.includes(normalized.status)) {
     normalized.status = "in-progress";
@@ -103,8 +112,6 @@ function normalizeMotion(motion) {
       abstain: Number(normalized.votes.abstain) || 0,
     };
   }
-
-        const committee = await CommitteeModel.findById(committeeId).lean();
 }
 
 function serializeMotion(doc) {
@@ -137,7 +144,7 @@ export async function handler(event) {
       const filterCommitteeId = params.committeeId || null;
 
       if (motionId) {
-        const motionDoc = await Motion.findById(motionId).lean();
+        const motionDoc = await MotionModel.findById(motionId).lean();
         if (!motionDoc) {
           return {
             statusCode: 404,
@@ -158,7 +165,7 @@ export async function handler(event) {
         query.committeeId = filterCommitteeId;
       }
 
-      const motions = await Motion.find(query).lean();
+      const motions = await MotionModel.find(query).lean();
       const result = motions.map(serializeMotion);
 
       return {
@@ -316,7 +323,7 @@ export async function handler(event) {
         };
       }
 
-      const motionDoc = await Motion.findById(id);
+      const motionDoc = await MotionModel.findById(id);
       if (!motionDoc) {
         return {
           statusCode: 404,
@@ -418,7 +425,8 @@ export async function handler(event) {
             : motionDoc.decisionDetails?.summary || "";
 
         const prosVal = (function () {
-          if (Array.isArray(body.decisionDetails.pros)) return body.decisionDetails.pros;
+          if (Array.isArray(body.decisionDetails.pros))
+            return body.decisionDetails.pros;
           if (typeof body.decisionDetails.pros === "string")
             return body.decisionDetails.pros
               .split(/\n+/)
@@ -428,7 +436,8 @@ export async function handler(event) {
         })();
 
         const consVal = (function () {
-          if (Array.isArray(body.decisionDetails.cons)) return body.decisionDetails.cons;
+          if (Array.isArray(body.decisionDetails.cons))
+            return body.decisionDetails.cons;
           if (typeof body.decisionDetails.cons === "string")
             return body.decisionDetails.cons
               .split(/\n+/)
@@ -529,7 +538,7 @@ export async function handler(event) {
               // Find submotions belonging to the original parent and duplicate
               // each one into the destination committee, linking them to the
               // newly created parent id so structure is preserved.
-              const subs = await Motion.find({
+              const subs = await MotionModel.find({
                 committeeId: motionDoc.committeeId,
                 parentMotionId: motionDoc._id,
               }).lean();
@@ -620,7 +629,7 @@ export async function handler(event) {
 
       // Case 1: delete a single motion by id
       if (id) {
-        const motionDoc = await Motion.findById(id);
+        const motionDoc = await MotionModel.findById(id);
         if (!motionDoc) {
           return {
             statusCode: 404,
@@ -632,7 +641,7 @@ export async function handler(event) {
         // 🔻 Cascade delete discussions for this motion
         const discussionResult = await Discussion.deleteMany({ motionId: id });
 
-        await Motion.findByIdAndDelete(id);
+        await MotionModel.findByIdAndDelete(id);
 
         return {
           statusCode: 200,
@@ -649,7 +658,7 @@ export async function handler(event) {
       // Case 2: delete all motions for a specific committee
       if (committeeId) {
         // Find all motions for this committee so we know which discussions to delete
-        const motionsToDelete = await Motion.find({ committeeId })
+        const motionsToDelete = await MotionModel.find({ committeeId })
           .select("_id")
           .lean();
 
@@ -663,7 +672,7 @@ export async function handler(event) {
           deletedDiscussions = discussionResult.deletedCount || 0;
         }
 
-        const result = await Motion.deleteMany({ committeeId });
+        const result = await MotionModel.deleteMany({ committeeId });
 
         return {
           statusCode: 200,
@@ -679,7 +688,7 @@ export async function handler(event) {
       }
 
       // Case 3: delete ALL motions in the collection
-      const motionResult = await Motion.deleteMany({});
+      const motionResult = await MotionModel.deleteMany({});
 
       // 🔻 Delete all discussions (since all motions are gone)
       const discussionResult = await Discussion.deleteMany({});
