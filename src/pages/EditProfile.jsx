@@ -44,6 +44,9 @@ export default function EditProfile() {
         }));
       }
       const cached = loadProfileFromStorage(email);
+      const hadSeed = Boolean(
+        email || (cached && (cached.username || cached.email))
+      );
       if (cached && !cancelled) {
         setFormData({
           name: cached.name || "",
@@ -97,7 +100,10 @@ export default function EditProfile() {
           });
         }
       } catch (err) {
-        setError(err.message || "Failed to load profile");
+        console.warn("[EditProfile] load profile failed", err);
+        if (!hadSeed) {
+          setError(err.message || "Failed to load profile");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
