@@ -68,20 +68,73 @@ function Avatar({ src, alt }) {
 
 function MemberProfileCard({ member, onRemove }) {
   if (!member) return null;
+  const [profile, setProfile] = React.useState(member || null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        let p = { ...(member || {}) };
+        // If member has an email, prefer the email-scoped cache
+        if ((!p.name || !p.avatarUrl) && p.email) {
+          try {
+            const cached = loadProfileFromStorage(p.email);
+            if (cached) {
+              p = {
+                ...p,
+                name: p.name || cached.name,
+                avatarUrl: p.avatarUrl || cached.avatarUrl,
+                username: p.username || cached.username,
+                email: p.email || cached.email,
+              };
+            }
+          } catch (e) {}
+        }
+        // Fallback: check generic `profileData` snapshot for matching username
+        if ((!p.name || !p.avatarUrl) && typeof localStorage !== "undefined") {
+          try {
+            const generic = JSON.parse(
+              localStorage.getItem("profileData") || "null"
+            );
+            if (
+              generic &&
+              generic.username &&
+              generic.username === (p.username || "")
+            ) {
+              p = {
+                ...p,
+                name: p.name || generic.name,
+                avatarUrl: p.avatarUrl || generic.avatarUrl,
+              };
+            }
+          } catch (e) {}
+        }
+        if (mounted) setProfile(p);
+      } catch (e) {
+        if (mounted) setProfile(member);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [member]);
 
   return (
-    <div className="member-item" id={`member-${member.username}`}>
+    <div className="member-item" id={`member-${profile.username}`}>
       <div className="member-left">
-        <Avatar src={member.avatarUrl} alt={member.name || member.username} />
+        <Avatar
+          src={profile.avatarUrl}
+          alt={profile.name || profile.username}
+        />
         <div className="member-meta">
-          <p className="member-name">{member.name || member.username}</p>
-          <p className="member-username">({member.username})</p>
+          <p className="member-name">{profile.name || profile.username}</p>
+          <p className="member-username">({profile.username})</p>
         </div>
       </div>
       {onRemove && (
         <button
           className="pill danger"
-          onClick={() => onRemove(member.username)}
+          onClick={() => onRemove(profile.username)}
           title="Remove member"
         >
           ✕
@@ -94,14 +147,69 @@ function MemberProfileCard({ member, onRemove }) {
 // Component to always show latest profile info for the owner
 // Owner card: always display current user's profile info from state
 function OwnerProfileCard({ user }) {
-  if (!user) return null;
+  const [profile, setProfile] = React.useState(user || null);
+
+  React.useEffect(() => {
+    let mounted = true;
+    if (!user) return undefined;
+    (async () => {
+      try {
+        let p = { ...(user || {}) };
+        // If missing info, try local cache by full email
+        if ((!p.name || !p.avatarUrl) && p.email) {
+          try {
+            const cached = loadProfileFromStorage(p.email);
+            if (cached) {
+              p = {
+                ...p,
+                name: p.name || cached.name,
+                avatarUrl: p.avatarUrl || cached.avatarUrl,
+                username: p.username || cached.username,
+                email: p.email || cached.email,
+              };
+            }
+          } catch (e) {}
+        }
+        // As a last resort, try generic `profileData` snapshot
+        if ((!p.name || !p.avatarUrl) && typeof localStorage !== "undefined") {
+          try {
+            const generic = JSON.parse(
+              localStorage.getItem("profileData") || "null"
+            );
+            if (
+              generic &&
+              generic.username &&
+              generic.username === (p.username || "")
+            ) {
+              p = {
+                ...p,
+                name: p.name || generic.name,
+                avatarUrl: p.avatarUrl || generic.avatarUrl,
+              };
+            }
+          } catch (e) {}
+        }
+        if (mounted) setProfile(p);
+      } catch (e) {
+        if (mounted) setProfile(user);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
+
+  if (!profile) return null;
   return (
-    <div className="member-item" id={`member-${user.username}`}>
+    <div className="member-item" id={`member-${profile.username}`}>
       <div className="member-left">
-        <Avatar src={user.avatarUrl} alt={user.name || user.username || ""} />
+        <Avatar
+          src={profile.avatarUrl}
+          alt={profile.name || profile.username || ""}
+        />
         <div className="member-meta">
-          <p className="member-name">{user.name || user.username}</p>
-          <p className="member-username">{user.username}</p>
+          <p className="member-name">{profile.name || profile.username}</p>
+          <p className="member-username">{profile.username}</p>
         </div>
       </div>
     </div>
