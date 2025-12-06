@@ -543,67 +543,9 @@ export async function handler(event) {
               });
 
               // Find submotions belonging to the original parent and duplicate
-              // each one into the destination committee, linking them to the
-              // newly created parent id so structure is preserved.
-              const subs = await MotionModel.find({
-                committeeId: motionDoc.committeeId,
-                parentMotionId: motionDoc._id,
-              }).lean();
-              if (Array.isArray(subs) && subs.length > 0) {
-                for (let i = 0; i < subs.length; i++) {
-                  const s = subs[i];
-                  const newSubId =
-                    Date.now().toString() +
-                    String(Math.floor(Math.random() * 10000));
-                  try {
-                    await MotionModel.create({
-                      _id: newSubId,
-                      committeeId: destId,
-                      title: s.title,
-                      description: s.description,
-                      status: s.status || originalStatus || "in-progress",
-                      votes: { yes: 0, no: 0, abstain: 0 },
-                      type: s.type === "submotion" ? "submotion" : "submotion",
-                      parentMotionId: newParentId,
-                      meta: {
-                        ...(s.meta || {}),
-                        referredFrom: {
-                          committeeId: motionDoc.committeeId,
-                          referredAt: new Date().toISOString(),
-                          receivedAt: new Date().toISOString(),
-                        },
-                      },
-                      decisionNote: s.decisionNote || "Received by referral",
-                    });
-                  } catch (e) {
-                    console.warn(
-                      "Failed to duplicate submotion:",
-                      e?.message || e
-                    );
-                  }
-                }
-
-                // Mark source submotions as closed but do not overwrite their
-                // existing decision notes so the original outcomes are preserved.
-                try {
-                  await MotionModel.updateMany(
-                    {
-                      committeeId: motionDoc.committeeId,
-                      parentMotionId: motionDoc._id,
-                    },
-                    {
-                      $set: {
-                        status: "closed",
-                      },
-                    }
-                  );
-                } catch (e) {
-                  console.warn(
-                    "Failed to mark source submotions closed:",
-                    e?.message || e
-                  );
-                }
-              }
+              // Do not duplicate submotions. Only the parent (main) motion
+              // should be created in the destination committee when a refer
+              // passes; leave submotions untouched in the origin committee.
             } catch (e) {
               console.warn(
                 "Failed to duplicate motion to destination committee:",
