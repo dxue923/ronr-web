@@ -156,6 +156,9 @@ export default function EditProfile() {
           avatarUrl: payload.avatarUrl,
         });
         // Notify other pages to refresh their cached view
+        try {
+          localStorage.setItem("profileUpdatedAt", String(Date.now()));
+        } catch (e) {}
         window.dispatchEvent(new Event("profile-updated"));
         alert("Changes saved locally. Sign in to sync with the server.");
       } catch (err) {
@@ -203,6 +206,9 @@ export default function EditProfile() {
           email: emailForCache,
           avatarUrl: updated.avatarUrl || payload.avatarUrl,
         });
+        try {
+          localStorage.setItem("profileUpdatedAt", String(Date.now()));
+        } catch (e) {}
       } catch (e) {
         console.warn("Failed to save updated profile to localStorage", e);
       }

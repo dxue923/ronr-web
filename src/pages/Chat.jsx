@@ -110,6 +110,7 @@ import logo from "../assets/logo.png";
 import {
   fetchProfile as apiFetchProfile,
   findProfileByUsername,
+  loadProfileFromStorage,
 } from "../api/profile";
 // Simple in-memory cache for profile lookups during this page session
 const profileLookupCache = new Map();
@@ -428,7 +429,18 @@ export default function Chat() {
           setMe(getFallbackUser());
           return;
         }
-        const profile = await apiFetchProfile(token || rawIdToken);
+        let profile = null;
+        try {
+          profile = await apiFetchProfile(token || rawIdToken);
+        } catch (e) {
+          profile = null;
+        }
+        if (!profile) {
+          // fallback to local cache saved under full email
+          const emailForCache = (claims?.email || user?.email || "").toString();
+          const cached = loadProfileFromStorage(emailForCache);
+          if (cached) profile = cached;
+        }
         if (!profile || cancelled) return;
         const emailLocal = (profile.email || "").split("@")[0] || "";
         const username = (profile.username || emailLocal || "")

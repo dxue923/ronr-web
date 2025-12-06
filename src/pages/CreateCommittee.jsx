@@ -10,7 +10,11 @@ import {
   deleteCommittee as apiDeleteCommittee,
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
-import { fetchProfile, findProfileByUsername } from "../api/profile";
+import {
+  fetchProfile,
+  findProfileByUsername,
+  loadProfileFromStorage,
+} from "../api/profile";
 
 const AVATAR_SIZE = 40;
 // Avatar component at top level for use in all subcomponents
@@ -674,13 +678,22 @@ export default function CreateCommittee() {
           localStorage.setItem("authToken", token);
         } catch {}
 
-        const profile = await fetchProfile(token);
+        let profile = null;
+        try {
+          profile = await fetchProfile(token);
+        } catch (e) {
+          profile = null;
+        }
+        // If server lookup failed, fall back to local cache (saved by EditProfile)
+        if (!profile) {
+          const emailForCache = (user?.email || "").toString();
+          const cached = loadProfileFromStorage(emailForCache);
+          if (cached) profile = cached;
+        }
         const emailLocal =
           (profile?.email || user?.email || "").split("@")[0] || "";
-
         const profileName = (profile?.name || "").toString().trim();
         const displayName = profileName || emailLocal;
-
         setCurrentUser((prev) => ({
           id: emailLocal || prev.id,
           username: emailLocal || prev.username, // keep slug stable
