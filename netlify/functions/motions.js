@@ -488,8 +488,9 @@ export async function handler(event) {
         }
         // If refer info provided, persist the refer metadata and mark the
         // motion as closed so it remains in the Closed/Concluded list
-        // on clients after reload. The server will also duplicate the
-        // motion into the destination committee below.
+        // on clients after reload. Duplicate into the destination committee
+        // only when the caller explicitly sets the status to 'referred'
+        // (i.e. the referral passed).
         if (body.meta.referInfo || body.meta.referDetails) {
           // Capture original status and decision note so destination copies
           // can preserve the original lifecycle state.
@@ -513,7 +514,12 @@ export async function handler(event) {
           } catch (e) {
             // ignore
           }
-          if (destId) {
+          // Only create destination copies when the PATCH explicitly marks
+          // the parent motion as 'referred' (i.e. referral passed).
+          const shouldDuplicate =
+            String(body.status || "").toLowerCase() === "referred";
+
+          if (destId && shouldDuplicate) {
             try {
               // Create a new parent motion in the destination committee
               const newParentId = Date.now().toString();

@@ -4545,20 +4545,8 @@ export default function Chat() {
                     role="status"
                     aria-live="polite"
                   >
-                    {activeMotion?.meta?.referredFrom
-                      ? `Received by referral from ${
-                          activeMotion.meta.referredFrom.committeeName ||
-                          activeMotion.meta.referredFrom.fromCommitteeName ||
-                          referredNames[
-                            activeMotion.meta.referredFrom.committeeId
-                          ] ||
-                          referredNames[
-                            activeMotion.meta.referredFrom.fromCommitteeId
-                          ] ||
-                          activeMotion.meta.referredFrom.committeeId ||
-                          activeMotion.meta.referredFrom.fromCommitteeId
-                        }.`
-                      : activeMotion?.decisionNote || "Received by referral."}
+                    {/* Always show a generic received message without source committee */}
+                    {activeMotion?.decisionNote || "Received by referral."}
                   </div>
                 )}
                 {activeMotion.description ? (
