@@ -188,6 +188,7 @@ export default function Chat() {
   const {
     isAuthenticated,
     getIdTokenClaims,
+    getAccessTokenSilently,
     user,
     isLoading: authLoading,
   } = useAuth0();
@@ -401,13 +402,28 @@ export default function Chat() {
           setMe(getFallbackUser());
           return;
         }
-        const claims = await getIdTokenClaims().catch(() => null);
+        // Prefer an audience-scoped access token; fall back to ID token when necessary
+        const claims = await (getIdTokenClaims
+          ? getIdTokenClaims().catch(() => null)
+          : Promise.resolve(null));
+        let token = null;
+        try {
+          if (getAccessTokenSilently) {
+            token = await getAccessTokenSilently({
+              authorizationParams: {
+                audience: import.meta.env.VITE_AUTH0_AUDIENCE,
+              },
+            });
+          }
+        } catch (e) {
+          // ignore and fall back to ID token below
+        }
         const rawIdToken = claims?.__raw || null;
-        if (!rawIdToken) {
+        if (!token && !rawIdToken) {
           setMe(getFallbackUser());
           return;
         }
-        const profile = await apiFetchProfile(rawIdToken);
+        const profile = await apiFetchProfile(token || rawIdToken);
         if (!profile || cancelled) return;
         const emailLocal = (profile.email || "").split("@")[0] || "";
         const username = (profile.username || emailLocal || "")
