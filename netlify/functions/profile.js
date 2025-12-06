@@ -220,21 +220,42 @@ export async function handler(event) {
       const params = event.queryStringParameters || {};
       const lookup = (params.lookup || "").toString().trim();
       if (lookup) {
-        // Find by exact email (preferred) or username.
+        // Prefer username lookup (case-insensitive exact) first, then
+        // treat lookup as an email if it contains '@', and finally try
+        // an _id lookup (Auth0 sub or ObjectId) as a fallback. This makes
+        // `?lookup=username` reliably return the username result.
         try {
           let doc = null;
-          if (lookup.includes("@")) {
-            // Exact email match
-            doc = await ProfileModel.findOne({ email: lookup }).lean();
-          }
-          if (!doc) {
-            // Fallback: username exact, case-insensitive
+
+          // 1) Username (case-insensitive exact match)
+          try {
             const re = new RegExp(
-              `^${lookup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+              `^${lookup.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}$`,
               "i"
             );
             doc = await ProfileModel.findOne({ username: re }).lean();
+          } catch (e) {
+            doc = null;
           }
+
+          // 2) Email exact match when lookup contains '@'
+          if (!doc && lookup.includes("@")) {
+            try {
+              doc = await ProfileModel.findOne({ email: lookup }).lean();
+            } catch (e) {
+              doc = null;
+            }
+          }
+
+          // 3) Fallback: try _id lookup (Auth0 sub like 'auth0|...' or 24-hex)
+          if (!doc) {
+            try {
+              doc = await ProfileModel.findById(lookup).lean();
+            } catch (e) {
+              doc = null;
+            }
+          }
+
           if (!doc) {
             return {
               statusCode: 404,
