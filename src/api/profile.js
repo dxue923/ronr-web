@@ -10,9 +10,12 @@ export async function fetchProfile(idToken) {
   });
 
   const data = await res.json().catch(() => null);
+  // If the request returned 404, treat as "not found" and return null so
+  // callers can gracefully fall back to cached/local data without throwing.
+  if (res.status === 404) return null;
 
   if (!res.ok || !data || !data.email) {
-    // Fallback: try to fetch by email or username from database
+    // Fallback: try to fetch by email/username from database
     let lookup = null;
     try {
       // Try to decode token for email/username
@@ -23,20 +26,22 @@ export async function fetchProfile(idToken) {
     if (lookup) {
       try {
         const qs = `?lookup=${encodeURIComponent(lookup)}`;
-        const fallbackRes = await fetch(`${BASE_URL}${qs}`, {
+        const fallbackRes = await fetch(`${BASE}${qs}`, {
           method: "GET",
           headers: {
             Accept: "application/json",
             Authorization: `Bearer ${idToken}`,
           },
         });
+        // If fallback lookup returns 404, return null (not an error)
+        if (fallbackRes.status === 404) return null;
         const fallbackData = await fallbackRes.json().catch(() => null);
         if (fallbackRes.ok && fallbackData) {
           return fallbackData;
         }
       } catch {}
     }
-    throw new Error(data?.message || data?.error || "Failed to load profile");
+    return null;
   }
   return data;
 }

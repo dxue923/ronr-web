@@ -109,6 +109,34 @@ function MemberProfileCard({ member, onRemove }) {
             }
           } catch (e) {}
         }
+
+        // If still missing, attempt a silent server lookup by username
+        if ((!p.name || !p.avatarUrl) && p.username) {
+          try {
+            const fn = await findProfileByUsername(p.username);
+            if (typeof fn === "function") {
+              const token = (() => {
+                try {
+                  return localStorage.getItem("authToken") || null;
+                } catch {
+                  return null;
+                }
+              })();
+              const remote = await fn(token).catch(() => null);
+              if (remote) {
+                p = {
+                  ...p,
+                  name: p.name || remote.name,
+                  avatarUrl: p.avatarUrl || remote.avatarUrl,
+                  email: p.email || remote.email,
+                  username: p.username || remote.username,
+                };
+              }
+            }
+          } catch (e) {
+            // silent
+          }
+        }
         if (mounted) setProfile(p);
       } catch (e) {
         if (mounted) setProfile(member);
