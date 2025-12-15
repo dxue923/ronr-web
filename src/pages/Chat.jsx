@@ -95,6 +95,7 @@ import { getCommentsForMotion, createComment } from "../api/discussion";
 import {
   getCommittee as apiGetCommittee,
   updateCommittee as apiUpdateCommittee,
+  getCommittees as apiGetCommittees,
 } from "../api/committee";
 import {
   fetchMotions,
@@ -296,6 +297,7 @@ export default function Chat() {
     saveMotionsForCommittee(committee.id, updated);
   };
   const scrollRef = useRef(null);
+  const recessRestoredRef = useRef(false);
   // Whether auto-scrolling to bottom is allowed. If the user scrolls up,
   // we set this to false so periodic updates won't yank the view to bottom.
   const allowAutoScroll = useRef(true);
@@ -885,6 +887,15 @@ export default function Chat() {
           currentMeetingDate
         );
       }
+      // persist recess state per-committee (skip if we haven't restored yet)
+      try {
+        if (recessRestoredRef.current) {
+          localStorage.setItem(
+            `committee:${committee.id}:meetingRecessed`,
+            meetingRecessed ? "true" : "false"
+          );
+        }
+      } catch (e) {}
       // legacy/global keys
       localStorage.setItem("currentMeetingId", currentMeetingId || "");
       localStorage.setItem("currentMeetingSeq", String(currentMeetingSeq || 0));
@@ -900,8 +911,24 @@ export default function Chat() {
     previousMeetingId,
     currentMeetingSeq,
     meetingActive,
+    meetingRecessed,
     currentMeetingDate,
   ]);
+
+  // Restore persisted recess state when committee changes
+  useEffect(() => {
+    if (!committee?.id) return;
+    try {
+      const raw = localStorage.getItem(
+        `committee:${committee.id}:meetingRecessed`
+      );
+      if (raw !== null) {
+        setMeetingRecessed(raw === "true");
+        // mark that we've restored from storage so initial persist won't overwrite
+        recessRestoredRef.current = true;
+      }
+    } catch (e) {}
+  }, [committee?.id]);
 
   // track split layout breakpoint
   useEffect(() => {
@@ -1511,16 +1538,27 @@ export default function Chat() {
     } else if (type === "refer") {
       // Do not prefill description for refer; keep blank
       setNewMotionDesc("");
-      try {
-        const list = (loadCommittees() || []).filter(
-          (c) => c.id !== committee.id
-        );
-        setAllCommittees(list);
-        setReferDestId("");
-      } catch (e) {
-        setAllCommittees([]);
-        setReferDestId("");
-      }
+      // Fetch committees from backend filtered by current user membership.
+      (async () => {
+        try {
+          const member = (me && me.username) || undefined;
+          const list = await apiGetCommittees(member);
+          const filtered = (list || []).filter((c) => c.id !== committee.id);
+          setAllCommittees(filtered);
+          setReferDestId("");
+        } catch (err) {
+          // fallback to legacy localStorage list if backend call fails
+          try {
+            const list = (loadCommittees() || []).filter(
+              (c) => c.id !== committee.id
+            );
+            setAllCommittees(list);
+          } catch (e) {
+            setAllCommittees([]);
+          }
+          setReferDestId("");
+        }
+      })();
     }
     setShowAddModal(true);
   };
@@ -1870,6 +1908,77 @@ export default function Chat() {
         };
         await updateMotion(activeMotion.id, { decisionDetails: detail });
       } else {
+        // If we're taking up a referred motion, persist the taken-up event into meta
+        try {
+          if (activeMotion.state === "referred" && next === "discussion") {
+            const newMeta = { ...(activeMotion.meta || {}) };
+            try {
+              newMeta.referredFrom = {
+                ...(newMeta.referredFrom || {}),
+                takenUpAt: new Date().toISOString(),
+                takenUpBy: me?.id || null,
+              };
+            } catch (e) {}
+            await updateMotion(activeMotion.id, { meta: newMeta, status });
+            // After taking up, refetch motions so UI shows authoritative state
+            if (committee?.id) {
+              try {
+                const remote = await fetchMotions(committee.id);
+                const mapped = (remote || []).map((m) => {
+                  const state =
+                    m.status === "paused"
+                      ? "paused"
+                      : m.status === "postponed"
+                      ? "postponed"
+                      : m.status === "referred"
+                      ? "referred"
+                      : m.status === "voting"
+                      ? "voting"
+                      : m.status === "closed" ||
+                        m.status === "passed" ||
+                        m.status === "failed"
+                      ? "closed"
+                      : "discussion";
+                  const meta = { ...(m.meta || {}) };
+                  const isSub =
+                    (m.type === "submotion" && m.parentMotionId) ||
+                    !!meta.submotionOf ||
+                    !!meta.parentMotionId;
+                  if (isSub) {
+                    meta.kind = "sub";
+                    meta.parentMotionId =
+                      m.parentMotionId ||
+                      meta.submotionOf ||
+                      meta.parentMotionId;
+                    if (meta.submotionType && !meta.subType)
+                      meta.subType = meta.submotionType;
+                  }
+                  return {
+                    id: m.id,
+                    title: m.title,
+                    description: m.description,
+                    state,
+                    messages: [],
+                    decisionLog: [],
+                    votes: m.votes || [],
+                    meta,
+                    decisionDetails: m.decisionDetails || undefined,
+                  };
+                });
+                setMotions(mapped);
+              } catch (err) {
+                console.error(
+                  "Failed to refetch motions after taking up referral",
+                  err
+                );
+              }
+            }
+            // done
+            return;
+          }
+        } catch (e) {
+          console.warn("Failed to persist take-up metadata", e);
+        }
         await updateMotionStatus(activeMotion.id, status);
         // After moving to vote, refetch motions from backend so all members see the change
         if (next === "voting" && committee?.id) {
@@ -2047,6 +2156,7 @@ export default function Chat() {
     }
 
     // If this was a submotion, apply its effect to the parent (postpone or refer)
+    const pendingCreates = [];
     try {
       const am = activeMotion;
       const meta = am?.meta;
@@ -2107,56 +2217,94 @@ export default function Chat() {
               meetingId: currentMeetingId,
             };
             // Save referred copy into destination (inactive until taken up)
-            try {
-              if (destId) {
+            if (destId) {
+              try {
                 const destMotions = loadMotionsForCommittee(destId) || [];
+                // Build a sanitized copy of the parent motion for the destination:
+                // strip any submotion-related metadata so only the main motion is sent.
+                const rawMeta = m.meta || {};
+                const sanitizedMeta = { ...(rawMeta || {}) };
+                // Remove submotion / parent linkage and transient flags
+                delete sanitizedMeta.kind;
+                delete sanitizedMeta.subType;
+                delete sanitizedMeta.submotionType;
+                delete sanitizedMeta.submotionOf;
+                delete sanitizedMeta.parentMotionId;
+                delete sanitizedMeta.parentPreviousState;
+                delete sanitizedMeta.postponePrevState;
+                delete sanitizedMeta.postponeInfo;
+                delete sanitizedMeta.overturnOf;
+                delete sanitizedMeta.referDetails;
+                delete sanitizedMeta.referredFrom;
+                // Attach referredFrom metadata for traceability
+                sanitizedMeta.referredFrom = {
+                  committeeId: originId,
+                  committeeName: originName,
+                  originalMotionId: m.id,
+                  referredAt: new Date().toISOString(),
+                };
+
                 const moved = {
-                  ...m,
+                  id: m.id,
+                  title: m.title,
+                  description: m.description,
                   state: "discussion",
                   decisionNote: "Received by referral",
                   messages: [],
                   votes: [],
                   carryOver: false,
                   meetingId: undefined,
-                  meta: {
-                    ...(m.meta || {}),
-                    referredFrom: {
-                      committeeId: originId,
-                      committeeName: originName,
-                      referredAt: new Date().toISOString(),
-                    },
-                    // clear postpone flags that don't carry across
-                    postponeInfo: undefined,
-                    postponePrevState: undefined,
-                  },
+                  meta: sanitizedMeta,
                 };
-                const nextList = [moved, ...destMotions];
-                saveMotionsForCommittee(destId, nextList);
-                // Also persist to backend (fire-and-forget)
-                (async () => {
-                  try {
-                    await apiCreateMotion({
-                      title: moved.title,
-                      description: moved.description,
-                      committeeId: destId,
-                      type: "main",
-                      meta: moved.meta,
-                      createdBy: {
-                        id: me.id,
-                        name: me.name,
-                        username: me.username,
-                        avatarUrl: me.avatarUrl,
+
+                // Create on backend asynchronously and update local storage when done
+                const p = apiCreateMotion({
+                  title: moved.title,
+                  description: moved.description,
+                  committeeId: destId,
+                  type: "main",
+                  meta: moved.meta,
+                  createdBy: {
+                    id: me.id,
+                    name: me.name,
+                    username: me.username,
+                    avatarUrl: me.avatarUrl,
+                  },
+                })
+                  .then((created) => {
+                    const serverId =
+                      created?.id || created?._id || Date.now().toString();
+                    const finalMoved = {
+                      ...moved,
+                      id: serverId,
+                      meta: {
+                        ...(moved.meta || {}),
+                        referredFrom: {
+                          ...(moved.meta?.referredFrom || {}),
+                          receivedAt:
+                            created?.meta?.referredFrom?.receivedAt ||
+                            new Date().toISOString(),
+                        },
                       },
-                    });
-                  } catch (err) {
+                    };
+                    const destList = loadMotionsForCommittee(destId) || [];
+                    const nextList = [finalMoved, ...destList];
+                    saveMotionsForCommittee(destId, nextList);
+                  })
+                  .catch((err) => {
                     console.warn(
                       "Failed to create referred motion in destination",
                       err
                     );
-                  }
-                })();
+                    const destList = loadMotionsForCommittee(destId) || [];
+                    const nextList = [moved, ...destList];
+                    saveMotionsForCommittee(destId, nextList);
+                  });
+                pendingCreates.push(p);
+              } catch (e) {
+                // ignore
               }
-            } catch (e) {}
+            }
             // Persist refer effect to backend (fire-and-forget)
             (async () => {
               try {
@@ -2189,6 +2337,15 @@ export default function Chat() {
 
     setMotions(updated);
     setSavingDecision(false);
+    try {
+      if (pendingCreates && pendingCreates.length)
+        await Promise.all(pendingCreates);
+    } catch (e) {
+      console.warn(
+        "Failed to complete referred motion creates:",
+        e?.message || e
+      );
+    }
     // removed: cross-window final decision blink notification
   };
   // unchanged: submotion effect application handled elsewhere; removed blink listeners
@@ -2295,12 +2452,90 @@ export default function Chat() {
       // ignore
     }
 
-    // Persist edited decision details
+    // Persist edited decision details and, if a postpone submotion passed,
+    // also persist the submotion as passed and move parent + its submotions to postponed.
     try {
-      await updateMotion(activeMotion.id, {
-        decisionDetails: updated.find((m) => m.id === activeMotion.id)
-          ?.decisionDetails,
-      });
+      const decisionPayload = updated.find(
+        (m) => m.id === activeMotion.id
+      )?.decisionDetails;
+      await updateMotion(activeMotion.id, { decisionDetails: decisionPayload });
+
+      // Handle postpone submotion persistence
+      try {
+        const am = activeMotion;
+        const meta = am?.meta;
+        const isPostponeSub =
+          meta && meta.kind === "sub" && meta.subType === "postpone";
+        if (isPostponeSub && meta.parentMotionId) {
+          const revisedOutcome =
+            (editDecisionOutcome && editDecisionOutcome) ||
+            computeOutcome(voteEntries(am));
+          const passed = /pass|adopt/i.test(revisedOutcome);
+          if (passed) {
+            const parentId = meta.parentMotionId;
+            // mark submotion locally as closed/passed and parent+siblings as postponed
+            const nextLocal = (updated || []).map((m) => {
+              if (m.id === activeMotion.id) {
+                return {
+                  ...m,
+                  state: "closed",
+                  decisionDetails: decisionPayload,
+                };
+              }
+              const isChildOfParent =
+                (m.meta && m.meta.parentMotionId === parentId) ||
+                m.parentMotionId === parentId;
+              if (m.id === parentId || isChildOfParent) {
+                return {
+                  ...m,
+                  state: "postponed",
+                  decisionNote:
+                    m.id === parentId
+                      ? "Postponed by submotion"
+                      : m.decisionNote,
+                  resumeAt: meta.resumeAt || m.resumeAt,
+                };
+              }
+              return m;
+            });
+            setMotions(nextLocal);
+
+            // Persist changes for submotion, parent and its submotions
+            const tasks = [];
+            tasks.push(
+              updateMotion(activeMotion.id, {
+                status: "passed",
+                decisionDetails: decisionPayload,
+              }).catch(() => {})
+            );
+
+            (updated || [])
+              .filter(
+                (m) =>
+                  m.id === parentId ||
+                  (m.meta && m.meta.parentMotionId === parentId) ||
+                  m.parentMotionId === parentId
+              )
+              .forEach((m) => {
+                if (m.id === activeMotion.id) return;
+                const payload = { status: "postponed" };
+                if (m.id === parentId && meta && meta.resumeAt) {
+                  payload.meta = { ...(m.meta || {}), resumeAt: meta.resumeAt };
+                } else {
+                  payload.meta = {
+                    ...(m.meta || {}),
+                    postponedBy: activeMotion.id,
+                  };
+                }
+                tasks.push(updateMotion(m.id, payload).catch(() => {}));
+              });
+
+            await Promise.all(tasks);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to apply postpone submotion effects", e);
+      }
     } catch (err) {
       console.warn("Failed to persist edited decision details", err);
     }
@@ -4544,6 +4779,63 @@ export default function Chat() {
                   })()}
                 </div>
 
+                {activeMotion?.state === "referred" && (
+                  <div className="referred-note" style={{ marginTop: 8 }}>
+                    {amIManager ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                        }}
+                      >
+                        <div style={{ color: "#374151" }}>
+                          This motion was referred to the committee.
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              changeMotionState("discussion");
+                              setShowChairMenu(false);
+                            }}
+                            disabled={meetingRecessed}
+                            title={
+                              meetingRecessed
+                                ? "Disabled — meeting in recess"
+                                : "Accept referral and start discussion"
+                            }
+                          >
+                            Accept
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canChairClose) return;
+                              changeMotionState("closed");
+                              setShowChairMenu(false);
+                            }}
+                            disabled={meetingRecessed || !canChairClose}
+                            title={
+                              meetingRecessed
+                                ? "Disabled — meeting in recess"
+                                : !canChairClose
+                                ? "You don't have permission to close this motion"
+                                : "Reject referral and close motion"
+                            }
+                            style={{ marginLeft: 8 }}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      "This motion has been referred to the committee. The chair must take up the motion before discussion is enabled."
+                    )}
+                  </div>
+                )}
+
                 {activeMotion?.state === "closed" && !otcClosed && (
                   <div
                     className="view-tab-segment"
@@ -4851,14 +5143,16 @@ export default function Chat() {
                 {amIManager &&
                   activeMotion &&
                   (() => {
-                    const st = activeMotion.state || "discussion";
+                    const st = activeMotion?.state || "discussion";
                     const isDiscussion = st === "discussion";
                     const isPaused = st === "paused";
                     const isVoting = st === "voting";
                     const isPostponed = st === "postponed";
                     const isClosed = st === "closed";
+                    const isReferred = st === "referred";
                     // Hide chair menu entirely for postponed and closed motions.
                     if (isPostponed || isClosed) return null;
+                    const controlsDisabled = meetingRecessed || isReferred;
                     return (
                       <div className="composer-chair">
                         <button
@@ -4873,75 +5167,86 @@ export default function Chat() {
                         </button>
                         {showChairMenu && (
                           <div className="chair-menu" role="menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("discussion");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={!isPaused || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isPaused
-                                  ? "Disabled — discussion is already active"
-                                  : undefined
-                              }
-                            >
-                              Resume Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("paused");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={!isDiscussion || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isDiscussion
-                                  ? "Disabled — motion already paused"
-                                  : undefined
-                              }
-                            >
-                              Pause Discussion
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                changeMotionState("voting");
-                                setShowChairMenu(false);
-                              }}
-                              disabled={isVoting || meetingRecessed}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : isVoting
-                                  ? "Disabled — already voting"
-                                  : undefined
-                              }
-                            >
-                              Move to Vote
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!canChairClose) return;
-                                handleCloseMotionNow(activeMotion?.id);
-                                setShowChairMenu(false);
-                              }}
-                              disabled={meetingRecessed || !isVoting}
-                              title={
-                                meetingRecessed
-                                  ? "Disabled — meeting in recess"
-                                  : !isVoting
-                                  ? "Must vote before closing motion"
-                                  : "Close motion"
-                              }
-                            >
-                              Close Motion
-                            </button>
+                            <>
+                              {isPaused ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    changeMotionState("discussion");
+                                    setShowChairMenu(false);
+                                  }}
+                                  disabled={controlsDisabled}
+                                  title={
+                                    meetingRecessed
+                                      ? "Disabled — meeting in recess"
+                                      : isReferred
+                                      ? "Disabled until chair accepts referred motion"
+                                      : "Resume discussion"
+                                  }
+                                >
+                                  Resume Discussion
+                                </button>
+                              ) : isDiscussion ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    changeMotionState("paused");
+                                    setShowChairMenu(false);
+                                  }}
+                                  disabled={controlsDisabled}
+                                  title={
+                                    meetingRecessed
+                                      ? "Disabled — meeting in recess"
+                                      : isReferred
+                                      ? "Disabled until chair accepts referred motion"
+                                      : "Pause discussion"
+                                  }
+                                >
+                                  Pause Discussion
+                                </button>
+                              ) : null}
+
+                              {isVoting ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!canChairClose) return;
+                                    handleCloseMotionNow(activeMotion?.id);
+                                    setShowChairMenu(false);
+                                  }}
+                                  disabled={controlsDisabled || !canChairClose}
+                                  title={
+                                    meetingRecessed
+                                      ? "Disabled — meeting in recess"
+                                      : isReferred
+                                      ? "Disabled until chair accepts referred motion"
+                                      : !canChairClose
+                                      ? "You don't have permission to close this motion"
+                                      : "Close motion"
+                                  }
+                                >
+                                  Close Motion
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    changeMotionState("voting");
+                                    setShowChairMenu(false);
+                                  }}
+                                  disabled={controlsDisabled}
+                                  title={
+                                    meetingRecessed
+                                      ? "Disabled — meeting in recess"
+                                      : isReferred
+                                      ? "Disabled until chair accepts referred motion"
+                                      : "Move to vote"
+                                  }
+                                >
+                                  Move to Vote
+                                </button>
+                              )}
+                            </>
                             {/* inline helper removed: show message only via hover title */}
                             {/* Special motions title will be shown below Postpone */}
                             {(() => {
@@ -4950,6 +5255,7 @@ export default function Chat() {
                                 activeMotion.meta &&
                                 activeMotion.meta.kind === "sub"
                               );
+
                               const noComments =
                                 (activeMotion?.messages || []).length === 0;
                               const inProgress =
@@ -4962,53 +5268,68 @@ export default function Chat() {
                                   "otc" &&
                                 (activeMotion?.state || "") === "voting"
                               );
+
                               return (
                                 <>
+                                  {/** Header-level 'Take up referred motion' button for chair */}
+                                  {activeMotion?.state === "referred" &&
+                                    amIManager && (
+                                      <div style={{ marginTop: 8 }}>
+                                        <button
+                                          type="button"
+                                          className="take-up-btn"
+                                          onClick={() => {
+                                            changeMotionState("discussion");
+                                            setShowChairMenu(false);
+                                          }}
+                                          disabled={controlsDisabled}
+                                          title={
+                                            meetingRecessed
+                                              ? "Disabled — meeting in recess"
+                                              : isReferred
+                                              ? "Disabled until chair accepts referred motion"
+                                              : "Take up this referred motion"
+                                          }
+                                        >
+                                          Take up referred motion
+                                        </button>
+                                      </div>
+                                    )}
+
                                   {!isSub && inProgress && noComments && (
                                     <button
                                       type="button"
                                       onClick={startObjectionVote}
-                                      disabled={meetingRecessed}
+                                      disabled={controlsDisabled}
                                       title={
                                         meetingRecessed
                                           ? "Disabled — meeting in recess"
+                                          : isReferred
+                                          ? "Disabled until chair accepts referred motion"
                                           : "Object to the consideration of the question"
                                       }
                                     >
                                       Object to Consideration
                                     </button>
                                   )}
-                                  {isReferredState && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        changeMotionState("discussion");
-                                        setShowChairMenu(false);
-                                      }}
-                                      disabled={meetingRecessed}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : "Take up this referred motion"
-                                      }
-                                    >
-                                      Take up referred motion
-                                    </button>
-                                  )}
+
                                   {isVotingOTC && (
                                     <button
                                       type="button"
                                       onClick={finalizeObjectionVote}
-                                      disabled={meetingRecessed}
+                                      disabled={controlsDisabled}
                                       title={
                                         meetingRecessed
                                           ? "Disabled — meeting in recess"
+                                          : isReferred
+                                          ? "Disabled until chair accepts referred motion"
                                           : "End objection vote and apply result"
                                       }
                                     >
                                       End Objection Vote (decide by tally)
                                     </button>
                                   )}
+
                                   {!(
                                     activeMotion &&
                                     activeMotion.meta &&
@@ -5025,12 +5346,12 @@ export default function Chat() {
                                           activeMotion
                                         );
                                       }}
-                                      disabled={isVoting || meetingRecessed}
+                                      disabled={isVoting || controlsDisabled}
                                       title={
                                         meetingRecessed
                                           ? "Disabled — meeting in recess"
-                                          : isVoting
-                                          ? "Disabled — voting in progress"
+                                          : isVoting || isReferred
+                                          ? "Disabled — voting in progress or awaiting chair acceptance"
                                           : "Create a postponement submotion"
                                       }
                                     >
@@ -5051,6 +5372,13 @@ export default function Chat() {
                                 type="button"
                                 onClick={() => {
                                   setMeetingRecessed(false);
+                                  try {
+                                    if (committee?.id)
+                                      localStorage.setItem(
+                                        `committee:${committee.id}:meetingRecessed`,
+                                        "false"
+                                      );
+                                  } catch (e) {}
                                   setShowChairMenu(false);
                                 }}
                                 title="Resume meeting from recess"
@@ -5062,6 +5390,13 @@ export default function Chat() {
                                 type="button"
                                 onClick={() => {
                                   setMeetingRecessed(true);
+                                  try {
+                                    if (committee?.id)
+                                      localStorage.setItem(
+                                        `committee:${committee.id}:meetingRecessed`,
+                                        "true"
+                                      );
+                                  } catch (e) {}
                                   setShowChairMenu(false);
                                 }}
                                 title="Recess the meeting"
@@ -5152,6 +5487,7 @@ export default function Chat() {
                       </div>
                     );
                   })()}
+                {/* referred-note moved to header above */}
                 <input
                   ref={composerInputRef}
                   value={input}
@@ -5173,14 +5509,18 @@ export default function Chat() {
                     sessionPaused ||
                     sessionClosed ||
                     meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
+                    (activeMotion &&
+                      (activeMotion.state === "postponed" ||
+                        activeMotion.state === "referred")) ||
                     !activeMotion
                   }
                   aria-disabled={
                     sessionPaused ||
                     sessionClosed ||
                     meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
+                    (activeMotion &&
+                      (activeMotion.state === "postponed" ||
+                        activeMotion.state === "referred")) ||
                     !activeMotion
                   }
                   title={
@@ -5228,7 +5568,9 @@ export default function Chat() {
                         sessionPaused ||
                         sessionClosed ||
                         meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
+                        (activeMotion &&
+                          (activeMotion.state === "postponed" ||
+                            activeMotion.state === "referred")) ||
                         !activeMotion
                       }
                       aria-label="Pro stance"
@@ -5260,7 +5602,9 @@ export default function Chat() {
                         sessionPaused ||
                         sessionClosed ||
                         meetingRecessed ||
-                        (activeMotion && activeMotion.state === "postponed") ||
+                        (activeMotion &&
+                          (activeMotion.state === "postponed" ||
+                            activeMotion.state === "referred")) ||
                         !activeMotion
                       }
                       aria-disabled={
@@ -5324,7 +5668,9 @@ export default function Chat() {
                     sessionPaused ||
                     sessionClosed ||
                     meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
+                    (activeMotion &&
+                      (activeMotion.state === "postponed" ||
+                        activeMotion.state === "referred")) ||
                     !activeMotion ||
                     !input.trim()
                   }
@@ -5332,7 +5678,9 @@ export default function Chat() {
                     sessionPaused ||
                     sessionClosed ||
                     meetingRecessed ||
-                    (activeMotion && activeMotion.state === "postponed") ||
+                    (activeMotion &&
+                      (activeMotion.state === "postponed" ||
+                        activeMotion.state === "referred")) ||
                     !activeMotion ||
                     !input.trim()
                   }
@@ -5590,7 +5938,7 @@ export default function Chat() {
 
                       <div style={{ marginTop: 12, textAlign: "right" }}>
                         {amIManager && !editingDecision && (
-                          <>
+                          <div>
                             <button
                               type="button"
                               className="decision-edit-btn"
@@ -5598,7 +5946,7 @@ export default function Chat() {
                             >
                               Edit
                             </button>
-                          </>
+                          </div>
                         )}
                       </div>
                     </div>

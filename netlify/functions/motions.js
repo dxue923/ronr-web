@@ -432,7 +432,8 @@ export async function handler(event) {
         }
         // If refer info provided, set status to referred
         if (body.meta.referInfo || body.meta.referDetails) {
-          motionDoc.status = "referred";
+          // When referring, mark original as closed (moved out of active list)
+          motionDoc.status = "closed";
           const info = body.meta.referInfo || body.meta.referDetails;
           const destId = String(
             info.destinationCommitteeId || info.toCommitteeId || ""
@@ -440,21 +441,43 @@ export async function handler(event) {
           if (destId) {
             try {
               const newId = Date.now().toString();
-              await Motion.create({
-                _id: newId,
+              // Avoid creating a duplicate if the destination already has
+              // a motion that references this original via meta.referredFrom.originalMotionId
+              const existing = await Motion.findOne({
                 committeeId: destId,
-                title: motionDoc.title,
-                description: motionDoc.description,
-                status: "in-progress",
-                votes: { yes: 0, no: 0, abstain: 0 },
-                meta: {
-                  referredFrom: {
-                    committeeId: motionDoc.committeeId,
-                    referredAt: new Date().toISOString(),
-                    receivedAt: new Date().toISOString(),
+                "meta.referredFrom.originalMotionId": motionDoc._id,
+              }).lean();
+              if (!existing) {
+                await Motion.create({
+                  _id: newId,
+                  committeeId: destId,
+                  title: motionDoc.title,
+                  description: motionDoc.description,
+                  status: "in-progress",
+                  votes: { yes: 0, no: 0, abstain: 0 },
+                  meta: {
+                    referredFrom: {
+                      committeeId: motionDoc.committeeId,
+                      originalMotionId: motionDoc._id,
+                      referredAt: new Date().toISOString(),
+                      receivedAt: new Date().toISOString(),
+                    },
                   },
-                },
-              });
+                });
+              } else {
+                // if existing found, make sure it has a receivedAt timestamp
+                if (!existing.meta || !existing.meta.referredFrom?.receivedAt) {
+                  await Motion.updateOne(
+                    { _id: existing._id },
+                    {
+                      $set: {
+                        "meta.referredFrom.receivedAt":
+                          new Date().toISOString(),
+                      },
+                    }
+                  ).catch(() => {});
+                }
+              }
             } catch (e) {
               console.warn(
                 "Failed to duplicate motion to destination committee:",
@@ -466,6 +489,34 @@ export async function handler(event) {
       }
 
       await motionDoc.save();
+
+      // If this motion is a referred/received motion and it just reached a
+      // terminal passed state, reopen the original motion back to active
+      // in its originating committee so it becomes visible/active again.
+      try {
+        const referredFrom = motionDoc.meta && motionDoc.meta.referredFrom;
+        if (
+          referredFrom &&
+          (referredFrom.originalMotionId || referredFrom.motionId) &&
+          motionDoc.status === "passed"
+        ) {
+          const originalId = String(
+            referredFrom.originalMotionId || referredFrom.motionId
+          ).trim();
+          if (originalId) {
+            await Motion.findOneAndUpdate(
+              { _id: originalId },
+              { $set: { status: "in-progress" } },
+              { new: true }
+            ).lean();
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "Failed to reopen original motion after refer result:",
+          e?.message || e
+        );
+      }
 
       const plain = motionDoc.toObject({ versionKey: false });
       const serialized = serializeMotion(plain);

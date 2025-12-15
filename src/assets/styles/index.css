@@ -2810,6 +2810,10 @@ START NEW CHAT PAGE CSS
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(2, 6, 23, 0.08);
   border-width: 1px;
+  /* Make generic active selection clearly visible: blue fill + white text */
+  background: #2563eb; /* blue-600 */
+  color: #ffffff;
+  border-color: rgba(37, 99, 235, 0.9);
 }
 
 /* Variant-specific stronger outlines when active for extra clarity */
@@ -2835,6 +2839,10 @@ START NEW CHAT PAGE CSS
   transform: translateY(-3px) scale(1.03);
   box-shadow: 0 18px 36px rgba(2, 6, 23, 0.12), 0 6px 12px rgba(2, 6, 23, 0.06);
   position: relative;
+  /* ensure the stronger scale/shadow keeps the blue treatment */
+  background: #2563eb;
+  color: #ffffff;
+  border-color: rgba(37, 99, 235, 0.9);
 }
 
 /* Variant glow using a subtle outline ring */
