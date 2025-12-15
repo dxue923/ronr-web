@@ -4,7 +4,7 @@
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
 
-import mongoose, { connectToDatabase } from "../../db/mongoose.js";
+import { connectToDatabase } from "../../db/mongoose.js";
 import Profile from "../../models/Profile.js";
 
 const DOMAIN = process.env.AUTH0_DOMAIN;
