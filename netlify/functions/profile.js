@@ -27,8 +27,10 @@ function getKey(header, callback) {
 
 // Decode token in dev, verify in prod
 function getClaims(authHeader = "") {
-  // In local/dev, allow missing auth and generate a dev user
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  // Normalize header and accept either "Bearer <token>" (case-insensitive)
+  // or a bare token value. In local/dev, allow missing auth and generate a dev user.
+  const raw = (authHeader || "").toString().trim();
+  if (!raw) {
     if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
       return Promise.resolve({
         sub: "dev-user",
@@ -40,7 +42,11 @@ function getClaims(authHeader = "") {
     }
     throw new Error("Invalid Authorization header");
   }
-  const token = authHeader.slice(7);
+
+  // Support both "Bearer <token>" and a bare token string
+  const token = raw.toLowerCase().startsWith("bearer ")
+    ? raw.slice(7).trim()
+    : raw;
 
   if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
     // In local/dev mode allow non-JWT (opaque) tokens gracefully.
