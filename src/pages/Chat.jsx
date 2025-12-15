@@ -1895,18 +1895,26 @@ export default function Chat() {
           ? "voting"
           : "in-progress";
       if (next === "closed") {
-        // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
-        const votes = voteEntries(activeMotion);
-        const outcome = computeOutcome(votes); // "Adopted" or "Rejected" or "No Votes"
-        const detail = {
-          outcome,
-          summary: "",
-          pros: [],
-          cons: [],
-          recordedAt: new Date().toISOString(),
-          recordedBy: me.id,
-        };
-        await updateMotion(activeMotion.id, { decisionDetails: detail });
+        // If we're closing a motion that was received by referral and the
+        // chair is rejecting it (i.e., previous state was 'referred'),
+        // do NOT persist decisionDetails — there was no discussion or vote.
+        if (activeMotion && activeMotion.state === "referred") {
+          // Persist only the closed status so it moves to closed list without Final Decision
+          await updateMotion(activeMotion.id, { status });
+        } else {
+          // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
+          const votes = voteEntries(activeMotion);
+          const outcome = computeOutcome(votes); // "Adopted" or "Rejected" or "No Votes"
+          const detail = {
+            outcome,
+            summary: "",
+            pros: [],
+            cons: [],
+            recordedAt: new Date().toISOString(),
+            recordedBy: me.id,
+          };
+          await updateMotion(activeMotion.id, { decisionDetails: detail });
+        }
       } else {
         // If we're taking up a referred motion, persist the taken-up event into meta
         try {
@@ -2248,8 +2256,7 @@ export default function Chat() {
                   id: m.id,
                   title: m.title,
                   description: m.description,
-                  state: "discussion",
-                  decisionNote: "Received by referral",
+                  state: "referred",
                   messages: [],
                   votes: [],
                   carryOver: false,
@@ -4668,20 +4675,7 @@ export default function Chat() {
                     Meeting in recess. Actions are temporarily disabled.
                   </div>
                 )}
-                {activeMotion?.state === "referred" && (
-                  <div
-                    className="special-banner"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {activeMotion?.meta?.referredFrom
-                      ? `Received by referral from ${
-                          activeMotion.meta.referredFrom.committeeName ||
-                          activeMotion.meta.referredFrom.committeeId
-                        }.`
-                      : "Received by referral."}
-                  </div>
-                )}
+
                 {activeMotion.description ? (
                   <p className="motion-desc">{activeMotion.description}</p>
                 ) : null}
@@ -4836,6 +4830,24 @@ export default function Chat() {
                   </div>
                 )}
 
+                {/* Persisted referral message after chair accepts: show without highlight */}
+                {activeMotion?.meta?.referredFrom &&
+                  activeMotion?.state !== "referred" && (
+                    <div
+                      className="referred-note persisted"
+                      style={{ marginTop: 8 }}
+                    >
+                      {(() => {
+                        const rf = activeMotion.meta.referredFrom || {};
+                        const fromName =
+                          rf.committeeName ||
+                          rf.committeeId ||
+                          "another committee";
+                        return `Referred from ${fromName}`;
+                      })()}
+                    </div>
+                  )}
+
                 {activeMotion?.state === "closed" && !otcClosed && (
                   <div
                     className="view-tab-segment"
@@ -4854,21 +4866,23 @@ export default function Chat() {
                     >
                       Discussion
                     </button>
-                    {activeMotion?.state === "closed" && (
-                      <button
-                        type="button"
-                        className={
-                          "segment-btn " +
-                          (viewTab === "final" ? "is-active" : "")
-                        }
-                        onClick={() => {
-                          setMotionView("final");
-                        }}
-                        aria-pressed={viewTab === "final"}
-                      >
-                        Final Decision
-                      </button>
-                    )}
+                    {activeMotion?.state === "closed" &&
+                      (!activeMotion?.meta?.referredFrom ||
+                        activeMotion?.decisionDetails) && (
+                        <button
+                          type="button"
+                          className={
+                            "segment-btn " +
+                            (viewTab === "final" ? "is-active" : "")
+                          }
+                          onClick={() => {
+                            setMotionView("final");
+                          }}
+                          aria-pressed={viewTab === "final"}
+                        >
+                          Final Decision
+                        </button>
+                      )}
                   </div>
                 )}
                 {otcClosed && (
@@ -5271,31 +5285,6 @@ export default function Chat() {
 
                               return (
                                 <>
-                                  {/** Header-level 'Take up referred motion' button for chair */}
-                                  {activeMotion?.state === "referred" &&
-                                    amIManager && (
-                                      <div style={{ marginTop: 8 }}>
-                                        <button
-                                          type="button"
-                                          className="take-up-btn"
-                                          onClick={() => {
-                                            changeMotionState("discussion");
-                                            setShowChairMenu(false);
-                                          }}
-                                          disabled={controlsDisabled}
-                                          title={
-                                            meetingRecessed
-                                              ? "Disabled — meeting in recess"
-                                              : isReferred
-                                              ? "Disabled until chair accepts referred motion"
-                                              : "Take up this referred motion"
-                                          }
-                                        >
-                                          Take up referred motion
-                                        </button>
-                                      </div>
-                                    )}
-
                                   {!isSub && inProgress && noComments && (
                                     <button
                                       type="button"

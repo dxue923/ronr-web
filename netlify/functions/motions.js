@@ -259,12 +259,30 @@ export async function handler(event) {
           ""
       ).trim();
 
+      // If meta.referredFrom is provided, ensure it includes the originating
+      // committee name so the receiving committee retains a persistent
+      // human-readable origin even if the origin committee is later deleted.
+      if (meta && meta.referredFrom && !meta.referredFrom.committeeName) {
+        try {
+          const origin = await Committee.findById(committeeId).lean();
+          meta.referredFrom.committeeName = origin?.name || committeeId;
+        } catch (e) {
+          meta.referredFrom.committeeName = committeeId;
+        }
+      }
+
       const newMotionDoc = await Motion.create({
         _id: motionId,
         committeeId,
         title,
         description,
-        status: "in-progress",
+        // If the client supplied refer metadata, create the received motion
+        // in the destination with the canonical 'referred' status so the
+        // receiving committee shows the referred pill and UI controls.
+        status:
+          meta && meta.referredFrom && typeof meta.referredFrom === "object"
+            ? "referred"
+            : "in-progress",
         votes: { yes: 0, no: 0, abstain: 0 },
         type,
         parentMotionId: type === "submotion" ? parentMotionId : null,
@@ -448,16 +466,25 @@ export async function handler(event) {
                 "meta.referredFrom.originalMotionId": motionDoc._id,
               }).lean();
               if (!existing) {
+                // Ensure the created referred motion records the origin's name
+                let originName = motionDoc.committeeId;
+                try {
+                  const origin = await Committee.findById(
+                    motionDoc.committeeId
+                  ).lean();
+                  originName = origin?.name || motionDoc.committeeId;
+                } catch (e) {}
                 await Motion.create({
                   _id: newId,
                   committeeId: destId,
                   title: motionDoc.title,
                   description: motionDoc.description,
-                  status: "in-progress",
+                  status: "referred",
                   votes: { yes: 0, no: 0, abstain: 0 },
                   meta: {
                     referredFrom: {
                       committeeId: motionDoc.committeeId,
+                      committeeName: originName,
                       originalMotionId: motionDoc._id,
                       referredAt: new Date().toISOString(),
                       receivedAt: new Date().toISOString(),
