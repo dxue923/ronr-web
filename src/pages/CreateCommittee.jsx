@@ -601,12 +601,15 @@ export default function CreateCommittee() {
         const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
         if (!token) return;
 
+        // If we received an access token for the API, use it (expected aud).
+        // Otherwise fall back to the ID token (JWT) when available.
+        let profileToken = token;
         if (!isAccessToken) {
-          // dev log: we got a non-access token for API calls
-          if (import.meta.env.MODE !== "production") console.warn("profile-updated: token is not an access token");
+          const idClaims = await getIdTokenClaims().catch(() => null);
+          if (idClaims?.__raw) profileToken = idClaims.__raw;
         }
 
-        const profile = await fetchProfile(token);
+        const profile = await fetchProfile(profileToken);
         const emailLocal =
           (profile?.email || user?.email || "").split("@")[0] || "";
 
@@ -645,9 +648,14 @@ export default function CreateCommittee() {
     // Force reload of profile before creating committee
     let latestProfile = null;
     try {
-      const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+      const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
       if (token) {
-        latestProfile = await fetchProfile(token);
+        let profileToken = token;
+        if (!isAccessToken) {
+          const idClaims = await getIdTokenClaims().catch(() => null);
+          if (idClaims?.__raw) profileToken = idClaims.__raw;
+        }
+        latestProfile = await fetchProfile(profileToken);
       }
     } catch {}
 

@@ -400,13 +400,9 @@ export default function Chat() {
           setMe(getFallbackUser());
           return;
         }
-        const claims = await getIdTokenClaims().catch(() => null);
-        const rawIdToken = claims?.__raw || null;
-        if (!rawIdToken) {
-          setMe(getFallbackUser());
-          return;
-        }
-        const profile = await apiFetchProfile(rawIdToken);
+        // Prefer access token (for correct audience) and fall back to ID token.
+        const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+        const profile = token ? await apiFetchProfile(token) : null;
         if (!profile || cancelled) return;
         const emailLocal = (profile.email || "").split("@")[0] || "";
         const username = (profile.username || emailLocal || "")

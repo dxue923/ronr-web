@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { getApiToken } from "../api/auth";
 import {
   fetchProfile,
   updateProfile,
@@ -47,14 +48,10 @@ export default function EditProfile() {
 
       setLoading(true);
       try {
-        // Get ID token (JWT with sub/email/etc.)
-        const claims = await getIdTokenClaims().catch(() => null);
-        const token = claims?.__raw;
-
-        if (!token) {
-          throw new Error("Unable to get auth token");
-        }
-
+        // Prefer an API access token for the profile endpoint (audience must match),
+        // fall back to the ID token if an access token is not available.
+        const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+        if (!token) throw new Error("Unable to get auth token");
         const profile = await fetchProfile(token);
         if (profile && !cancelled) {
           const emailForCache = profile.email || user?.email || "";
@@ -115,8 +112,7 @@ export default function EditProfile() {
 
     setSaving(true);
     try {
-      const claims = await getIdTokenClaims().catch(() => null);
-      const token = claims?.__raw;
+      const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
       if (!token) throw new Error("Missing auth token");
 
       const updated = await updateProfile(token, {

@@ -1,5 +1,7 @@
 // models/Profile.js
-import mongoose from "mongoose";
+// Use the shared mongoose instance from `db/mongoose.js` so serverless
+// functions reuse the same connection and model registry.
+import mongoose from "../db/mongoose.js";
 
 const profileSchema = new mongoose.Schema({
   _id: String, // Auth0 user id: "google-oauth2|..."
