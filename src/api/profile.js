@@ -1,6 +1,17 @@
 const BASE_URL = "/.netlify/functions/profile";
 
 export async function fetchProfile(idToken) {
+  if (import.meta.env.MODE !== "production") {
+    try {
+      const parts = (idToken || "").split(".");
+      if (parts.length > 1) {
+        const claims = JSON.parse(atob(parts[1]));
+        // eslint-disable-next-line no-console
+        console.info("[profile] fetchProfile called with token claims:", claims);
+      }
+    } catch (e) {}
+  }
+
   const res = await fetch(BASE_URL, {
     method: "GET",
     headers: {

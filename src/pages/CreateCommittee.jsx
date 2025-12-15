@@ -104,6 +104,7 @@ function OwnerProfileCard({ user }) {
   );
 }
 import { useAuth0 } from "@auth0/auth0-react";
+import { getApiToken } from "../api/auth";
 
 /* ---------- id helper (client-side only for new until server returns) ---------- */
 const uid = () =>
@@ -597,8 +598,13 @@ export default function CreateCommittee() {
       try {
         if (!isAuthenticated) return;
 
-        const token = await getAccessTokenSilently().catch(() => null);
+        const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
         if (!token) return;
+
+        if (!isAccessToken) {
+          // dev log: we got a non-access token for API calls
+          if (import.meta.env.MODE !== "production") console.warn("profile-updated: token is not an access token");
+        }
 
         const profile = await fetchProfile(token);
         const emailLocal =
@@ -639,7 +645,7 @@ export default function CreateCommittee() {
     // Force reload of profile before creating committee
     let latestProfile = null;
     try {
-      const token = await getAccessTokenSilently().catch(() => null);
+      const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
       if (token) {
         latestProfile = await fetchProfile(token);
       }
