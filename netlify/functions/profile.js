@@ -4,8 +4,7 @@
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
 
-import { connectToDatabase } from "../../db/mongoose.js";
-import Profile from "../../models/Profile.js";
+import mongoose, { connectToDatabase } from "../../db/mongoose.js";
 
 const DOMAIN = process.env.AUTH0_DOMAIN;
 const AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -167,6 +166,16 @@ export async function handler(event) {
     // 2) DB
     try {
       await connectToDatabase();
+      // Ensure the Profile model is registered on the same mongoose instance
+      try {
+        // Load the model file which registers the model on the mongoose instance
+        // using `mongoose.model(...)`. This avoids cross-instance model issues.
+        // Use dynamic import so bundlers don't hoist a different mongoose instance.
+        // eslint-disable-next-line node/no-unsupported-features/es-syntax
+        await import("../../models/Profile.js");
+      } catch (e) {
+        console.warn("[profile] failed to import Profile model file:", e?.message || e);
+      }
     } catch (connErr) {
       // Fail gracefully: return minimal profile from token without exposing connection errors
       console.error("[profile] DB connect error", connErr?.message || connErr);
