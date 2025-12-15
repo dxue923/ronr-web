@@ -1915,6 +1915,26 @@ export default function Chat() {
           };
           await updateMotion(activeMotion.id, { decisionDetails: detail });
         }
+        // After closing, if the current user is a chair/manager, show the
+        // Final Decision tab and the final-decision panel so they can fill it.
+        try {
+          // Force the UI into the Final Decision view for the closed motion.
+          // Ensure activeMotionId and per-motion tab are set so restore logic
+          // doesn't immediately revert us back to Discussion.
+          const aid = activeMotion?.id;
+          if (aid) {
+            setActiveMotionId(aid);
+            setMotionTabs((prev) => ({ ...(prev || {}), [aid]: "final" }));
+            setViewTab("final");
+            // Re-apply shortly after to guard against other effects resetting view
+            setTimeout(() => {
+              try {
+                setMotionTabs((prev) => ({ ...(prev || {}), [aid]: "final" }));
+                setViewTab("final");
+              } catch (e) {}
+            }, 120);
+          }
+        } catch (e) {}
       } else {
         // If we're taking up a referred motion, persist the taken-up event into meta
         try {
@@ -2616,6 +2636,12 @@ export default function Chat() {
       setFinalBlink(true);
       setTimeout(() => setFinalBlink(false), 1400);
     }
+    // Re-apply final view shortly after to override other tab-restoring effects
+    setTimeout(() => {
+      try {
+        setMotionView("final", motionId);
+      } catch (e) {}
+    }, 120);
   };
 
   // compute tally from votes array: [{ voterId, choice }]
@@ -2722,11 +2748,16 @@ export default function Chat() {
       setViewTab("discussion");
       return;
     }
-    const tab = motionTabs[activeMotionId] || "discussion";
+    const stored = motionTabs ? motionTabs[activeMotionId] : undefined;
     try {
-      console.debug("restoreMotionTab", { activeMotionId, tab, motionTabs });
+      console.debug("restoreMotionTab", { activeMotionId, stored, motionTabs });
     } catch (e) {}
-    setViewTab(tab);
+    // Only restore a saved per-motion tab if one exists. If no saved tab
+    // is present, avoid overriding the current view (prevents races when
+    // the code programmatically sets the view to 'final' right after closing).
+    if (typeof stored !== "undefined") {
+      setViewTab(stored);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMotionId, motionTabs]);
 
@@ -2783,25 +2814,28 @@ export default function Chat() {
     }
   };
 
-  // group motions for UI sections: active (not closed) and concluded (closed)
-  // Keep submotions grouped under their parent regardless of closed state.
-  // Active motions: exclude any motion that is closed. For traditional
-  // submotions (revision/postpone/refer), also exclude them from active
-  // if their parent is closed so they move with the parent into Closed.
-  // Overturn motions are independent and should show in Active even if
-  // the original motion is closed.
+  // group motions for UI sections: active (not concluded) and concluded
+  // Keep submotions grouped under their parent regardless of concluded state.
+  // A motion is considered "concluded" only when it has been closed and
+  // the chair has saved final `decisionDetails`. Until decision details are
+  // saved, the motion remains visible in the Active section so the chair
+  // can complete the Final Decision form.
+  const isConcluded = (m) =>
+    (m.state || "discussion") === "closed" && !!m.decisionDetails;
+
   const activeMotions = (motions || []).filter((m) => {
-    const isClosed = (m.state || "discussion") === "closed";
+    const concluded = isConcluded(m);
     const isSub = !!(m.meta && m.meta.kind === "sub");
-    if (!isSub) return !isClosed;
+    if (!isSub) return !concluded;
     const parentId = m.meta && m.meta.parentMotionId;
-    if (!parentId) return !isClosed;
+    if (!parentId) return !concluded;
     const parent = (motions || []).find((mm) => mm.id === parentId);
-    const parentClosed = (parent && parent.state === "closed") || false;
-    return !isClosed && !parentClosed;
+    const parentConcluded = parent ? isConcluded(parent) : false;
+    return !concluded && !parentConcluded;
   });
+
   const concludedMotions = (motions || []).filter(
-    (m) => m.state === "closed" && !(m.meta && m.meta.kind === "sub")
+    (m) => isConcluded(m) && !(m.meta && m.meta.kind === "sub")
   );
 
   // build parent -> children maps for grouped rendering (don't duplicate submotions)
@@ -4868,7 +4902,8 @@ export default function Chat() {
                     </button>
                     {activeMotion?.state === "closed" &&
                       (!activeMotion?.meta?.referredFrom ||
-                        activeMotion?.decisionDetails) && (
+                        activeMotion?.decisionDetails ||
+                        activeMotion?.meta?.referredFrom?.takenUpAt) && (
                         <button
                           type="button"
                           className={
