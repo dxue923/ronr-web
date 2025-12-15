@@ -152,13 +152,14 @@ export async function handler(event) {
       claims = await getClaims(authHeader);
     } catch (authErr) {
       console.error("[profile] auth error", authErr?.message || authErr);
+      const clientMessage =
+        authErr && authErr.message
+          ? authErr.message
+          : "Invalid or missing Authorization token";
       return {
         statusCode: 401,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          error: "Unauthorized",
-          message: "Invalid or missing Authorization token",
-        }),
+        body: JSON.stringify({ error: "Unauthorized", message: clientMessage }),
       };
     }
     const tokenProfile = mapAuth0(claims);
