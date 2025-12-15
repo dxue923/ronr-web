@@ -115,7 +115,20 @@ export async function handler(event) {
     // 1) Auth
     const authHeader =
       event.headers.authorization || event.headers.Authorization || "";
-    const claims = await getClaims(authHeader);
+    let claims;
+    try {
+      claims = await getClaims(authHeader);
+    } catch (authErr) {
+      console.error("[profile] auth error", authErr?.message || authErr);
+      return {
+        statusCode: 401,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "Unauthorized",
+          message: "Invalid or missing Authorization token",
+        }),
+      };
+    }
     const tokenProfile = mapAuth0(claims);
 
     // 2) DB

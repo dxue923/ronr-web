@@ -12,12 +12,12 @@ export async function fetchProfile(idToken) {
     } catch (e) {}
   }
 
+  const headers = { Accept: "application/json" };
+  if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
   const res = await fetch(BASE_URL, {
     method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers,
   });
 
   const data = await res.json().catch(() => null);
@@ -29,13 +29,15 @@ export async function fetchProfile(idToken) {
 }
 
 export async function updateProfile(idToken, updates) {
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
   const res = await fetch(BASE_URL, {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers,
     body: JSON.stringify(updates),
   });
 
@@ -50,12 +52,12 @@ export async function updateProfile(idToken, updates) {
 // Authenticated lookup by username or email, using the caller's token
 export async function lookupProfile(idToken, lookup) {
   const qs = `?lookup=${encodeURIComponent(lookup)}`;
+  const headers = { Accept: "application/json" };
+  if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
   const res = await fetch(`${BASE_URL}${qs}`, {
     method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers,
   });
 
   if (res.status === 404) return null;
