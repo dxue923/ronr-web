@@ -48,6 +48,32 @@ function getClaims(authHeader = "") {
     ? raw.slice(7).trim()
     : raw;
 
+  // Basic format guard: tokens that are not at least dot-separated likely aren't JWTs
+  try {
+    const parts = (token || "").split(".");
+    if (parts.length < 2) {
+      // Log masked token info for debugging without printing full secret
+      console.error("[profile] invalid token format", {
+        receivedLength: token ? token.length : 0,
+        partsLength: parts.length,
+        containsEllipsis: token ? token.includes("…") : false,
+        sample: token ? `${token.slice(0, 8)}...${token.slice(-8)}` : "",
+      });
+      if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
+        return Promise.resolve({
+          sub: "dev-user",
+          email: "",
+          name: "Dev User",
+          nickname: "dev",
+          picture: "",
+        });
+      }
+      throw new Error("Invalid token format");
+    }
+  } catch (e) {
+    // Fall through to existing behavior; errors will be handled by caller
+  }
+
   if (IS_NETLIFY_DEV || !DOMAIN || !AUDIENCE || !client) {
     // In local/dev mode allow non-JWT (opaque) tokens gracefully.
     const decoded = jwt.decode(token);
