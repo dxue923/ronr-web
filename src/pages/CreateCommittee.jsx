@@ -601,12 +601,20 @@ export default function CreateCommittee() {
         const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
         if (!token) return;
 
-        if (!isAccessToken) {
-          // dev log: we got a non-access token for API calls
-          if (import.meta.env.MODE !== "production") console.warn("profile-updated: token is not an access token");
+        // If we received an access token (possibly opaque), prefer the ID token for
+        // profile lookups since the profile Netlify function expects a JWT with
+        // Auth0 claims. Fall back to the token we received if ID token isn't available.
+        let profileToken = token;
+        if (isAccessToken) {
+          const idClaims = await getIdTokenClaims().catch(() => null);
+          if (idClaims?.__raw) {
+            profileToken = idClaims.__raw;
+          } else if (import.meta.env.MODE !== "production") {
+            console.warn("profile-updated: access token returned; ID token unavailable, using access token");
+          }
         }
 
-        const profile = await fetchProfile(token);
+        const profile = await fetchProfile(profileToken);
         const emailLocal =
           (profile?.email || user?.email || "").split("@")[0] || "";
 
@@ -645,9 +653,14 @@ export default function CreateCommittee() {
     // Force reload of profile before creating committee
     let latestProfile = null;
     try {
-      const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+      const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
       if (token) {
-        latestProfile = await fetchProfile(token);
+        let profileToken = token;
+        if (isAccessToken) {
+          const idClaims = await getIdTokenClaims().catch(() => null);
+          if (idClaims?.__raw) profileToken = idClaims.__raw;
+        }
+        latestProfile = await fetchProfile(profileToken);
       }
     } catch {}
 
