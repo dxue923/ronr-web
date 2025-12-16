@@ -513,18 +513,45 @@ export async function handler(event) {
 
       // Save decision details if provided
       if (body.decisionDetails && typeof body.decisionDetails === "object") {
-        // Permissive: allow any actor to record decision outcome (frontend now locks by tally)
-        // Persist ONLY the outcome to avoid summaries/pros/cons spreading across motions
+        // Accept and persist the fuller decision details (outcome, summary,
+        // pros, cons) when the client provides them. Previously we only
+        // retained the outcome which caused summaries/pros/cons to be lost
+        // after saving and made the UI show "None recorded." Persisting the
+        // provided fields preserves the chair's authored content.
         const outcomeVal =
           body.decisionDetails.outcome ||
           motionDoc.decisionDetails?.outcome ||
           undefined;
+        const summaryVal =
+          typeof body.decisionDetails.summary === "string"
+            ? body.decisionDetails.summary
+            : motionDoc.decisionDetails?.summary || undefined;
+        const prosVal = Array.isArray(body.decisionDetails.pros)
+          ? body.decisionDetails.pros
+          : Array.isArray(motionDoc.decisionDetails?.pros)
+          ? motionDoc.decisionDetails.pros
+          : [];
+        const consVal = Array.isArray(body.decisionDetails.cons)
+          ? body.decisionDetails.cons
+          : Array.isArray(motionDoc.decisionDetails?.cons)
+          ? motionDoc.decisionDetails.cons
+          : [];
+
         motionDoc.decisionDetails = {
-          outcome: outcomeVal,
+          ...(outcomeVal ? { outcome: outcomeVal } : {}),
+          ...(summaryVal ? { summary: summaryVal } : {}),
+          pros: prosVal,
+          cons: consVal,
           recordedAt:
-            body.decisionDetails.recordedAt || new Date().toISOString(),
-          recordedBy: body.decisionDetails.recordedBy || undefined,
+            body.decisionDetails.recordedAt ||
+            motionDoc.decisionDetails?.recordedAt ||
+            new Date().toISOString(),
+          recordedBy:
+            body.decisionDetails.recordedBy ||
+            motionDoc.decisionDetails?.recordedBy ||
+            undefined,
         };
+
         // when decision recorded, ensure status reflects closed states when applicable
         if (
           motionDoc.status !== "postponed" &&
