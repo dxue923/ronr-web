@@ -42,5 +42,5 @@ Refer Motion
 Voting
 <img src="docs/voting.png" width="700" />
 Final Decision Summary
-<img src="docs/finaldecision" width="700" />
+<img src="docs/finaldecision.png" width="700" />
 
