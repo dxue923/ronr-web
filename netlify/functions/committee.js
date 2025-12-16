@@ -829,11 +829,33 @@ export async function handler(event) {
       body: JSON.stringify({ error: "Method Not Allowed" }),
     };
   } catch (err) {
-    console.error("Error handling committee:", err);
+    // Log full error and, in dev, return details to help debugging
+    console.error("Error handling committee:", err && (err.stack || err));
+    const safeBody = (() => {
+      try {
+        const b = JSON.parse(event.body || "null");
+        return b;
+      } catch {
+        return String(event.body || "");
+      }
+    })();
+    const payloadPreview =
+      typeof safeBody === "object"
+        ? JSON.stringify(safeBody, null, 2)
+        : String(safeBody).slice(0, 2000);
+
+    const response = {
+      error: "Failed to process committee",
+      message: err?.message || String(err),
+    };
+    if (IS_DEV) {
+      response.details = err?.stack || String(err);
+      response.request = payloadPreview;
+    }
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Failed to process committee" }),
+      body: JSON.stringify(response),
     };
   }
 }
