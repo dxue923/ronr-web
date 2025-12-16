@@ -35,6 +35,7 @@ export default function EditProfile() {
       }
       // Try to seed from local cache first so the UI appears instantly
       const email = user?.email || "";
+      const localPart = email ? String(email).split("@")[0] : "";
       const cached = loadProfileFromStorage(email);
       if (cached && !cancelled) {
         setFormData({
@@ -44,26 +45,45 @@ export default function EditProfile() {
           bio: "",
         });
         setAvatar(cached.avatarUrl || null);
+      } else if (!cached && !cancelled) {
+        // Seed from Auth0 user claims immediately so email/username show up
+        setFormData({
+          name: user?.name || "",
+          username: localPart || "",
+          email: email || "",
+          bio: "",
+        });
+        setAvatar(user?.picture || null);
       }
 
       setLoading(true);
       try {
         // Prefer an API access token for the profile endpoint (audience must match),
         // fall back to the ID token if an access token is not available.
-        const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+        const { token } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
         if (!token) throw new Error("Unable to get auth token");
         const profile = await fetchProfile(token);
-        if (profile && !cancelled) {
-          const emailForCache = profile.email || user?.email || "";
+        if (!cancelled) {
+          const emailForCache = profile?.email || user?.email || "";
+          const localFromEmail = emailForCache
+            ? String(emailForCache).split("@")[0]
+            : "";
           setFormData({
-            name: profile.name || "",
-            username: profile.username || "",
+            name: profile?.name || user?.name || "",
+            // Prefer saved username, otherwise derive from email local-part
+            username:
+              profile?.username ||
+              localFromEmail ||
+              (user?.email ? String(user.email).split("@")[0] : ""),
             email: emailForCache,
-            bio: "", // or profile.bio if you later add it
+            bio: "",
           });
-          setAvatar(profile.avatarUrl || null);
+          setAvatar(profile?.avatarUrl || user?.picture || null);
           // Persist a lightweight snapshot to localStorage for next load
-          saveProfileToStorage(emailForCache, profile);
+          saveProfileToStorage(emailForCache, profile || {});
         }
       } catch (err) {
         setError(err.message || "Failed to load profile");
@@ -98,7 +118,12 @@ export default function EditProfile() {
     setError("");
     const payload = {
       name: formData.name?.trim(),
-      username: formData.username?.trim() || formData.name?.trim() || "You",
+      // Ensure username exists: prefer explicit, otherwise derive from email local-part
+      username:
+        formData.username?.trim() ||
+        (formData.email ? String(formData.email).split("@")[0] : "") ||
+        formData.name?.trim() ||
+        "user",
       email: formData.email?.trim() || "",
       bio: formData.bio || "",
       avatarUrl: avatar || "",
@@ -112,7 +137,10 @@ export default function EditProfile() {
 
     setSaving(true);
     try {
-      const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+      const { token } = await getApiToken({
+        getAccessTokenSilently,
+        getIdTokenClaims,
+      });
       if (!token) throw new Error("Missing auth token");
 
       const updated = await updateProfile(token, {

@@ -46,6 +46,111 @@ function getRole(committeeDoc, username) {
   return member ? member.role : null;
 }
 
+// Ensure a Profile exists for a given member object (may contain email/username/name)
+// Returns a normalized member object { username, name, role, avatarUrl }
+async function ensureProfileForMember(member) {
+  if (!member) return member;
+  const inEmail = (member.email || "").toString().trim();
+  const inUsername = (member.username || "").toString().trim();
+  const inName = (member.name || "").toString().trim();
+
+  // try find by exact email first
+  try {
+    if (inEmail) {
+      const byEmail = await Profile.findOne({ email: inEmail }).lean();
+      if (byEmail) {
+        return {
+          username: byEmail.username || inUsername || inEmail.split("@")[0],
+          name:
+            byEmail.name || inName || byEmail.username || inEmail.split("@")[0],
+          role: member.role || "member",
+          avatarUrl: byEmail.avatarUrl || member.avatarUrl || "",
+        };
+      }
+    }
+
+    // Next, try existing username lookup (case-insensitive)
+    if (inUsername) {
+      const re = new RegExp(`^${escapeRegex(inUsername)}$`, "i");
+      const byU = await Profile.findOne({ username: re }).lean();
+      if (byU) {
+        return {
+          username: byU.username || inUsername,
+          name: byU.name || inName || byU.username,
+          role: member.role || "member",
+          avatarUrl: byU.avatarUrl || member.avatarUrl || "",
+        };
+      }
+    }
+
+    // If we have an email, attempt to derive a username from local-part and check
+    if (inEmail) {
+      const local = inEmail.split("@")[0];
+      if (local) {
+        const re2 = new RegExp(`^${escapeRegex(local)}$`, "i");
+        const byLocal = await Profile.findOne({ username: re2 }).lean();
+        if (byLocal) {
+          return {
+            username: byLocal.username,
+            name: byLocal.name || inName || byLocal.username,
+            role: member.role || "member",
+            avatarUrl: byLocal.avatarUrl || member.avatarUrl || "",
+          };
+        }
+        // Not found: create a lightweight Profile document so clicking profile shows data
+        // Generate a stable _id using the email to avoid orphaned duplicates
+        const newUsernameBase = local;
+        // Ensure username uniqueness by appending numeric suffix if needed
+        let finalUsername = newUsernameBase;
+        let suffix = 0;
+        while (
+          await Profile.findOne({
+            username: new RegExp(`^${escapeRegex(finalUsername)}$`, "i"),
+          })
+        ) {
+          suffix += 1;
+          finalUsername = `${newUsernameBase}-${suffix}`;
+        }
+
+        try {
+          const created = await Profile.create({
+            _id: `local:${inEmail}`,
+            username: finalUsername,
+            name: inName || "",
+            email: inEmail,
+            avatarUrl: member.avatarUrl || "",
+          });
+          return {
+            username: created.username,
+            name: created.name || created.username,
+            role: member.role || "member",
+            avatarUrl: created.avatarUrl || "",
+          };
+        } catch (e) {
+          // Creation race or unique index failure — fallback to using provided fields
+          console.warn("[committee] profile create failed", e?.message || e);
+          return {
+            username: inUsername || local,
+            name: inName || inUsername || local,
+            role: member.role || "member",
+            avatarUrl: member.avatarUrl || "",
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[committee] ensureProfileForMember error", e?.message || e);
+  }
+
+  // Fallback: use provided username/name/avatar
+  return {
+    username: inUsername || (inName ? inName.split(" ")[0].toLowerCase() : ""),
+    name: inName || inUsername || "",
+    role: member.role || "member",
+    avatarUrl: member.avatarUrl || "",
+  };
+}
+
 // Convert Mongo document to client shape (id instead of _id)
 function toClient(doc) {
   if (!doc) return null;
@@ -411,11 +516,22 @@ export async function handler(event) {
         return m;
       });
 
+      // Resolve and persist member profiles where possible
+      const membersWithProfiles = [];
+      for (const m of finalMembers) {
+        try {
+          const resolved = await ensureProfileForMember(m);
+          membersWithProfiles.push(resolved);
+        } catch (e) {
+          membersWithProfiles.push(m);
+        }
+      }
+
       const doc = await Committee.create({
         _id: body.id || `committee-${Date.now()}`,
         name,
         ownerId,
-        members: finalMembers,
+        members: membersWithProfiles,
         settings,
         createdAt,
         updatedAt: createdAt,
@@ -493,11 +609,20 @@ export async function handler(event) {
           : finalMembers;
 
         try {
+          // Resolve profiles for initial members when upserting
+          const resolved = [];
+          for (const m of withOwner) {
+            try {
+              resolved.push(await ensureProfileForMember(m));
+            } catch (e) {
+              resolved.push(m);
+            }
+          }
           doc = await Committee.create({
             _id: committeeId,
             name,
             ownerId: ownerId || withOwner[0]?.username || "",
-            members: withOwner,
+            members: resolved,
             settings:
               body.settings && typeof body.settings === "object"
                 ? body.settings
@@ -550,10 +675,10 @@ export async function handler(event) {
         }
 
         if (Array.isArray(body.members)) {
-          // Normalize roles (single chair & owner)
+          // Normalize roles (single chair & owner) and resolve profiles
           let chairSeen = false;
           const ownerKey = (doc.ownerId || "").toLowerCase();
-          doc.members = body.members
+          const incoming = body.members
             .map((m) => {
               const uname = String(m?.username || "").trim();
               if (!uname) return null;
@@ -570,9 +695,22 @@ export async function handler(event) {
                 name: String(m?.name || uname).trim(),
                 role,
                 avatarUrl: String(m?.avatarUrl || ""),
+                email: m?.email || "",
               };
             })
             .filter(Boolean);
+
+          const resolvedMembers = [];
+          for (const m of incoming) {
+            try {
+              const r = await ensureProfileForMember(m);
+              resolvedMembers.push(r);
+            } catch (e) {
+              resolvedMembers.push(m);
+            }
+          }
+
+          doc.members = resolvedMembers;
         }
 
         if (body.settings && typeof body.settings === "object") {

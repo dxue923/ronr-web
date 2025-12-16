@@ -475,6 +475,7 @@ export default function CreateCommittee() {
     const memberData = {
       name: profile.name || profile.username,
       username: profile.username,
+      email: profile.email || "",
       role: chosenRole,
       avatarUrl: profile.avatarUrl || "",
     };
@@ -598,7 +599,10 @@ export default function CreateCommittee() {
       try {
         if (!isAuthenticated) return;
 
-        const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+        const { token, isAccessToken } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
         if (!token) return;
 
         // If we received an access token for the API, use it (expected aud).
@@ -648,7 +652,10 @@ export default function CreateCommittee() {
     // Force reload of profile before creating committee
     let latestProfile = null;
     try {
-      const { token, isAccessToken } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+      const { token, isAccessToken } = await getApiToken({
+        getAccessTokenSilently,
+        getIdTokenClaims,
+      });
       if (token) {
         let profileToken = token;
         if (!isAccessToken) {
@@ -686,6 +693,7 @@ export default function CreateCommittee() {
         members: local.members.map((m) => ({
           username: m.username,
           name: m.name,
+          email: m.email || "",
           role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
           avatarUrl: m.avatarUrl,
         })),
@@ -698,6 +706,10 @@ export default function CreateCommittee() {
           : [created, ...prev];
         return next;
       });
+      // Refresh from server to ensure profiles/avatars are up-to-date
+      try {
+        await refreshCommittees();
+      } catch {}
       clearForm();
       navigate(`/committees/${created.id}/chat`);
     } catch (err) {
@@ -727,6 +739,7 @@ export default function CreateCommittee() {
         members: updatedLocal.members.map((m) => ({
           username: m.username,
           name: m.name,
+          email: m.email || "",
           role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
           avatarUrl: m.avatarUrl,
         })),
@@ -735,6 +748,10 @@ export default function CreateCommittee() {
       setCommittees((prev) =>
         prev.map((c) => (c.id === editingId ? updatedRemote : c))
       );
+      // Refresh from server to ensure profiles/avatars are up-to-date
+      try {
+        await refreshCommittees();
+      } catch {}
       clearForm();
     } catch (err) {
       alert("Failed to save committee");

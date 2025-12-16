@@ -107,7 +107,11 @@ import {
 import "../assets/styles/index.css";
 import { getMeeting } from "../api/meetings";
 import logo from "../assets/logo.png";
-import { fetchProfile as apiFetchProfile } from "../api/profile";
+import {
+  fetchProfile as apiFetchProfile,
+  lookupProfile as apiLookupProfile,
+} from "../api/profile";
+import { getApiToken } from "../api/auth";
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
@@ -188,6 +192,7 @@ export default function Chat() {
   const {
     isAuthenticated,
     getIdTokenClaims,
+    getAccessTokenSilently,
     user,
     isLoading: authLoading,
   } = useAuth0();
@@ -401,7 +406,10 @@ export default function Chat() {
           return;
         }
         // Prefer access token (for correct audience) and fall back to ID token.
-        const { token } = await getApiToken({ getAccessTokenSilently, getIdTokenClaims });
+        const { token } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
         const profile = token ? await apiFetchProfile(token) : null;
         if (!profile || cancelled) return;
         const emailLocal = (profile.email || "").split("@")[0] || "";
@@ -439,6 +447,7 @@ export default function Chat() {
       window.removeEventListener("storage", onStorage);
     };
   }, [isAuthenticated, getIdTokenClaims]);
+
   const authToken = (() => {
     try {
       return localStorage.getItem("authToken") || null;
@@ -1126,24 +1135,59 @@ export default function Chat() {
     if (!c) return [];
     const list = c.members || c.memberships || [];
 
-    return (list || [])
-      .map((m) => {
-        const username = (m.username || m.id || m.name || "").toString().trim();
-        const name = (m.name || "").toString().trim();
-        return {
-          id: username, // use username as stable id
-          username,
-          name,
-          role: (m.role || "member").toLowerCase(),
-          avatarUrl: m.avatarUrl || "",
-        };
-      })
-      .filter(
-        (m) =>
-          m.username &&
-          m.username.toLowerCase() !== "guest" &&
-          m.username.toLowerCase() !== "anon"
-      );
+    const used = new Set();
+    const out = [];
+
+    (list || []).forEach((m) => {
+      // attempt to derive a sensible username
+      let uname = "";
+      try {
+        uname = (m.username || "").toString().trim();
+      } catch (e) {
+        uname = "";
+      }
+      // ignore obvious placeholders
+      if (!uname || ["guest", "anon", "test2"].includes(uname.toLowerCase())) {
+        uname = "";
+      }
+
+      // derive from email local-part if available
+      if (!uname) {
+        const email = (m.email || m.userEmail || m.mail || "")
+          .toString()
+          .trim();
+        if (email && email.includes("@")) uname = email.split("@")[0];
+      }
+
+      // if still missing, try id local-part
+      if (!uname) {
+        const mid = (m.id || "").toString().trim();
+        if (mid && mid.includes("@")) uname = mid.split("@")[0];
+      }
+
+      // fallback to name or id
+      if (!uname) uname = (m.name || m.id || "").toString().trim();
+      if (!uname) return; // skip empty
+
+      // ensure uniqueness (case-insensitive)
+      let candidate = uname;
+      let suffix = 1;
+      while (used.has(candidate.toLowerCase())) {
+        candidate = `${uname}-${suffix}`;
+        suffix += 1;
+      }
+      used.add(candidate.toLowerCase());
+
+      out.push({
+        id: candidate,
+        username: candidate,
+        name: (m.name || candidate).toString().trim(),
+        role: (m.role || "member").toLowerCase(),
+        avatarUrl: m.avatarUrl || "",
+      });
+    });
+
+    return out;
 
     // // Member profile card for chat participants
     // function MemberProfileCard({ username, role }) {
@@ -1224,6 +1268,49 @@ export default function Chat() {
     // }
   };
   const members = committeeUnavailable ? [] : normalizeMembers(committee);
+
+  const [profileCache, setProfileCache] = useState({}); // keyed by username
+
+  // Prefetch member profiles (avatars/names) for display in messages
+  useEffect(() => {
+    let cancelled = false;
+    async function ensureProfile(username) {
+      if (!username) return;
+      if (profileCache[username]) return;
+      try {
+        const { token } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
+        const prof = await apiLookupProfile(token, username).catch(() => null);
+        if (cancelled) return;
+        if (prof) {
+          setProfileCache((p) => ({ ...p, [username]: prof }));
+        }
+      } catch (e) {}
+    }
+
+    const names = new Set();
+    (members || []).forEach((m) => {
+      if (m && m.username) names.add(m.username);
+    });
+    (activeMotion?.messages || []).forEach((msg) => {
+      const aid = (msg.authorId || "").toString().trim();
+      if (aid) names.add(aid);
+    });
+
+    names.forEach((u) => ensureProfile(u));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    members,
+    activeMotion?.messages,
+    getAccessTokenSilently,
+    getIdTokenClaims,
+    profileCache,
+  ]);
 
   const persistMembers = async (nextMembers) => {
     try {
@@ -4964,14 +5051,22 @@ export default function Chat() {
                       const aid = (msg.authorId || "").toString();
                       return mid === aid || muser === aid;
                     });
-                    const displayNameFromMembers = memberForMessage
-                      ? (memberForMessage.name || "").toString().trim() ||
-                        (
-                          memberForMessage.username ||
-                          memberForMessage.id ||
-                          ""
-                        ).toString()
-                      : "";
+                    const authorLookup = (
+                      (memberForMessage &&
+                        (memberForMessage.username || memberForMessage.id)) ||
+                      msg.authorId ||
+                      ""
+                    )
+                      .toString()
+                      .trim();
+                    const cachedProfile = profileCache[authorLookup] || null;
+                    const displayNameFromMembers =
+                      (cachedProfile &&
+                        (cachedProfile.name || cachedProfile.username)) ||
+                      (memberForMessage &&
+                        (memberForMessage.name || memberForMessage.username)) ||
+                      authorLookup ||
+                      "";
                     try {
                       console.debug("[Chat] render", {
                         msg,
@@ -4992,7 +5087,12 @@ export default function Chat() {
                         <div className="message-row-inner">
                           {!isMine && (
                             <Avatar
-                              src={memberForMessage?.avatarUrl}
+                              src={
+                                (cachedProfile && cachedProfile.avatarUrl) ||
+                                (memberForMessage &&
+                                  memberForMessage.avatarUrl) ||
+                                ""
+                              }
                               alt={displayNameFromMembers}
                             />
                           )}
@@ -5032,7 +5132,12 @@ export default function Chat() {
 
                           {isMine && (
                             <Avatar
-                              src={memberForMessage?.avatarUrl}
+                              src={
+                                (cachedProfile && cachedProfile.avatarUrl) ||
+                                (memberForMessage &&
+                                  memberForMessage.avatarUrl) ||
+                                ""
+                              }
                               alt={displayNameFromMembers}
                             />
                           )}
