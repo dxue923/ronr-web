@@ -44,3 +44,7 @@ Voting
 <img src="docs/voting.png" width="700" />
 Final Decision Summary
 <img src="docs/finaldecision.png" width="700" />
+<<<<<<< HEAD
+=======
+
+>>>>>>> 3106471c855f0e51fce1693cb5324e032e090914
