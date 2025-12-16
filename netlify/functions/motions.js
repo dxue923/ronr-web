@@ -733,6 +733,40 @@ export async function handler(event) {
               await db11
                 .collection("motions")
                 .updateOne({ _id: originalId }, { $set: { status: "passed" } });
+              // create a copy of the original parent motion in the destination
+              // committee with a new id and status 'in-progress'
+              try {
+                const originalDoc = await db11
+                  .collection("motions")
+                  .findOne({ _id: originalId });
+                if (originalDoc) {
+                  const newIdForDest = Date.now().toString();
+                  const newMotionForDest = {
+                    _id: newIdForDest,
+                    committeeId: motionDoc.committeeId,
+                    title: originalDoc.title || originalDoc.name || "",
+                    description: originalDoc.description || "",
+                    status: "in-progress",
+                    votes: { yes: 0, no: 0, abstain: 0 },
+                    type: originalDoc.type || "main",
+                    parentMotionId: null,
+                    meta: {
+                      copiedFrom: {
+                        originalMotionId: originalId,
+                        originCommitteeId: originalDoc.committeeId,
+                        copiedAt: new Date().toISOString(),
+                      },
+                    },
+                    createdAt: new Date().toISOString(),
+                  };
+                  await db11.collection("motions").insertOne(newMotionForDest);
+                }
+              } catch (e) {
+                console.warn(
+                  "Failed to create parent-copy motion in destination:",
+                  e?.message || e
+                );
+              }
             } else if (
               Motion &&
               typeof Motion.findOneAndUpdate === "function"
@@ -742,6 +776,38 @@ export async function handler(event) {
                 { $set: { status: "passed" } },
                 { new: true }
               ).lean();
+              try {
+                const originalDoc = await Motion.findOne({
+                  _id: originalId,
+                }).lean();
+                if (originalDoc) {
+                  const newIdForDest = Date.now().toString();
+                  const newMotionForDest = {
+                    _id: newIdForDest,
+                    committeeId: motionDoc.committeeId,
+                    title: originalDoc.title || originalDoc.name || "",
+                    description: originalDoc.description || "",
+                    status: "in-progress",
+                    votes: { yes: 0, no: 0, abstain: 0 },
+                    type: originalDoc.type || "main",
+                    parentMotionId: null,
+                    meta: {
+                      copiedFrom: {
+                        originalMotionId: originalId,
+                        originCommitteeId: originalDoc.committeeId,
+                        copiedAt: new Date().toISOString(),
+                      },
+                    },
+                    createdAt: new Date().toISOString(),
+                  };
+                  await Motion.create(newMotionForDest);
+                }
+              } catch (e) {
+                console.warn(
+                  "Failed to create parent-copy motion in destination (mongoose):",
+                  e?.message || e
+                );
+              }
             }
           }
         }
