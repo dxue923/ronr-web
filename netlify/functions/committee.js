@@ -996,6 +996,26 @@ export async function handler(event) {
             .findOneAndDelete({ _id: committeeId });
           deletedCommittee = res && res.value ? res.value : null;
 
+          // Some drivers/environments may successfully delete but not return
+          // the deleted document in `res.value`. As a robust fallback, if
+          // we didn't get a value attempt a `deleteOne` and treat any
+          // deletedCount > 0 as a successful deletion.
+          if (!deletedCommittee) {
+            try {
+              const delRes = await db
+                .collection("committees")
+                .deleteOne({ _id: committeeId });
+              if (delRes && delRes.deletedCount && delRes.deletedCount > 0) {
+                deletedCommittee = { _id: committeeId };
+              }
+            } catch (e) {
+              console.warn(
+                "[committee] deleteOne fallback failed",
+                e?.message || e
+              );
+            }
+          }
+
           // If not found, and the id is a valid ObjectId, try that form
           if (
             !deletedCommittee &&
@@ -1010,6 +1030,26 @@ export async function handler(event) {
                 .collection("committees")
                 .findOneAndDelete({ _id: oid });
               deletedCommittee = res2 && res2.value ? res2.value : null;
+
+              if (!deletedCommittee) {
+                try {
+                  const delRes2 = await db
+                    .collection("committees")
+                    .deleteOne({ _id: oid });
+                  if (
+                    delRes2 &&
+                    delRes2.deletedCount &&
+                    delRes2.deletedCount > 0
+                  ) {
+                    deletedCommittee = { _id: oid };
+                  }
+                } catch (e) {
+                  console.warn(
+                    "[committee] deleteOne(ObjectId) fallback failed",
+                    e?.message || e
+                  );
+                }
+              }
             } catch (e) {
               console.warn(
                 "[committee] findOneAndDelete by ObjectId failed",
