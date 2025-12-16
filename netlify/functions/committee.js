@@ -348,25 +348,44 @@ export async function handler(event) {
       if (committeeId) {
         let found = null;
         try {
-          // Prefer exact _id match (works for string IDs like UUIDs or custom keys)
-          found = await Committee.findOne({ _id: committeeId });
-        } catch (e) {
-          console.warn("[committee] findOne error", e?.message || e);
-        }
+          // Use direct collection lookups to avoid model interop issues
+          const db = getDb();
+          if (db) {
+            try {
+              found = await db.collection("committees").findOne({ _id: committeeId });
+            } catch (e) {
+              console.warn("[committee] collection.findOne by string _id failed", e?.message || e);
+            }
 
-        // Fallback: if not found and the id is a valid ObjectId, try findById
-        try {
-          if (
-            !found &&
-            mongoose &&
-            mongoose.Types &&
-            typeof mongoose.Types.ObjectId.isValid === "function" &&
-            mongoose.Types.ObjectId.isValid(committeeId)
-          ) {
-            found = await Committee.findById(committeeId);
+            // If not found and the id looks like an ObjectId, try that form as well
+            try {
+              if (
+                !found &&
+                mongoose &&
+                mongoose.Types &&
+                typeof mongoose.Types.ObjectId.isValid === "function" &&
+                mongoose.Types.ObjectId.isValid(committeeId)
+              ) {
+                const oid = new mongoose.Types.ObjectId(committeeId);
+                found = await db.collection("committees").findOne({ _id: oid });
+              }
+            } catch (e) {
+              console.warn("[committee] collection.findOne by ObjectId failed", e?.message || e);
+            }
+          } else {
+            // Fallback to model methods if collection access isn't available
+            try {
+              if (Committee && typeof Committee.findOne === "function") {
+                found = await Committee.findOne({ _id: committeeId });
+              } else if (Committee && typeof Committee.findById === "function") {
+                found = await Committee.findById(committeeId);
+              }
+            } catch (e) {
+              console.warn("[committee] model lookup failed", e?.message || e);
+            }
           }
         } catch (e) {
-          console.warn("[committee] findById fallback error", e?.message || e);
+          console.warn("[committee] id lookup failed", e?.message || e);
         }
 
         if (!found) {
