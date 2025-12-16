@@ -11,6 +11,22 @@ import Profile from "../../models/Profile.js";
 
 const IS_DEV = process.env.NETLIFY_DEV === "true";
 
+// Helper to support both ESM and CJS interop: some bundlers put the default
+// export on `mongoose.default`. Return the actual mongoose instance.
+function getMongooseInstance() {
+  try {
+    if (typeof mongoose === "object" && mongoose && mongoose.default) {
+      return mongoose.default;
+    }
+  } catch (e) {}
+  return mongoose;
+}
+
+function getDb() {
+  const m = getMongooseInstance();
+  return m && m.connection ? m.connection.db : null;
+}
+
 function decodeAuth(authHeader = "") {
   if (!authHeader.startsWith("Bearer ")) {
     if (IS_DEV) return { sub: "dev-user", nickname: "dev" };
@@ -191,16 +207,11 @@ async function insertDocument(model, collectionName, doc) {
     );
   }
 
-  // Last-resort: use mongoose connection DB
+  // Last-resort: use mongoose connection DB (use helper to handle bundler interop)
   try {
-    if (
-      typeof mongoose !== "undefined" &&
-      mongoose.connection &&
-      mongoose.connection.db
-    ) {
-      const res = await mongoose.connection.db
-        .collection(collectionName)
-        .insertOne(doc);
+    const db = getDb();
+    if (db) {
+      const res = await db.collection(collectionName).insertOne(doc);
       return { ...doc, _id: res.insertedId };
     }
   } catch (e) {
@@ -568,17 +579,17 @@ export async function handler(event) {
 
       // Create committee using direct collection insert to avoid model.create issues
       try {
-        const insert = await mongoose.connection.db
-          .collection("committees")
-          .insertOne({
-            _id: body.id || `committee-${Date.now()}`,
-            name,
-            ownerId,
-            members: sanitizedMembers,
-            settings,
-            createdAt,
-            updatedAt: createdAt,
-          });
+        const db = getDb();
+        if (!db) throw new Error("Database not available");
+        const insert = await db.collection("committees").insertOne({
+          _id: body.id || `committee-${Date.now()}`,
+          name,
+          ownerId,
+          members: sanitizedMembers,
+          settings,
+          createdAt,
+          updatedAt: createdAt,
+        });
         const createdDoc = {
           id: insert.insertedId,
           name,
