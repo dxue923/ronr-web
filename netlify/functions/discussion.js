@@ -4,6 +4,21 @@
 import Discussion from "../../models/Discussion.js";
 import Motion from "../../models/Motions.js";
 import { connectToDatabase } from "../../db/mongoose.js";
+import mongoose from "../../db/mongoose.js";
+
+function getMongooseInstance() {
+  try {
+    if (typeof mongoose === "object" && mongoose && mongoose.default) {
+      return mongoose.default;
+    }
+  } catch (e) {}
+  return mongoose;
+}
+
+function getDb() {
+  const m = getMongooseInstance();
+  return m && m.connection ? m.connection.db : null;
+}
 
 const VALID_POSITIONS = ["pro", "con", "neutral"];
 
@@ -41,7 +56,26 @@ export async function handler(event) {
 
       // single comment
       if (commentId) {
-        const comment = await Discussion.findById(commentId).lean();
+        let comment = null;
+        try {
+          const db = getDb();
+          if (db) {
+            try {
+              comment = await db.collection("discussions").findOne({ _id: commentId });
+            } catch (e) {
+              console.warn("[discussion] collection.findOne failed", e?.message || e);
+            }
+          }
+        } catch (e) {}
+        if (!comment) {
+          try {
+            if (Discussion && typeof Discussion.findById === "function") {
+              comment = await Discussion.findById(commentId).lean();
+            }
+          } catch (e) {
+            console.warn("[discussion] model.findById failed", e?.message || e);
+          }
+        }
         if (!comment) {
           return {
             statusCode: 404,
@@ -60,9 +94,18 @@ export async function handler(event) {
       const query = {};
       if (motionId) query.motionId = motionId;
 
-      const comments = await Discussion.find(query)
-        .sort({ createdAt: 1 })
-        .lean();
+      let comments = [];
+      try {
+        const db = getDb();
+        if (db) {
+          comments = await db.collection("discussions").find(query).sort({ createdAt: 1 }).toArray();
+        } else if (Discussion && typeof Discussion.find === "function") {
+          comments = await Discussion.find(query).sort({ createdAt: 1 }).lean();
+        }
+      } catch (e) {
+        console.warn("[discussion] find failed", e?.message || e);
+        comments = [];
+      }
       const result = comments.map(serializeComment);
 
       return {
@@ -103,7 +146,17 @@ export async function handler(event) {
       }
 
       // Strictly enforce that the motion exists
-      const motionExists = await Motion.findById(motionId).lean();
+      let motionExists = null;
+      try {
+        const db2 = getDb();
+        if (db2) {
+          motionExists = await db2.collection("motions").findOne({ _id: motionId });
+        } else if (Motion && typeof Motion.findById === "function") {
+          motionExists = await Motion.findById(motionId).lean();
+        }
+      } catch (e) {
+        console.warn("[discussion] motion lookup failed", e?.message || e);
+      }
       if (!motionExists) {
         return {
           statusCode: 404,
@@ -120,13 +173,30 @@ export async function handler(event) {
 
       const commentId = "msg-" + Date.now().toString();
 
-      const newCommentDoc = await Discussion.create({
+      let newCommentDoc = {
         _id: commentId,
         motionId,
         authorId,
         text,
         position,
-      });
+        createdAt: new Date().toISOString(),
+      };
+      try {
+        const db3 = getDb();
+        if (db3) {
+          await db3.collection("discussions").insertOne(newCommentDoc);
+        } else if (Discussion && typeof Discussion.create === "function") {
+          const created = await Discussion.create(newCommentDoc);
+          newCommentDoc = created.toObject ? created.toObject() : created;
+        }
+      } catch (e) {
+        console.error("[discussion] create failed:", e);
+        return {
+          statusCode: 500,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Failed to create comment", details: String(e?.message || e) }),
+        };
+      }
 
       const serialized = serializeComment(newCommentDoc);
 
@@ -145,7 +215,22 @@ export async function handler(event) {
 
       // Case 1: delete a single comment by id
       if (commentId) {
-        const comment = await Discussion.findById(commentId);
+        let comment = null;
+        try {
+          const db4 = getDb();
+          if (db4) {
+            comment = await db4.collection("discussions").findOne({ _id: commentId });
+          }
+        } catch (e) {}
+        if (!comment) {
+          try {
+            if (Discussion && typeof Discussion.findById === "function") {
+              comment = await Discussion.findById(commentId);
+            }
+          } catch (e) {
+            console.warn("[discussion] findById (delete) failed", e?.message || e);
+          }
+        }
         if (!comment) {
           return {
             statusCode: 404,
@@ -154,7 +239,16 @@ export async function handler(event) {
           };
         }
 
-        await Discussion.findByIdAndDelete(commentId);
+        try {
+          const db5 = getDb();
+          if (db5) {
+            await db5.collection("discussions").deleteOne({ _id: commentId });
+          } else if (Discussion && typeof Discussion.findByIdAndDelete === "function") {
+            await Discussion.findByIdAndDelete(commentId);
+          }
+        } catch (e) {
+          console.warn("[discussion] delete failed", e?.message || e);
+        }
 
         return {
           statusCode: 200,
@@ -170,8 +264,18 @@ export async function handler(event) {
 
       // Case 2: delete all comments for a motion
       if (motionId) {
-        const motionExists = await Motion.findById(motionId).lean();
-        if (!motionExists) {
+        let motionExists2 = null;
+        try {
+          const db6 = getDb();
+          if (db6) {
+            motionExists2 = await db6.collection("motions").findOne({ _id: motionId });
+          } else if (Motion && typeof Motion.findById === "function") {
+            motionExists2 = await Motion.findById(motionId).lean();
+          }
+        } catch (e) {
+          console.warn("[discussion] motion lookup (delete) failed", e?.message || e);
+        }
+        if (!motionExists2) {
           return {
             statusCode: 404,
             headers: { "Content-Type": "application/json" },
@@ -181,7 +285,18 @@ export async function handler(event) {
           };
         }
 
-        const result = await Discussion.deleteMany({ motionId });
+        let result = { deletedCount: 0 };
+        try {
+          const db7 = getDb();
+          if (db7) {
+            result = await db7.collection("discussions").deleteMany({ motionId });
+          } else if (Discussion && typeof Discussion.deleteMany === "function") {
+            result = await Discussion.deleteMany({ motionId });
+          }
+        } catch (e) {
+          console.warn("[discussion] deleteMany failed", e?.message || e);
+          result = { deletedCount: 0 };
+        }
 
         return {
           statusCode: 200,

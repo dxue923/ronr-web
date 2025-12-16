@@ -1063,7 +1063,6 @@ export default function CreateCommittee() {
                     value={memberRoleInput}
                     onChange={(e) => setMemberRoleInput(e.target.value)}
                   >
-                    <option value={ROLE.OWNER}>Owner</option>
                     <option value={ROLE.CHAIR}>Chair</option>
                     <option value={ROLE.MEMBER}>Member</option>
                     <option value={ROLE.OBSERVER}>Observer</option>

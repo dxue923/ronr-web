@@ -695,7 +695,18 @@ export async function handler(event) {
         }
 
         // 🔻 Cascade delete discussions for this motion
-        const discussionResult = await Discussion.deleteMany({ motionId: id });
+        let discussionResult = { deletedCount: 0 };
+        try {
+          const db_disc = getDb();
+          if (db_disc) {
+            discussionResult = await db_disc.collection("discussions").deleteMany({ motionId: id });
+          } else if (Discussion && typeof Discussion.deleteMany === "function") {
+            discussionResult = await Discussion.deleteMany({ motionId: id });
+          }
+        } catch (e) {
+          console.warn("[motions] discussion delete failed", e?.message || e);
+          discussionResult = { deletedCount: 0 };
+        }
 
         if (dbx) {
           await dbx.collection("motions").deleteOne({ _id: id });
@@ -730,8 +741,19 @@ export async function handler(event) {
 
         let deletedDiscussions = 0;
         if (motionIds.length > 0) {
-          const discussionResult = await Discussion.deleteMany({ motionId: { $in: motionIds } });
-          deletedDiscussions = discussionResult.deletedCount || 0;
+          try {
+            const db_disc2 = getDb();
+            let discussionResult2 = { deletedCount: 0 };
+            if (db_disc2) {
+              discussionResult2 = await db_disc2.collection("discussions").deleteMany({ motionId: { $in: motionIds } });
+            } else if (Discussion && typeof Discussion.deleteMany === "function") {
+              discussionResult2 = await Discussion.deleteMany({ motionId: { $in: motionIds } });
+            }
+            deletedDiscussions = discussionResult2.deletedCount || 0;
+          } catch (e) {
+            console.warn("[motions] cascade discussion delete failed", e?.message || e);
+            deletedDiscussions = 0;
+          }
         }
 
         let result = { deletedCount: 0 };
@@ -764,7 +786,18 @@ export async function handler(event) {
       }
 
       // 🔻 Delete all discussions (since all motions are gone)
-      const discussionResult = await Discussion.deleteMany({});
+      let discussionResult = { deletedCount: 0 };
+      try {
+        const db_all = getDb();
+        if (db_all) {
+          discussionResult = await db_all.collection("discussions").deleteMany({});
+        } else if (Discussion && typeof Discussion.deleteMany === "function") {
+          discussionResult = await Discussion.deleteMany({});
+        }
+      } catch (e) {
+        console.warn("[motions] delete all discussions failed", e?.message || e);
+        discussionResult = { deletedCount: 0 };
+      }
 
       return {
         statusCode: 200,

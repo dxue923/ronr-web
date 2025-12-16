@@ -958,12 +958,16 @@ export async function handler(event) {
         const motionIds = (motionsToDelete || []).map((m) => m._id);
         if (motionIds.length > 0) {
           try {
-            const discussionResult = await Discussion.deleteMany({
-              motionId: { $in: motionIds },
-            });
+            const db_disc = db2;
+            let discussionResult = { deletedCount: 0 };
+            if (db_disc) {
+              discussionResult = await db_disc.collection("discussions").deleteMany({ motionId: { $in: motionIds } });
+            } else if (Discussion && typeof Discussion.deleteMany === "function") {
+              discussionResult = await Discussion.deleteMany({ motionId: { $in: motionIds } });
+            }
             deletedDiscussions = discussionResult.deletedCount || 0;
           } catch (e) {
-            console.warn("Failed to cascade delete discussions:", e);
+            console.warn("Failed to cascade delete discussions:", e?.message || e);
           }
         }
         try {
