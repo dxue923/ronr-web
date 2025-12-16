@@ -1,4 +1,4 @@
-# e-motions (Robert’s Rules of Order Web Platform)
+## e-motions (Robert’s Rules of Order Web Platform)
 
 e-motions is a web-based platform that enables committees and organizations to conduct meetings in accordance with **Robert’s Rules of Order (RONR)**. The system supports structured discussions, formal motions, debate, and voting with built-in rule enforcement.
 

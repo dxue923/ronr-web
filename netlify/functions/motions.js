@@ -712,8 +712,11 @@ export async function handler(event) {
       }
 
       // If this motion is a referred/received motion and it just reached a
-      // terminal passed state, reopen the original motion back to active
-      // in its originating committee so it becomes visible/active again.
+      // terminal passed state, mark the original motion as passed so the
+      // originating committee records the successful outcome and the
+      // parent/original moves into closed motions. (Previously this
+      // reopened the original; change to reflect that a passed referral
+      // should pass the originating motion as well.)
       try {
         const referredFrom = motionDoc.meta && motionDoc.meta.referredFrom;
         if (
@@ -745,6 +748,40 @@ export async function handler(event) {
       } catch (e) {
         console.warn(
           "Failed to reopen original motion after refer result:",
+          e?.message || e
+        );
+      }
+
+      // If this motion is a submotion and it just passed, mark the parent
+      // motion as passed as well so the parent moves to closed motions.
+      try {
+        if (
+          motionDoc.type === "submotion" &&
+          motionDoc.parentMotionId &&
+          motionDoc.status === "passed"
+        ) {
+          const parentId = String(motionDoc.parentMotionId).trim();
+          if (parentId) {
+            const db_parent = getDb();
+            if (db_parent) {
+              await db_parent
+                .collection("motions")
+                .updateOne({ _id: parentId }, { $set: { status: "passed" } });
+            } else if (
+              Motion &&
+              typeof Motion.findOneAndUpdate === "function"
+            ) {
+              await Motion.findOneAndUpdate(
+                { _id: parentId },
+                { $set: { status: "passed" } },
+                { new: true }
+              ).lean();
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "Failed to update parent motion after submotion result:",
           e?.message || e
         );
       }
