@@ -843,6 +843,96 @@ export async function handler(event) {
                 { new: true }
               ).lean();
             }
+            // If this submotion carried a refer directive, create a new
+            // motion in the referenced committee so the destination can
+            // begin work. Use the parent motion's title/description when
+            // available, otherwise fall back to the submotion content.
+            try {
+              const referMeta =
+                motionDoc.meta &&
+                (motionDoc.meta.referInfo || motionDoc.meta.referDetails)
+                  ? motionDoc.meta.referInfo || motionDoc.meta.referDetails
+                  : null;
+              const destId = referMeta
+                ? String(
+                    referMeta.destinationCommitteeId ||
+                      referMeta.toCommitteeId ||
+                      ""
+                  ).trim()
+                : "";
+              if (destId) {
+                const db_r = getDb();
+                // Determine source title/description: prefer parent motion
+                let srcTitle = motionDoc.title || motionDoc.name || "";
+                let srcDescription = motionDoc.description || "";
+                try {
+                  if (db_r) {
+                    const parentDoc = await db_r
+                      .collection("motions")
+                      .findOne({ _id: parentId });
+                    if (parentDoc) {
+                      srcTitle = parentDoc.title || parentDoc.name || srcTitle;
+                      srcDescription = parentDoc.description || srcDescription;
+                    }
+                  } else if (Motion && typeof Motion.findById === "function") {
+                    const parentDoc = await Motion.findById(parentId).lean();
+                    if (parentDoc) {
+                      srcTitle = parentDoc.title || parentDoc.name || srcTitle;
+                      srcDescription = parentDoc.description || srcDescription;
+                    }
+                  }
+                } catch (e) {}
+
+                // Avoid creating duplicate copies for the same origin
+                let existing = null;
+                if (db_r) {
+                  existing = await db_r.collection("motions").findOne({
+                    committeeId: destId,
+                    "meta.referredFrom.originalMotionId": parentId,
+                  });
+                } else if (Motion && typeof Motion.findOne === "function") {
+                  existing = await Motion.findOne({
+                    committeeId: destId,
+                    "meta.referredFrom.originalMotionId": parentId,
+                  }).lean();
+                }
+
+                if (!existing) {
+                  const newIdForDest = Date.now().toString();
+                  const newMotionForDest = {
+                    _id: newIdForDest,
+                    committeeId: destId,
+                    title: srcTitle,
+                    description: srcDescription,
+                    status: "in-progress",
+                    votes: { yes: 0, no: 0, abstain: 0 },
+                    type: motionDoc.type || "main",
+                    parentMotionId: null,
+                    meta: {
+                      referredFrom: {
+                        committeeId: motionDoc.committeeId,
+                        originalMotionId: parentId,
+                        referredAt: new Date().toISOString(),
+                        receivedAt: new Date().toISOString(),
+                      },
+                    },
+                    createdAt: new Date().toISOString(),
+                  };
+                  if (db_r) {
+                    await db_r
+                      .collection("motions")
+                      .insertOne(newMotionForDest);
+                  } else if (Motion && typeof Motion.create === "function") {
+                    await Motion.create(newMotionForDest);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(
+                "Failed to create referred motion from submotion:",
+                e?.message || e
+              );
+            }
           }
         }
       } catch (e) {
