@@ -991,15 +991,9 @@ export async function handler(event) {
       if (db) {
         try {
           // Try raw _id match first (covers string/custom ids)
-          console.log(`[committee:delete] attempt findOneAndDelete with id=`, {
-            committeeId,
-            type: typeof committeeId,
-          });
           let res = await db
             .collection("committees")
             .findOneAndDelete({ _id: committeeId });
-          // log full driver response for debugging (can be large)
-          console.log("[committee:delete] findOneAndDelete result:", res);
           deletedCommittee = res && res.value ? res.value : null;
 
           // If not found, and the id is a valid ObjectId, try that form
@@ -1011,24 +1005,13 @@ export async function handler(event) {
             mongoose.Types.ObjectId.isValid(committeeId)
           ) {
             try {
-              console.log(
-                `[committee:delete] id looks like ObjectId, attempting with ObjectId type`,
-                { committeeId }
-              );
               const oid = new mongoose.Types.ObjectId(committeeId);
               const res2 = await db
                 .collection("committees")
                 .findOneAndDelete({ _id: oid });
-              console.log(
-                "[committee:delete] findOneAndDelete with ObjectId result:",
-                res2
-              );
               deletedCommittee = res2 && res2.value ? res2.value : null;
             } catch (e) {
-              console.warn(
-                "[committee] findOneAndDelete by ObjectId failed",
-                e?.message || e
-              );
+              // ignore ObjectId branch errors silently
             }
           }
         } catch (e) {
@@ -1043,53 +1026,29 @@ export async function handler(event) {
 
       // As some drivers / runtimes may not return the deleted document from
       // findOneAndDelete, attempt a conservative deleteOne fallback and treat
-      // any positive deletedCount as a successful deletion. Emit logs so we
-      // can inspect what the driver returned when reproducing the 404.
+      // any positive deletedCount as a successful deletion.
       if (!deletedCommittee) {
         try {
           if (db) {
-            console.log("[committee:delete] attempting deleteOne fallback", {
-              committeeId,
-              type: typeof committeeId,
-            });
             const delRes = await db
               .collection("committees")
               .deleteOne({ _id: committeeId });
-            console.log(
-              "[committee:delete] deleteOne fallback result:",
-              delRes
-            );
             if (delRes && delRes.deletedCount > 0) {
               deletedCommittee = { _id: committeeId };
             }
           } else if (Committee && typeof Committee.deleteOne === "function") {
-            console.log(
-              "[committee:delete] attempting Committee.deleteOne fallback",
-              { committeeId }
-            );
             const delRes = await Committee.deleteOne({ _id: committeeId });
-            console.log(
-              "[committee:delete] Committee.deleteOne result:",
-              delRes
-            );
             if (delRes && delRes.deletedCount > 0) {
               deletedCommittee = { _id: committeeId };
             }
           }
         } catch (e) {
-          console.warn(
-            "[committee] deleteOne fallback failed",
-            e?.message || e
-          );
+          // ignore fallback errors silently
         }
       }
 
-      if (!deletedCommittee) {
-        console.warn(
-          `[committee:delete] committee with id=${committeeId} not found by findOneAndDelete/deleteOne; continuing to cascade delete motions/discussions if any.`
-        );
-        // Proceed anyway — DELETE should be idempotent and not return 404.
-      }
+      // If there's no deleted committee object, proceed anyway. DELETE is
+      // idempotent and we still want to cascade-delete related data.
 
       // Cascade deletes should never block committee deletion; wrap in try/catch
       let deletedDiscussions = 0;
