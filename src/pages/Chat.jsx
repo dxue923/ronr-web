@@ -2846,25 +2846,14 @@ export default function Chat() {
           String(Date.now())
         );
     } catch (e) {}
-    // Persist closed status to backend so it remains on refresh
+    // Persist closed status to backend so it remains on refresh.
+    // Do NOT create an empty `decisionDetails` record here — that
+    // immediately hides the chair's final-decision edit form. Persist
+    // only the status so the chair can fill the final decision fields
+    // manually after closing the motion.
     (async () => {
       try {
-        // Compute and persist outcome so Final Decision tab shows Passed/Failed
-        const target = (updated || []).find((mm) => mm.id === motionId) || {};
-        const votes = voteEntries(target);
-        const outcome = computeOutcome(votes);
-        const detail = {
-          outcome,
-          summary: "",
-          pros: [],
-          cons: [],
-          recordedAt: new Date().toISOString(),
-          recordedBy: me.id,
-        };
-        await updateMotion(motionId, {
-          decisionDetails: detail,
-          status: "closed",
-        });
+        await updateMotion(motionId, { status: "closed" });
       } catch (err) {
         console.warn("Failed to persist closed status", err);
       }
