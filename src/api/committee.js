@@ -144,12 +144,14 @@ export async function updateCommittee(id, updates, token = null) {
 }
 
 // Delete a committee
-export async function deleteCommittee(id) {
+export async function deleteCommittee(id, token = null) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else Object.assign(headers, getAuthHeader());
+
   const res = await fetch(`${BASE}?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: {
-      ...getAuthHeader(),
-    },
+    headers,
   });
 
   const data = await res.json().catch(() => null);

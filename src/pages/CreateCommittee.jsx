@@ -845,7 +845,23 @@ export default function CreateCommittee() {
     if (!ok) return;
 
     try {
-      await apiDeleteCommittee(existing.id);
+      // Acquire API token before deleting (prefer access token, fallback to ID token)
+      let apiToken = null;
+      try {
+        const { token, isAccessToken } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
+        if (token) {
+          if (isAccessToken) apiToken = token;
+          else {
+            const idClaims = await getIdTokenClaims().catch(() => null);
+            apiToken = idClaims?.__raw || token;
+          }
+        }
+      } catch {}
+
+      await apiDeleteCommittee(existing.id, apiToken);
       setCommittees((prev) => prev.filter((c) => c.id !== existing.id));
       clearForm();
     } catch (err) {
