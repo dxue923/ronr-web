@@ -2,6 +2,7 @@
 // Manage committees (GET all/one, POST new, DELETE one) using MongoDB
 
 import { connectToDatabase } from "../../db/mongoose.js";
+import mongoose from "../../db/mongoose.js";
 import Committee from "../../models/Committee.js";
 import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // related discussions
@@ -35,15 +36,6 @@ function usernameFromClaims(c = {}) {
     c.sub ||
     "user";
   return base.toString();
-}
-
-function getRole(committeeDoc, username) {
-  if (!committeeDoc || !username) return null;
-  const uLower = username.toLowerCase();
-  const member = (committeeDoc.members || []).find(
-    (m) => (m.username || "").toLowerCase() === uLower
-  );
-  return member ? member.role : null;
 }
 
 // Ensure a Profile exists for a given member object (may contain email/username/name)
@@ -113,13 +105,23 @@ async function ensureProfileForMember(member) {
         }
 
         try {
-          const created = await Profile.create({
-            _id: `local:${inEmail}`,
+          // Insert lightweight profile directly to avoid model.create bundler issues
+          const insert = await mongoose.connection
+            .collection("profiles")
+            .insertOne({
+              _id: `local:${inEmail}`,
+              username: finalUsername,
+              name: inName || "",
+              email: inEmail,
+              avatarUrl: member.avatarUrl || "",
+            });
+          const created = {
+            _id: insert.insertedId,
             username: finalUsername,
-            name: inName || "",
+            name: inName || finalUsername,
             email: inEmail,
             avatarUrl: member.avatarUrl || "",
-          });
+          };
           return {
             username: created.username,
             name: created.name || created.username,
@@ -537,22 +539,32 @@ export async function handler(event) {
         }))
         .filter((m) => m.username);
 
-      // Create committee with explicit error handling to avoid uncaught 500s
+      // Create committee using direct collection insert to avoid model.create issues
       try {
-        const doc = await Committee.create({
-          _id: body.id || `committee-${Date.now()}`,
+        const insert = await mongoose.connection
+          .collection("committees")
+          .insertOne({
+            _id: body.id || `committee-${Date.now()}`,
+            name,
+            ownerId,
+            members: sanitizedMembers,
+            settings,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        const createdDoc = {
+          id: insert.insertedId,
           name,
           ownerId,
           members: sanitizedMembers,
           settings,
           createdAt,
           updatedAt: createdAt,
-        });
-
+        };
         return {
           statusCode: 201,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toClient(doc)),
+          body: JSON.stringify(createdDoc),
         };
       } catch (e) {
         console.error("[committee] create failed:", e);
@@ -641,18 +653,38 @@ export async function handler(event) {
               resolved.push(m);
             }
           }
-          doc = await Committee.create({
-            _id: committeeId,
-            name,
-            ownerId: ownerId || withOwner[0]?.username || "",
-            members: resolved,
-            settings:
-              body.settings && typeof body.settings === "object"
-                ? body.settings
-                : {},
-            createdAt,
-            updatedAt: createdAt,
-          });
+          // Insert directly into collection to avoid model.create interop issues
+          try {
+            const insert = await mongoose.connection
+              .collection("committees")
+              .insertOne({
+                _id: committeeId,
+                name,
+                ownerId: ownerId || withOwner[0]?.username || "",
+                members: resolved,
+                settings:
+                  body.settings && typeof body.settings === "object"
+                    ? body.settings
+                    : {},
+                createdAt,
+                updatedAt: createdAt,
+              });
+            doc = {
+              id: insert.insertedId,
+              _id: insert.insertedId,
+              name,
+              ownerId: ownerId || withOwner[0]?.username || "",
+              members: resolved,
+              settings:
+                body.settings && typeof body.settings === "object"
+                  ? body.settings
+                  : {},
+              createdAt,
+              updatedAt: createdAt,
+            };
+          } catch (e) {
+            throw e;
+          }
         } catch (e) {
           console.error("PATCH upsert create failed:", e);
           return {
