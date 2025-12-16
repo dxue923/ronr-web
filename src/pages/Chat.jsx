@@ -1286,7 +1286,8 @@ export default function Chat() {
 
     async function ensureProfile(username) {
       if (!username) return;
-      if (profileCache[username]) return;
+      // If we've already attempted this username (success or failure), don't retry.
+      if (Object.prototype.hasOwnProperty.call(profileCache, username)) return;
       try {
         const { token } = await getApiToken({
           getAccessTokenSilently,
@@ -1296,9 +1297,15 @@ export default function Chat() {
         if (cancelled) return;
         if (prof) {
           setProfileCache((p) => ({ ...p, [username]: prof }));
+        } else {
+          // mark as attempted (null) so we don't endlessly retry failing usernames
+          setProfileCache((p) => ({ ...p, [username]: null }));
         }
       } catch (e) {
-        // ignore individual lookup errors
+        // mark as attempted on unexpected errors as well
+        try {
+          setProfileCache((p) => ({ ...p, [username]: null }));
+        } catch {}
       }
     }
 
