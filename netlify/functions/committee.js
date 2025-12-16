@@ -105,7 +105,7 @@ async function ensureProfileForMember(member) {
 
         try {
           // Insert lightweight profile directly to avoid model.create bundler issues
-          const insert = await Profile.collection.insertOne({
+          const insert = await mongoose.connection.db.collection("profiles").insertOne({
             _id: `local:${inEmail}`,
             username: finalUsername,
             name: inName || "",
@@ -538,7 +538,7 @@ export async function handler(event) {
 
       // Create committee using direct collection insert to avoid model.create issues
       try {
-        const insert = await Committee.collection.insertOne({
+        const insert = await mongoose.connection.db.collection("committees").insertOne({
           _id: body.id || `committee-${Date.now()}`,
           name,
           ownerId,
@@ -649,8 +649,8 @@ export async function handler(event) {
             }
           }
           // Insert directly into collection to avoid model.create interop issues
-          try {
-            const insert = await Committee.collection.insertOne({
+            try {
+            const insert = await mongoose.connection.db.collection("committees").insertOne({
               _id: committeeId,
               name,
               ownerId: ownerId || withOwner[0]?.username || "",
