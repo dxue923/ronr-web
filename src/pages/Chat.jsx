@@ -1393,28 +1393,7 @@ export default function Chat() {
       : ROLE.MEMBER);
   const amIManager = myRole === ROLE.CHAIR || myRole === ROLE.OWNER;
 
-  // Load meeting status from backend per-committee
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!committee?.id) return;
-        const m = await getMeeting(committee.id);
-        if (cancelled || !m) return;
-        setMeetingActive(!!m.active);
-        setCurrentMeetingSeq(Number(m.seq || 0));
-        setCurrentMeetingId(m.id || currentMeetingId);
-        setCurrentMeetingDate(
-          m.date || m.startedAt?.slice(0, 10) || currentMeetingDate
-        );
-      } catch (err) {
-        // keep local state if backend fetch fails
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [committee?.id]);
+  // Meeting status is managed locally; avoid remote GET to reduce server calls
 
   // When profile changes, refresh committee to reflect updated names/usernames in participants
   useEffect(() => {

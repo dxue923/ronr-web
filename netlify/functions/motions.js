@@ -7,6 +7,23 @@ import Committee from "../../models/Committee.js";
 import Discussion from "../../models/Discussion.js"; // for cascading deletes
 import jwt from "jsonwebtoken";
 
+// Helper to support bundler interop when importing mongoose
+import mongoose from "../../db/mongoose.js";
+
+function getMongooseInstance() {
+  try {
+    if (typeof mongoose === "object" && mongoose && mongoose.default) {
+      return mongoose.default;
+    }
+  } catch (e) {}
+  return mongoose;
+}
+
+function getDb() {
+  const m = getMongooseInstance();
+  return m && m.connection ? m.connection.db : null;
+}
+
 const DOMAIN = process.env.AUTH0_DOMAIN;
 const AUDIENCE = process.env.AUTH0_AUDIENCE;
 const IS_DEV = process.env.NETLIFY_DEV === "true";
@@ -38,13 +55,24 @@ function usernameFromClaims(c = {}) {
 
 async function getRoleForCommittee(committeeId, username) {
   if (!committeeId || !username) return null;
-  const committee = await Committee.findById(committeeId).lean();
-  if (!committee) return null;
-  const uLower = username.toLowerCase();
-  const member = (committee.members || []).find(
-    (m) => (m.username || "").toLowerCase() === uLower
-  );
-  return member ? member.role : null;
+  try {
+    const db = getDb();
+    let committee = null;
+    if (db) {
+      committee = await db.collection("committees").findOne({ _id: committeeId });
+    } else if (Committee && typeof Committee.findById === "function") {
+      committee = await Committee.findById(committeeId).lean();
+    }
+    if (!committee) return null;
+    const uLower = username.toLowerCase();
+    const member = (committee.members || []).find(
+      (m) => (m.username || "").toLowerCase() === uLower
+    );
+    return member ? member.role : null;
+  } catch (e) {
+    console.warn("[motions] getRoleForCommittee failed", e?.message || e);
+    return null;
+  }
 }
 
 // New canonical status list (include "voting" so it can be persisted/displayed)
@@ -118,9 +146,16 @@ export async function handler(event) {
       const params = event.queryStringParameters || {};
       const motionId = params.id || null;
       const filterCommitteeId = params.committeeId || null;
+      const db = getDb();
 
       if (motionId) {
-        const motionDoc = await Motion.findById(motionId).lean();
+        let motionDoc = null;
+        if (db) {
+          motionDoc = await db.collection("motions").findOne({ _id: motionId });
+        } else if (Motion && typeof Motion.findById === "function") {
+          motionDoc = await Motion.findById(motionId).lean();
+        }
+
         if (!motionDoc) {
           return {
             statusCode: 404,
@@ -137,13 +172,16 @@ export async function handler(event) {
       }
 
       const query = {};
-      if (filterCommitteeId) {
-        query.committeeId = filterCommitteeId;
+      if (filterCommitteeId) query.committeeId = filterCommitteeId;
+
+      let motions = [];
+      if (db) {
+        motions = await db.collection("motions").find(query).toArray();
+      } else if (Motion && typeof Motion.find === "function") {
+        motions = await Motion.find(query).lean();
       }
 
-      const motions = await Motion.find(query).lean();
-      const result = motions.map(serializeMotion);
-
+      const result = (motions || []).map(serializeMotion);
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
@@ -199,7 +237,13 @@ export async function handler(event) {
       }
 
       // verify the committee actually exists
-      const committee = await Committee.findById(committeeId).lean();
+      const db = getDb();
+      let committee = null;
+      if (db) {
+        committee = await db.collection("committees").findOne({ _id: committeeId });
+      } else if (Committee && typeof Committee.findById === "function") {
+        committee = await Committee.findById(committeeId).lean();
+      }
       if (!committee) {
         return {
           statusCode: 404,
@@ -215,16 +259,33 @@ export async function handler(event) {
       if (!role) {
         // Auto-add actor as a member for permissive creation
         try {
-          await Committee.findByIdAndUpdate(committeeId, {
-            $push: {
-              members: {
-                username: actorUsername,
-                name: actorUsername,
-                role: "member",
-                avatarUrl: "",
+          const db2 = getDb();
+          if (db2) {
+            await db2.collection("committees").updateOne(
+              { _id: committeeId },
+              {
+                $push: {
+                  members: {
+                    username: actorUsername,
+                    name: actorUsername,
+                    role: "member",
+                    avatarUrl: "",
+                  },
+                },
+              }
+            );
+          } else if (Committee && typeof Committee.findByIdAndUpdate === "function") {
+            await Committee.findByIdAndUpdate(committeeId, {
+              $push: {
+                members: {
+                  username: actorUsername,
+                  name: actorUsername,
+                  role: "member",
+                  avatarUrl: "",
+                },
               },
-            },
-          });
+            });
+          }
           role = "member";
         } catch (e) {
           // If auto-add fails, still proceed without blocking motion creation
@@ -264,21 +325,27 @@ export async function handler(event) {
       // human-readable origin even if the origin committee is later deleted.
       if (meta && meta.referredFrom && !meta.referredFrom.committeeName) {
         try {
-          const origin = await Committee.findById(committeeId).lean();
-          meta.referredFrom.committeeName = origin?.name || committeeId;
+          const db3 = getDb();
+          if (db3) {
+            const origin = await db3.collection("committees").findOne({ _id: committeeId });
+            meta.referredFrom.committeeName = origin?.name || committeeId;
+          } else if (Committee && typeof Committee.findById === "function") {
+            const origin = await Committee.findById(committeeId).lean();
+            meta.referredFrom.committeeName = origin?.name || committeeId;
+          } else {
+            meta.referredFrom.committeeName = committeeId;
+          }
         } catch (e) {
           meta.referredFrom.committeeName = committeeId;
         }
       }
 
-      const newMotionDoc = await Motion.create({
+      const db4 = getDb();
+      const newMotionDoc = {
         _id: motionId,
         committeeId,
         title,
         description,
-        // If the client supplied refer metadata, create the received motion
-        // in the destination with the canonical 'referred' status so the
-        // receiving committee shows the referred pill and UI controls.
         status:
           meta && meta.referredFrom && typeof meta.referredFrom === "object"
             ? "referred"
@@ -292,9 +359,14 @@ export async function handler(event) {
         createdByUsername,
         createdByAvatarUrl,
         createdAt: new Date().toISOString(),
-      });
-
-      const plain = newMotionDoc.toObject({ versionKey: false });
+      };
+      if (db4) {
+        await db4.collection("motions").insertOne(newMotionDoc);
+      } else if (Motion && typeof Motion.create === "function") {
+        const created = await Motion.create(newMotionDoc);
+        Object.assign(newMotionDoc, created.toObject ? created.toObject() : created);
+      }
+      const plain = newMotionDoc;
       const serialized = serializeMotion(plain);
 
       return {
@@ -317,7 +389,13 @@ export async function handler(event) {
         };
       }
 
-      const motionDoc = await Motion.findById(id);
+      const db5 = getDb();
+      let motionDoc = null;
+      if (db5) {
+        motionDoc = await db5.collection("motions").findOne({ _id: id });
+      } else if (Motion && typeof Motion.findById === "function") {
+        motionDoc = await Motion.findById(id);
+      }
       if (!motionDoc) {
         return {
           statusCode: 404,
@@ -461,20 +539,33 @@ export async function handler(event) {
               const newId = Date.now().toString();
               // Avoid creating a duplicate if the destination already has
               // a motion that references this original via meta.referredFrom.originalMotionId
-              const existing = await Motion.findOne({
-                committeeId: destId,
-                "meta.referredFrom.originalMotionId": motionDoc._id,
-              }).lean();
+              const db6 = getDb();
+              let existing = null;
+              if (db6) {
+                existing = await db6.collection("motions").findOne({
+                  committeeId: destId,
+                  "meta.referredFrom.originalMotionId": motionDoc._id,
+                });
+              } else if (Motion && typeof Motion.findOne === "function") {
+                existing = await Motion.findOne({
+                  committeeId: destId,
+                  "meta.referredFrom.originalMotionId": motionDoc._id,
+                }).lean();
+              }
               if (!existing) {
                 // Ensure the created referred motion records the origin's name
                 let originName = motionDoc.committeeId;
                 try {
-                  const origin = await Committee.findById(
-                    motionDoc.committeeId
-                  ).lean();
-                  originName = origin?.name || motionDoc.committeeId;
+                  const db7 = getDb();
+                  if (db7) {
+                    const origin = await db7.collection("committees").findOne({ _id: motionDoc.committeeId });
+                    originName = origin?.name || motionDoc.committeeId;
+                  } else if (Committee && typeof Committee.findById === "function") {
+                    const origin = await Committee.findById(motionDoc.committeeId).lean();
+                    originName = origin?.name || motionDoc.committeeId;
+                  }
                 } catch (e) {}
-                await Motion.create({
+                const referredDoc = {
                   _id: newId,
                   committeeId: destId,
                   title: motionDoc.title,
@@ -490,19 +581,28 @@ export async function handler(event) {
                       receivedAt: new Date().toISOString(),
                     },
                   },
-                });
+                };
+                const db8 = getDb();
+                if (db8) {
+                  await db8.collection("motions").insertOne(referredDoc);
+                } else if (Motion && typeof Motion.create === "function") {
+                  await Motion.create(referredDoc);
+                }
               } else {
                 // if existing found, make sure it has a receivedAt timestamp
                 if (!existing.meta || !existing.meta.referredFrom?.receivedAt) {
-                  await Motion.updateOne(
-                    { _id: existing._id },
-                    {
-                      $set: {
-                        "meta.referredFrom.receivedAt":
-                          new Date().toISOString(),
-                      },
-                    }
-                  ).catch(() => {});
+                  const db9 = getDb();
+                  if (db9) {
+                    await db9.collection("motions").updateOne(
+                      { _id: existing._id },
+                      { $set: { "meta.referredFrom.receivedAt": new Date().toISOString() } }
+                    ).catch(() => {});
+                  } else if (Motion && typeof Motion.updateOne === "function") {
+                    await Motion.updateOne(
+                      { _id: existing._id },
+                      { $set: { "meta.referredFrom.receivedAt": new Date().toISOString() } }
+                    ).catch(() => {});
+                  }
                 }
               }
             } catch (e) {
@@ -515,7 +615,20 @@ export async function handler(event) {
         }
       }
 
-      await motionDoc.save();
+      // Persist updated motionDoc back to the DB
+      try {
+        const db10 = getDb();
+        const toSave = { ...motionDoc };
+        delete toSave.__v;
+        if (db10) {
+          await db10.collection("motions").updateOne({ _id: id }, { $set: toSave });
+          motionDoc = await db10.collection("motions").findOne({ _id: id });
+        } else if (Motion && typeof Motion.findByIdAndUpdate === "function") {
+          motionDoc = await Motion.findByIdAndUpdate(id, toSave, { new: true });
+        }
+      } catch (e) {
+        console.warn("[motions] failed to persist updated motion", e?.message || e);
+      }
 
       // If this motion is a referred/received motion and it just reached a
       // terminal passed state, reopen the original motion back to active
@@ -531,11 +644,12 @@ export async function handler(event) {
             referredFrom.originalMotionId || referredFrom.motionId
           ).trim();
           if (originalId) {
-            await Motion.findOneAndUpdate(
-              { _id: originalId },
-              { $set: { status: "in-progress" } },
-              { new: true }
-            ).lean();
+            const db11 = getDb();
+            if (db11) {
+              await db11.collection("motions").updateOne({ _id: originalId }, { $set: { status: "in-progress" } });
+            } else if (Motion && typeof Motion.findOneAndUpdate === "function") {
+              await Motion.findOneAndUpdate({ _id: originalId }, { $set: { status: "in-progress" } }, { new: true }).lean();
+            }
           }
         }
       } catch (e) {
@@ -545,7 +659,7 @@ export async function handler(event) {
         );
       }
 
-      const plain = motionDoc.toObject({ versionKey: false });
+      const plain = motionDoc && typeof motionDoc.toObject === "function" ? motionDoc.toObject({ versionKey: false }) : { ...motionDoc };
       const serialized = serializeMotion(plain);
 
       return {
@@ -565,7 +679,13 @@ export async function handler(event) {
 
       // Case 1: delete a single motion by id
       if (id) {
-        const motionDoc = await Motion.findById(id);
+        const dbx = getDb();
+        let motionDoc = null;
+        if (dbx) {
+          motionDoc = await dbx.collection("motions").findOne({ _id: id });
+        } else if (Motion && typeof Motion.findById === "function") {
+          motionDoc = await Motion.findById(id);
+        }
         if (!motionDoc) {
           return {
             statusCode: 404,
@@ -577,7 +697,11 @@ export async function handler(event) {
         // 🔻 Cascade delete discussions for this motion
         const discussionResult = await Discussion.deleteMany({ motionId: id });
 
-        await Motion.findByIdAndDelete(id);
+        if (dbx) {
+          await dbx.collection("motions").deleteOne({ _id: id });
+        } else if (Motion && typeof Motion.findByIdAndDelete === "function") {
+          await Motion.findByIdAndDelete(id);
+        }
 
         return {
           statusCode: 200,
@@ -593,22 +717,29 @@ export async function handler(event) {
 
       // Case 2: delete all motions for a specific committee
       if (committeeId) {
+        const dbxx = getDb();
         // Find all motions for this committee so we know which discussions to delete
-        const motionsToDelete = await Motion.find({ committeeId })
-          .select("_id")
-          .lean();
+        let motionsToDelete = [];
+        if (dbxx) {
+          motionsToDelete = await dbxx.collection("motions").find({ committeeId }).project({ _id: 1 }).toArray();
+        } else if (Motion && typeof Motion.find === "function") {
+          motionsToDelete = await Motion.find({ committeeId }).select("_id").lean();
+        }
 
-        const motionIds = motionsToDelete.map((m) => m._id);
+        const motionIds = (motionsToDelete || []).map((m) => m._id);
 
         let deletedDiscussions = 0;
         if (motionIds.length > 0) {
-          const discussionResult = await Discussion.deleteMany({
-            motionId: { $in: motionIds },
-          });
+          const discussionResult = await Discussion.deleteMany({ motionId: { $in: motionIds } });
           deletedDiscussions = discussionResult.deletedCount || 0;
         }
 
-        const result = await Motion.deleteMany({ committeeId });
+        let result = { deletedCount: 0 };
+        if (dbxx) {
+          result = await dbxx.collection("motions").deleteMany({ committeeId });
+        } else if (Motion && typeof Motion.deleteMany === "function") {
+          result = await Motion.deleteMany({ committeeId });
+        }
 
         return {
           statusCode: 200,
@@ -624,7 +755,13 @@ export async function handler(event) {
       }
 
       // Case 3: delete ALL motions in the collection
-      const motionResult = await Motion.deleteMany({});
+      const dball = getDb();
+      let motionResult = { deletedCount: 0 };
+      if (dball) {
+        motionResult = await dball.collection("motions").deleteMany({});
+      } else if (Motion && typeof Motion.deleteMany === "function") {
+        motionResult = await Motion.deleteMany({});
+      }
 
       // 🔻 Delete all discussions (since all motions are gone)
       const discussionResult = await Discussion.deleteMany({});
