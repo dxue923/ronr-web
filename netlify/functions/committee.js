@@ -1085,11 +1085,10 @@ export async function handler(event) {
       }
 
       if (!deletedCommittee) {
-        return {
-          statusCode: 404,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: "Committee not found" }),
-        };
+        console.warn(
+          `[committee:delete] committee with id=${committeeId} not found by findOneAndDelete/deleteOne; continuing to cascade delete motions/discussions if any.`
+        );
+        // Proceed anyway — DELETE should be idempotent and not return 404.
       }
 
       // Cascade deletes should never block committee deletion; wrap in try/catch
