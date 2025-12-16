@@ -1,14 +1,16 @@
-<img width="2559" height="1418" alt="image" src="https://github.com/user-attachments/assets/64738ce2-4a6f-49a6-962b-aa0eb1f9eb8c" /># e-motions (Robert’s Rules of Order Web Platform)
+## e-motions (Robert’s Rules of Order Web Platform)
 
 e-motions is a web-based platform that enables committees and organizations to conduct meetings in accordance with **Robert’s Rules of Order (RONR)**. The system supports structured discussions, formal motions, debate, and voting with built-in rule enforcement.
 
 The platform provides user authentication, committee and meeting management, role-based participation, and a chat-style interface designed to mirror real parliamentary procedure in a digital environment.
 
 ---
+
 🔗 https://e-motnz.netlify.app
 
 ## Video Demo
-🔗 
+
+🔗
 
 ## API Documentation
 
