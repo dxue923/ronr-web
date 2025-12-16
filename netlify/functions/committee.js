@@ -1151,14 +1151,12 @@ export async function handler(event) {
         console.warn("Cascade fetch failed:", e);
       }
 
+      // Return 204 No Content on successful deletion to make client handling
+      // of empty responses explicit and avoid JSON parsing expectations.
       return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: `Deleted committee ${committeeId} and its associated motions & discussions`,
-          deletedMotions,
-          deletedDiscussions,
-        }),
+        statusCode: 204,
+        headers: {},
+        body: "",
       };
     }
 
