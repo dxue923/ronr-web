@@ -224,6 +224,24 @@ async function insertDocument(model, collectionName, doc) {
   throw new Error("insertDocument: unable to insert document");
 }
 
+// Determine a user's role from a committee document or return null
+function getRole(committeeDoc, username) {
+  try {
+    if (!committeeDoc || !username) return null;
+    const uLower = String(username || "").toLowerCase();
+    // Prefer explicit ownerId check
+    if ((committeeDoc.ownerId || "").toLowerCase() === uLower) return "owner";
+    const members = committeeDoc.members || [];
+    const member = members.find(
+      (m) => String(m?.username || "").toLowerCase() === uLower
+    );
+    return member ? member.role : null;
+  } catch (e) {
+    console.warn("[committee] getRole failed", e?.message || e);
+    return null;
+  }
+}
+
 export async function handler(event) {
   try {
     const rawMethod = event.httpMethod || "GET";
@@ -352,9 +370,14 @@ export async function handler(event) {
           const db = getDb();
           if (db) {
             try {
-              found = await db.collection("committees").findOne({ _id: committeeId });
+              found = await db
+                .collection("committees")
+                .findOne({ _id: committeeId });
             } catch (e) {
-              console.warn("[committee] collection.findOne by string _id failed", e?.message || e);
+              console.warn(
+                "[committee] collection.findOne by string _id failed",
+                e?.message || e
+              );
             }
 
             // If not found and the id looks like an ObjectId, try that form as well
@@ -370,14 +393,20 @@ export async function handler(event) {
                 found = await db.collection("committees").findOne({ _id: oid });
               }
             } catch (e) {
-              console.warn("[committee] collection.findOne by ObjectId failed", e?.message || e);
+              console.warn(
+                "[committee] collection.findOne by ObjectId failed",
+                e?.message || e
+              );
             }
           } else {
             // Fallback to model methods if collection access isn't available
             try {
               if (Committee && typeof Committee.findOne === "function") {
                 found = await Committee.findOne({ _id: committeeId });
-              } else if (Committee && typeof Committee.findById === "function") {
+              } else if (
+                Committee &&
+                typeof Committee.findById === "function"
+              ) {
                 found = await Committee.findById(committeeId);
               }
             } catch (e) {
@@ -416,15 +445,27 @@ export async function handler(event) {
               .toArray();
           } else {
             try {
-              if (Committee && Committee.collection && typeof Committee.collection.find === "function") {
-                docs = await Committee.collection.find({ "members.username": usernameRegex }).sort({ createdAt: 1 }).toArray();
+              if (
+                Committee &&
+                Committee.collection &&
+                typeof Committee.collection.find === "function"
+              ) {
+                docs = await Committee.collection
+                  .find({ "members.username": usernameRegex })
+                  .sort({ createdAt: 1 })
+                  .toArray();
               } else if (Committee && typeof Committee.find === "function") {
-                docs = await Committee.find({ "members.username": usernameRegex }).sort({ createdAt: 1 });
+                docs = await Committee.find({
+                  "members.username": usernameRegex,
+                }).sort({ createdAt: 1 });
               } else {
                 docs = [];
               }
             } catch (e) {
-              console.warn("[committee] member fallback query failed", e?.message || e);
+              console.warn(
+                "[committee] member fallback query failed",
+                e?.message || e
+              );
               docs = [];
             }
           }
@@ -480,18 +521,32 @@ export async function handler(event) {
       try {
         const db = getDb();
         if (db) {
-          docs = await db.collection("committees").find().sort({ createdAt: 1 }).toArray();
+          docs = await db
+            .collection("committees")
+            .find()
+            .sort({ createdAt: 1 })
+            .toArray();
         } else {
           try {
-            if (Committee && Committee.collection && typeof Committee.collection.find === "function") {
-              docs = await Committee.collection.find().sort({ createdAt: 1 }).toArray();
+            if (
+              Committee &&
+              Committee.collection &&
+              typeof Committee.collection.find === "function"
+            ) {
+              docs = await Committee.collection
+                .find()
+                .sort({ createdAt: 1 })
+                .toArray();
             } else if (Committee && typeof Committee.find === "function") {
               docs = await Committee.find().sort({ createdAt: 1 });
             } else {
               docs = [];
             }
           } catch (e) {
-            console.warn("[committee] list fallback query failed", e?.message || e);
+            console.warn(
+              "[committee] list fallback query failed",
+              e?.message || e
+            );
             docs = [];
           }
         }
@@ -878,9 +933,13 @@ export async function handler(event) {
           if (db2) {
             const toSave = { ...doc };
             delete toSave.__v;
-            await db2.collection("committees").updateOne({ _id: committeeId }, { $set: toSave });
+            await db2
+              .collection("committees")
+              .updateOne({ _id: committeeId }, { $set: toSave });
             // re-read for consistent return shape
-            doc = await db2.collection("committees").findOne({ _id: committeeId });
+            doc = await db2
+              .collection("committees")
+              .findOne({ _id: committeeId });
           } else if (doc && typeof doc.save === "function") {
             await doc.save();
           }
@@ -930,9 +989,14 @@ export async function handler(event) {
       const db = getDb();
       let deletedCommittee = null;
       if (db) {
-        const res = await db.collection("committees").findOneAndDelete({ _id: committeeId });
+        const res = await db
+          .collection("committees")
+          .findOneAndDelete({ _id: committeeId });
         deletedCommittee = res && res.value ? res.value : null;
-      } else if (Committee && typeof Committee.findByIdAndDelete === "function") {
+      } else if (
+        Committee &&
+        typeof Committee.findByIdAndDelete === "function"
+      ) {
         deletedCommittee = await Committee.findByIdAndDelete(committeeId);
       }
 
@@ -951,9 +1015,15 @@ export async function handler(event) {
         const db2 = getDb();
         let motionsToDelete = [];
         if (db2) {
-          motionsToDelete = await db2.collection("motions").find({ committeeId }).project({ _id: 1 }).toArray();
+          motionsToDelete = await db2
+            .collection("motions")
+            .find({ committeeId })
+            .project({ _id: 1 })
+            .toArray();
         } else if (Motion && typeof Motion.find === "function") {
-          motionsToDelete = await Motion.find({ committeeId }).select("_id").lean();
+          motionsToDelete = await Motion.find({ committeeId })
+            .select("_id")
+            .lean();
         }
         const motionIds = (motionsToDelete || []).map((m) => m._id);
         if (motionIds.length > 0) {
@@ -961,18 +1031,30 @@ export async function handler(event) {
             const db_disc = db2;
             let discussionResult = { deletedCount: 0 };
             if (db_disc) {
-              discussionResult = await db_disc.collection("discussions").deleteMany({ motionId: { $in: motionIds } });
-            } else if (Discussion && typeof Discussion.deleteMany === "function") {
-              discussionResult = await Discussion.deleteMany({ motionId: { $in: motionIds } });
+              discussionResult = await db_disc
+                .collection("discussions")
+                .deleteMany({ motionId: { $in: motionIds } });
+            } else if (
+              Discussion &&
+              typeof Discussion.deleteMany === "function"
+            ) {
+              discussionResult = await Discussion.deleteMany({
+                motionId: { $in: motionIds },
+              });
             }
             deletedDiscussions = discussionResult.deletedCount || 0;
           } catch (e) {
-            console.warn("Failed to cascade delete discussions:", e?.message || e);
+            console.warn(
+              "Failed to cascade delete discussions:",
+              e?.message || e
+            );
           }
         }
         try {
           if (db2) {
-            const motionResult = await db2.collection("motions").deleteMany({ committeeId });
+            const motionResult = await db2
+              .collection("motions")
+              .deleteMany({ committeeId });
             deletedMotions = motionResult.deletedCount || 0;
           } else if (Motion && typeof Motion.deleteMany === "function") {
             const motionResult = await Motion.deleteMany({ committeeId });
