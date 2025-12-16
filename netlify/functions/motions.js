@@ -261,13 +261,32 @@ export async function handler(event) {
       // Authorization: allow members/chair/owner; auto-add unknown actor as member (skip observers check)
       let role = await getRoleForCommittee(committeeId, actorUsername);
       if (!role) {
-        // Auto-add actor as a member for permissive creation
-        try {
-          const db2 = getDb();
-          if (db2) {
-            await db2.collection("committees").updateOne(
-              { _id: committeeId },
-              {
+        // Auto-add actor as a member for permissive creation, except for
+        // anonymous placeholder users (e.g. 'anon', 'anonymous', 'guest').
+        const uname = (actorUsername || "").toString().trim().toLowerCase();
+        const isAnon = !uname || ["anon", "anonymous", "guest"].includes(uname);
+        if (!isAnon) {
+          try {
+            const db2 = getDb();
+            if (db2) {
+              await db2.collection("committees").updateOne(
+                { _id: committeeId },
+                {
+                  $push: {
+                    members: {
+                      username: actorUsername,
+                      name: actorUsername,
+                      role: "member",
+                      avatarUrl: "",
+                    },
+                  },
+                }
+              );
+            } else if (
+              Committee &&
+              typeof Committee.findByIdAndUpdate === "function"
+            ) {
+              await Committee.findByIdAndUpdate(committeeId, {
                 $push: {
                   members: {
                     username: actorUsername,
@@ -276,26 +295,16 @@ export async function handler(event) {
                     avatarUrl: "",
                   },
                 },
-              }
-            );
-          } else if (
-            Committee &&
-            typeof Committee.findByIdAndUpdate === "function"
-          ) {
-            await Committee.findByIdAndUpdate(committeeId, {
-              $push: {
-                members: {
-                  username: actorUsername,
-                  name: actorUsername,
-                  role: "member",
-                  avatarUrl: "",
-                },
-              },
-            });
+              });
+            }
+            role = "member";
+          } catch (e) {
+            // If auto-add fails, still proceed without blocking motion creation
+            role = "member";
           }
-          role = "member";
-        } catch (e) {
-          // If auto-add fails, still proceed without blocking motion creation
+        } else {
+          // Do not persist anonymous placeholder accounts to committee members;
+          // grant permissive role for creation without mutating committee.
           role = "member";
         }
       }
