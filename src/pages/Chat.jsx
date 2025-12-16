@@ -4745,15 +4745,30 @@ export default function Chat() {
                   membersCollapsed ? "collapsed" : ""
                 }`}
               >
-                {members.map((p) => (
-                  <LiveProfileMemberCard
-                    key={p.id || p.name}
-                    username={p.username}
-                    fallbackName={p.name || p.id}
-                    role={p.role}
-                    avatarUrl={p.avatarUrl}
-                  />
-                ))}
+                {members.map((p) => {
+                  const prof = profileCache[p.username] || {};
+                  const displayName =
+                    prof.name && prof.name.trim().length > 0
+                      ? prof.name
+                      : p.name || p.id || p.username;
+                  const avatarSrc =
+                    prof.avatarUrl && prof.avatarUrl.trim().length > 0
+                      ? prof.avatarUrl
+                      : p.avatarUrl && p.avatarUrl.trim().length > 0
+                      ? p.avatarUrl
+                      : "https://ui-avatars.com/api/?name=" +
+                        encodeURIComponent(displayName) +
+                        "&background=e5e7eb&color=374151&size=40";
+                  return (
+                    <LiveProfileMemberCard
+                      key={p.id || p.name || p.username}
+                      username={p.username}
+                      fallbackName={displayName}
+                      role={p.role}
+                      avatarUrl={avatarSrc}
+                    />
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -6214,15 +6229,30 @@ export default function Chat() {
                 membersCollapsed ? "collapsed" : ""
               }`}
             >
-              {members.map((p) => (
-                <LiveProfileMemberCard
-                  key={p.id || p.name}
-                  username={p.username}
-                  fallbackName={p.name || p.id}
-                  role={p.role}
-                  avatarUrl={p.avatarUrl}
-                />
-              ))}
+              {members.map((p) => {
+                const prof = profileCache[p.username] || {};
+                const displayName =
+                  prof.name && prof.name.trim().length > 0
+                    ? prof.name
+                    : p.name || p.id || p.username;
+                const avatarSrc =
+                  prof.avatarUrl && prof.avatarUrl.trim().length > 0
+                    ? prof.avatarUrl
+                    : p.avatarUrl && p.avatarUrl.trim().length > 0
+                    ? p.avatarUrl
+                    : "https://ui-avatars.com/api/?name=" +
+                      encodeURIComponent(displayName) +
+                      "&background=e5e7eb&color=374151&size=40";
+                return (
+                  <LiveProfileMemberCard
+                    key={p.id || p.name || p.username}
+                    username={p.username}
+                    fallbackName={displayName}
+                    role={p.role}
+                    avatarUrl={avatarSrc}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
