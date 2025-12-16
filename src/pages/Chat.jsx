@@ -370,6 +370,8 @@ export default function Chat() {
   const [chatForceLoading, setChatForceLoading] = useState(true);
   const [motionsLoadedOnce, setMotionsLoadedOnce] = useState(false);
   const [me, setMe] = useState(getFallbackUser());
+  // whether we're still fetching member profiles (names/avatars)
+  const [profilesLoading, setProfilesLoading] = useState(false);
   // Load current user from Profile API when authenticated and refresh on profile updates
   useEffect(() => {
     let cancelled = false;
@@ -660,7 +662,11 @@ export default function Chat() {
     ((committeeLoading && !committee) ||
       (!motionsLoadedOnce && !motions.length) ||
       (loadingComments && !motionsLoadedOnce) ||
-      chatForceLoading) &&
+      chatForceLoading ||
+      (profilesLoading &&
+        committee &&
+        ((committee.members && committee.members.length > 0) ||
+          (committee.memberships && committee.memberships.length > 0)))) &&
     !commentsError;
 
   // find active motion object
@@ -1274,6 +1280,8 @@ export default function Chat() {
   // Prefetch member profiles (avatars/names) for display in messages
   useEffect(() => {
     let cancelled = false;
+    let remaining = 0;
+
     async function ensureProfile(username) {
       if (!username) return;
       if (profileCache[username]) return;
@@ -1287,7 +1295,9 @@ export default function Chat() {
         if (prof) {
           setProfileCache((p) => ({ ...p, [username]: prof }));
         }
-      } catch (e) {}
+      } catch (e) {
+        // ignore individual lookup errors
+      }
     }
 
     const names = new Set();
@@ -1299,7 +1309,30 @@ export default function Chat() {
       if (aid) names.add(aid);
     });
 
-    names.forEach((u) => ensureProfile(u));
+    // If there are no names to fetch, ensure loading flag is cleared.
+    if (names.size === 0) {
+      setProfilesLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // mark as loading while lookups are in-flight
+    setProfilesLoading(true);
+    remaining = names.size;
+
+    names.forEach((u) => {
+      (async () => {
+        try {
+          await ensureProfile(u);
+        } finally {
+          remaining -= 1;
+          if (!cancelled && remaining <= 0) {
+            setProfilesLoading(false);
+          }
+        }
+      })();
+    });
 
     return () => {
       cancelled = true;
