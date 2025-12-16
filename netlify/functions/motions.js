@@ -166,6 +166,55 @@ export async function handler(event) {
           };
         }
 
+        // Auto-resume postponed motions when their resumeAt has passed.
+        try {
+          const resume =
+            motionDoc && motionDoc.meta && motionDoc.meta.resumeAt
+              ? Date.parse(motionDoc.meta.resumeAt)
+              : NaN;
+          if (
+            motionDoc &&
+            motionDoc.status === "postponed" &&
+            !isNaN(resume) &&
+            Date.now() >= resume
+          ) {
+            // Determine new status: prefer stored parentPreviousState, fallback to in-progress
+            const newStatus =
+              (motionDoc.meta && motionDoc.meta.parentPreviousState) ||
+              "in-progress";
+            // mark when the postponement was lifted
+            const nextMeta = { ...(motionDoc.meta || {}) };
+            nextMeta.postponementLiftedAt = new Date().toISOString();
+            // persist change
+            const dbx = getDb();
+            if (dbx) {
+              await dbx
+                .collection("motions")
+                .updateOne(
+                  { _id: motionDoc._id },
+                  { $set: { status: newStatus, meta: nextMeta } }
+                );
+              motionDoc = await dbx
+                .collection("motions")
+                .findOne({ _id: motionId });
+            } else if (
+              Motion &&
+              typeof Motion.findByIdAndUpdate === "function"
+            ) {
+              motionDoc = await Motion.findByIdAndUpdate(
+                motionId,
+                { status: newStatus, meta: nextMeta },
+                { new: true }
+              ).lean();
+            }
+          }
+        } catch (e) {
+          console.warn(
+            "[motions] failed to auto-resume postponed motion",
+            e?.message || e
+          );
+        }
+
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
@@ -181,6 +230,59 @@ export async function handler(event) {
         motions = await db.collection("motions").find(query).toArray();
       } else if (Motion && typeof Motion.find === "function") {
         motions = await Motion.find(query).lean();
+      }
+
+      // Auto-resume postponed motions whose resumeAt has passed. Persist updates.
+      try {
+        const dbx = getDb();
+        for (let i = 0; i < motions.length; i++) {
+          const m = motions[i];
+          const resume =
+            m && m.meta && m.meta.resumeAt ? Date.parse(m.meta.resumeAt) : NaN;
+          if (
+            m &&
+            m.status === "postponed" &&
+            !isNaN(resume) &&
+            Date.now() >= resume
+          ) {
+            const newStatus =
+              (m.meta && m.meta.parentPreviousState) || "in-progress";
+            const nextMeta = { ...(m.meta || {}) };
+            nextMeta.postponementLiftedAt = new Date().toISOString();
+            try {
+              if (dbx) {
+                await dbx
+                  .collection("motions")
+                  .updateOne(
+                    { _id: m._id },
+                    { $set: { status: newStatus, meta: nextMeta } }
+                  );
+                motions[i] = await dbx
+                  .collection("motions")
+                  .findOne({ _id: m._id });
+              } else if (
+                Motion &&
+                typeof Motion.findByIdAndUpdate === "function"
+              ) {
+                motions[i] = await Motion.findByIdAndUpdate(
+                  m._id,
+                  { status: newStatus, meta: nextMeta },
+                  { new: true }
+                ).lean();
+              }
+            } catch (e) {
+              console.warn(
+                "[motions] failed to persist resumed motion",
+                e?.message || e
+              );
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[motions] error while checking postponed motions",
+          e?.message || e
+        );
       }
 
       const result = (motions || []).map(serializeMotion);
