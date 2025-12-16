@@ -1,3 +1,29 @@
+import React, { useState, useRef, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
+import { ROLE } from "../utils/permissions";
+import { getCommentsForMotion, createComment } from "../api/discussion";
+import {
+  getCommittee as apiGetCommittee,
+  updateCommittee as apiUpdateCommittee,
+  getCommittees as apiGetCommittees,
+} from "../api/committee";
+import {
+  fetchMotions,
+  createMotion as apiCreateMotion,
+  updateMotionStatus,
+  castMotionVote,
+  updateMotion,
+} from "../api/motions";
+import "../assets/styles/index.css";
+import { getMeeting } from "../api/meetings";
+import logo from "../assets/logo.png";
+import {
+  fetchProfile as apiFetchProfile,
+  lookupProfile as apiLookupProfile,
+} from "../api/profile";
+import { getApiToken } from "../api/auth";
+
 const AVATAR_SIZE = 40;
 function Avatar({ src, alt }) {
   const hasImage = src && src.trim().length > 0;
@@ -87,31 +113,6 @@ function LiveProfileMemberCard({
   );
 }
 // src/pages/Chat.jsx
-import React, { useState, useRef, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useAuth0 } from "@auth0/auth0-react";
-import { ROLE } from "../utils/permissions";
-import { getCommentsForMotion, createComment } from "../api/discussion";
-import {
-  getCommittee as apiGetCommittee,
-  updateCommittee as apiUpdateCommittee,
-  getCommittees as apiGetCommittees,
-} from "../api/committee";
-import {
-  fetchMotions,
-  createMotion as apiCreateMotion,
-  updateMotionStatus,
-  castMotionVote,
-  updateMotion,
-} from "../api/motions";
-import "../assets/styles/index.css";
-import { getMeeting } from "../api/meetings";
-import logo from "../assets/logo.png";
-import {
-  fetchProfile as apiFetchProfile,
-  lookupProfile as apiLookupProfile,
-} from "../api/profile";
-import { getApiToken } from "../api/auth";
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
