@@ -348,10 +348,27 @@ export async function handler(event) {
       if (committeeId) {
         let found = null;
         try {
-          found = await Committee.findById(committeeId);
+          // Prefer exact _id match (works for string IDs like UUIDs or custom keys)
+          found = await Committee.findOne({ _id: committeeId });
         } catch (e) {
-          console.warn("[committee] findById error", e?.message || e);
+          console.warn("[committee] findOne error", e?.message || e);
         }
+
+        // Fallback: if not found and the id is a valid ObjectId, try findById
+        try {
+          if (
+            !found &&
+            mongoose &&
+            mongoose.Types &&
+            typeof mongoose.Types.ObjectId.isValid === "function" &&
+            mongoose.Types.ObjectId.isValid(committeeId)
+          ) {
+            found = await Committee.findById(committeeId);
+          }
+        } catch (e) {
+          console.warn("[committee] findById fallback error", e?.message || e);
+        }
+
         if (!found) {
           return {
             statusCode: 404,
