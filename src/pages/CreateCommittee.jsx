@@ -701,9 +701,11 @@ export default function CreateCommittee() {
         (latestProfile?.email || user?.email || "").split("@")[0] || "";
       const profileName = (latestProfile?.name || "").toString().trim();
       const displayName = profileName || emailLocal;
+      const profileUsername = (latestProfile?.username || "").toString().trim();
       setCurrentUser({
         id: emailLocal,
-        username: emailLocal,
+        // Prefer the profile username when available (fixes member lookups)
+        username: profileUsername || emailLocal,
         name: displayName,
         avatarUrl: latestProfile?.avatarUrl || "",
       });
