@@ -989,10 +989,37 @@ export async function handler(event) {
       const db = getDb();
       let deletedCommittee = null;
       if (db) {
-        const res = await db
-          .collection("committees")
-          .findOneAndDelete({ _id: committeeId });
-        deletedCommittee = res && res.value ? res.value : null;
+        try {
+          // Try raw _id match first (covers string/custom ids)
+          let res = await db
+            .collection("committees")
+            .findOneAndDelete({ _id: committeeId });
+          deletedCommittee = res && res.value ? res.value : null;
+
+          // If not found, and the id is a valid ObjectId, try that form
+          if (
+            !deletedCommittee &&
+            mongoose &&
+            mongoose.Types &&
+            typeof mongoose.Types.ObjectId.isValid === "function" &&
+            mongoose.Types.ObjectId.isValid(committeeId)
+          ) {
+            try {
+              const oid = new mongoose.Types.ObjectId(committeeId);
+              const res2 = await db
+                .collection("committees")
+                .findOneAndDelete({ _id: oid });
+              deletedCommittee = res2 && res2.value ? res2.value : null;
+            } catch (e) {
+              console.warn(
+                "[committee] findOneAndDelete by ObjectId failed",
+                e?.message || e
+              );
+            }
+          }
+        } catch (e) {
+          console.warn("[committee] findOneAndDelete failed", e?.message || e);
+        }
       } else if (
         Committee &&
         typeof Committee.findByIdAndDelete === "function"
