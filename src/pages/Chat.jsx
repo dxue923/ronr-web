@@ -372,6 +372,8 @@ export default function Chat() {
   const [me, setMe] = useState(getFallbackUser());
   // whether we're still fetching member profiles (names/avatars)
   const [profilesLoading, setProfilesLoading] = useState(false);
+  // timeout (ms) to force-clear `profilesLoading` if lookups hang
+  const PROFILE_LOOKUP_TIMEOUT_MS = 5000;
   // Load current user from Profile API when authenticated and refresh on profile updates
   useEffect(() => {
     let cancelled = false;
@@ -1321,6 +1323,14 @@ export default function Chat() {
     setProfilesLoading(true);
     remaining = names.size;
 
+    // start a timeout fallback so we don't wait forever
+    let timeoutId = null;
+    try {
+      timeoutId = setTimeout(() => {
+        if (!cancelled) setProfilesLoading(false);
+      }, PROFILE_LOOKUP_TIMEOUT_MS);
+    } catch {}
+
     names.forEach((u) => {
       (async () => {
         try {
@@ -1328,6 +1338,9 @@ export default function Chat() {
         } finally {
           remaining -= 1;
           if (!cancelled && remaining <= 0) {
+            try {
+              if (timeoutId) clearTimeout(timeoutId);
+            } catch {}
             setProfilesLoading(false);
           }
         }
@@ -1336,6 +1349,9 @@ export default function Chat() {
 
     return () => {
       cancelled = true;
+      try {
+        if (timeoutId) clearTimeout(timeoutId);
+      } catch {}
     };
   }, [
     members,
