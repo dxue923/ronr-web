@@ -125,13 +125,15 @@ function findCommitteeById(id) {
 }
 function loadMotionsForCommittee(id) {
   try {
-    return JSON.parse(localStorage.getItem(`committee:${id}:motions`) || "[]");
+    const key = `committee:${String(id || "").trim()}:motions`;
+    return JSON.parse(localStorage.getItem(key) || "[]");
   } catch (e) {
     return [];
   }
 }
 function saveMotionsForCommittee(id, motions) {
-  localStorage.setItem(`committee:${id}:motions`, JSON.stringify(motions));
+  const key = `committee:${String(id || "").trim()}:motions`;
+  localStorage.setItem(key, JSON.stringify(motions));
 }
 function saveCommittees(list) {
   localStorage.setItem("committees", JSON.stringify(list));

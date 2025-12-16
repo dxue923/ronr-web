@@ -729,17 +729,14 @@ export async function handler(event) {
             if (db11) {
               await db11
                 .collection("motions")
-                .updateOne(
-                  { _id: originalId },
-                  { $set: { status: "in-progress" } }
-                );
+                .updateOne({ _id: originalId }, { $set: { status: "passed" } });
             } else if (
               Motion &&
               typeof Motion.findOneAndUpdate === "function"
             ) {
               await Motion.findOneAndUpdate(
                 { _id: originalId },
-                { $set: { status: "in-progress" } },
+                { $set: { status: "passed" } },
                 { new: true }
               ).lean();
             }
