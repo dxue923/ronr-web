@@ -2,7 +2,6 @@
 // Manage committees (GET all/one, POST new, DELETE one) using MongoDB
 
 import { connectToDatabase } from "../../db/mongoose.js";
-import mongoose from "../../db/mongoose.js";
 import Committee from "../../models/Committee.js";
 import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // related discussions
@@ -106,15 +105,13 @@ async function ensureProfileForMember(member) {
 
         try {
           // Insert lightweight profile directly to avoid model.create bundler issues
-          const insert = await mongoose.connection
-            .collection("profiles")
-            .insertOne({
-              _id: `local:${inEmail}`,
-              username: finalUsername,
-              name: inName || "",
-              email: inEmail,
-              avatarUrl: member.avatarUrl || "",
-            });
+          const insert = await Profile.collection.insertOne({
+            _id: `local:${inEmail}`,
+            username: finalUsername,
+            name: inName || "",
+            email: inEmail,
+            avatarUrl: member.avatarUrl || "",
+          });
           const created = {
             _id: insert.insertedId,
             username: finalUsername,
@@ -541,17 +538,15 @@ export async function handler(event) {
 
       // Create committee using direct collection insert to avoid model.create issues
       try {
-        const insert = await mongoose.connection
-          .collection("committees")
-          .insertOne({
-            _id: body.id || `committee-${Date.now()}`,
-            name,
-            ownerId,
-            members: sanitizedMembers,
-            settings,
-            createdAt,
-            updatedAt: createdAt,
-          });
+        const insert = await Committee.collection.insertOne({
+          _id: body.id || `committee-${Date.now()}`,
+          name,
+          ownerId,
+          members: sanitizedMembers,
+          settings,
+          createdAt,
+          updatedAt: createdAt,
+        });
         const createdDoc = {
           id: insert.insertedId,
           name,
@@ -655,20 +650,18 @@ export async function handler(event) {
           }
           // Insert directly into collection to avoid model.create interop issues
           try {
-            const insert = await mongoose.connection
-              .collection("committees")
-              .insertOne({
-                _id: committeeId,
-                name,
-                ownerId: ownerId || withOwner[0]?.username || "",
-                members: resolved,
-                settings:
-                  body.settings && typeof body.settings === "object"
-                    ? body.settings
-                    : {},
-                createdAt,
-                updatedAt: createdAt,
-              });
+            const insert = await Committee.collection.insertOne({
+              _id: committeeId,
+              name,
+              ownerId: ownerId || withOwner[0]?.username || "",
+              members: resolved,
+              settings:
+                body.settings && typeof body.settings === "object"
+                  ? body.settings
+                  : {},
+              createdAt,
+              updatedAt: createdAt,
+            });
             doc = {
               id: insert.insertedId,
               _id: insert.insertedId,
