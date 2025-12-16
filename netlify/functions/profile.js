@@ -218,6 +218,12 @@ export async function handler(event) {
     // Ensure profile exists or create/update/merge by email
     let profileDoc;
     try {
+      // Debug: log the imported Profile shape to help diagnose missing methods
+      try {
+        console.log("[profile] Profile export type:", typeof Profile, "modelName:", Profile && Profile.modelName, "keys:", Object.keys(Profile || {}));
+      } catch (dbg) {
+        console.error("[profile] failed to inspect Profile export", dbg && dbg.message ? dbg.message : dbg);
+      }
       // Try to find by email first
       profileDoc = await Profile.findOne({ email: tokenProfile.email }).lean();
       // If not found by email, fallback to Auth0 ID
