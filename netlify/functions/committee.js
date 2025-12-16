@@ -407,9 +407,27 @@ export async function handler(event) {
         const usernameRegex = new RegExp(`^${escapeRegex(member)}$`, "i");
         let docs = [];
         try {
-          docs = await Committee.find({
-            "members.username": usernameRegex,
-          }).sort({ createdAt: 1 });
+          const db = getDb();
+          if (db) {
+            docs = await db
+              .collection("committees")
+              .find({ "members.username": usernameRegex })
+              .sort({ createdAt: 1 })
+              .toArray();
+          } else {
+            try {
+              if (Committee && Committee.collection && typeof Committee.collection.find === "function") {
+                docs = await Committee.collection.find({ "members.username": usernameRegex }).sort({ createdAt: 1 }).toArray();
+              } else if (Committee && typeof Committee.find === "function") {
+                docs = await Committee.find({ "members.username": usernameRegex }).sort({ createdAt: 1 });
+              } else {
+                docs = [];
+              }
+            } catch (e) {
+              console.warn("[committee] member fallback query failed", e?.message || e);
+              docs = [];
+            }
+          }
         } catch (e) {
           console.warn("[committee] member filter find error", e?.message || e);
           docs = [];
@@ -460,7 +478,23 @@ export async function handler(event) {
 
       let docs = [];
       try {
-        docs = await Committee.find().sort({ createdAt: 1 });
+        const db = getDb();
+        if (db) {
+          docs = await db.collection("committees").find().sort({ createdAt: 1 }).toArray();
+        } else {
+          try {
+            if (Committee && Committee.collection && typeof Committee.collection.find === "function") {
+              docs = await Committee.collection.find().sort({ createdAt: 1 }).toArray();
+            } else if (Committee && typeof Committee.find === "function") {
+              docs = await Committee.find().sort({ createdAt: 1 });
+            } else {
+              docs = [];
+            }
+          } catch (e) {
+            console.warn("[committee] list fallback query failed", e?.message || e);
+            docs = [];
+          }
+        }
       } catch (e) {
         console.warn("[committee] list find error", e?.message || e);
         docs = [];
@@ -666,7 +700,13 @@ export async function handler(event) {
         };
       }
 
-      let doc = await Committee.findById(committeeId);
+      const db = getDb();
+      let doc = null;
+      if (db) {
+        doc = await db.collection("committees").findOne({ _id: committeeId });
+      } else if (Committee && typeof Committee.findById === "function") {
+        doc = await Committee.findById(committeeId);
+      }
       if (!doc) {
         // Upsert: create if not found (legacy/local-only committee IDs)
         const name =
@@ -832,7 +872,29 @@ export async function handler(event) {
           doc.settings = body.settings;
         }
 
-        await doc.save();
+        // Persist updates
+        try {
+          const db2 = getDb();
+          if (db2) {
+            const toSave = { ...doc };
+            delete toSave.__v;
+            await db2.collection("committees").updateOne({ _id: committeeId }, { $set: toSave });
+            // re-read for consistent return shape
+            doc = await db2.collection("committees").findOne({ _id: committeeId });
+          } else if (doc && typeof doc.save === "function") {
+            await doc.save();
+          }
+        } catch (e) {
+          console.error("PATCH update failed (persist):", e);
+          return {
+            statusCode: 400,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              error: "Failed to update committee",
+              details: String(e?.message || e),
+            }),
+          };
+        }
       } catch (e) {
         console.error("PATCH update failed:", e);
         return {
@@ -865,7 +927,14 @@ export async function handler(event) {
         };
       }
 
-      const deletedCommittee = await Committee.findByIdAndDelete(committeeId);
+      const db = getDb();
+      let deletedCommittee = null;
+      if (db) {
+        const res = await db.collection("committees").findOneAndDelete({ _id: committeeId });
+        deletedCommittee = res && res.value ? res.value : null;
+      } else if (Committee && typeof Committee.findByIdAndDelete === "function") {
+        deletedCommittee = await Committee.findByIdAndDelete(committeeId);
+      }
 
       if (!deletedCommittee) {
         return {
@@ -879,9 +948,13 @@ export async function handler(event) {
       let deletedDiscussions = 0;
       let deletedMotions = 0;
       try {
-        const motionsToDelete = await Motion.find({ committeeId })
-          .select("_id")
-          .lean();
+        const db2 = getDb();
+        let motionsToDelete = [];
+        if (db2) {
+          motionsToDelete = await db2.collection("motions").find({ committeeId }).project({ _id: 1 }).toArray();
+        } else if (Motion && typeof Motion.find === "function") {
+          motionsToDelete = await Motion.find({ committeeId }).select("_id").lean();
+        }
         const motionIds = (motionsToDelete || []).map((m) => m._id);
         if (motionIds.length > 0) {
           try {
@@ -894,8 +967,13 @@ export async function handler(event) {
           }
         }
         try {
-          const motionResult = await Motion.deleteMany({ committeeId });
-          deletedMotions = motionResult.deletedCount || 0;
+          if (db2) {
+            const motionResult = await db2.collection("motions").deleteMany({ committeeId });
+            deletedMotions = motionResult.deletedCount || 0;
+          } else if (Motion && typeof Motion.deleteMany === "function") {
+            const motionResult = await Motion.deleteMany({ committeeId });
+            deletedMotions = motionResult.deletedCount || 0;
+          }
         } catch (e) {
           console.warn("Failed to delete motions:", e);
         }

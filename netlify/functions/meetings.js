@@ -33,13 +33,36 @@ function usernameFromClaims(c = {}) {
 
 async function getRole(committeeId, username) {
   if (!committeeId) return null;
-  const committee = await Committee.findById(committeeId).lean();
-  if (!committee) return null;
-  const uLower = username.toLowerCase();
-  const member = (committee.members || []).find(
-    (m) => (m.username || "").toLowerCase() === uLower
-  );
-  return member ? member.role : null;
+  try {
+    // Try direct DB collection lookup first to avoid model interop issues
+    const db = mongoose && mongoose.connection ? mongoose.connection.db : null;
+    let committee = null;
+    if (db) {
+      try {
+        committee = await db.collection("committees").findOne({ _id: committeeId });
+      } catch (e) {
+        console.warn("[meetings] collection lookup failed", e?.message || e);
+      }
+    }
+    if (!committee) {
+      try {
+        if (Committee && typeof Committee.findById === "function") {
+          committee = await Committee.findById(committeeId).lean();
+        }
+      } catch (e) {
+        console.warn("[meetings] model lookup failed", e?.message || e);
+      }
+    }
+    if (!committee) return null;
+    const uLower = username.toLowerCase();
+    const member = (committee.members || []).find(
+      (m) => (m.username || "").toLowerCase() === uLower
+    );
+    return member ? member.role : null;
+  } catch (e) {
+    console.warn("[meetings] getRole failed", e?.message || e);
+    return null;
+  }
 }
 
 let isConnected = false;
