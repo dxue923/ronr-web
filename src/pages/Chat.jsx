@@ -1,29 +1,3 @@
-import React, { useState, useRef, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useAuth0 } from "@auth0/auth0-react";
-import { ROLE } from "../utils/permissions";
-import { getCommentsForMotion, createComment } from "../api/discussion";
-import {
-  getCommittee as apiGetCommittee,
-  updateCommittee as apiUpdateCommittee,
-  getCommittees as apiGetCommittees,
-} from "../api/committee";
-import {
-  fetchMotions,
-  createMotion as apiCreateMotion,
-  updateMotionStatus,
-  castMotionVote,
-  updateMotion,
-} from "../api/motions";
-import "../assets/styles/index.css";
-import { getMeeting } from "../api/meetings";
-import logo from "../assets/logo.png";
-import {
-  fetchProfile as apiFetchProfile,
-  lookupProfile as apiLookupProfile,
-} from "../api/profile";
-import { getApiToken } from "../api/auth";
-
 const AVATAR_SIZE = 40;
 function Avatar({ src, alt }) {
   const hasImage = src && src.trim().length > 0;
@@ -113,6 +87,31 @@ function LiveProfileMemberCard({
   );
 }
 // src/pages/Chat.jsx
+import React, { useState, useRef, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
+import { ROLE } from "../utils/permissions";
+import { getCommentsForMotion, createComment } from "../api/discussion";
+import {
+  getCommittee as apiGetCommittee,
+  updateCommittee as apiUpdateCommittee,
+  getCommittees as apiGetCommittees,
+} from "../api/committee";
+import {
+  fetchMotions,
+  createMotion as apiCreateMotion,
+  updateMotionStatus,
+  castMotionVote,
+  updateMotion,
+} from "../api/motions";
+import "../assets/styles/index.css";
+import { getMeeting } from "../api/meetings";
+import logo from "../assets/logo.png";
+import {
+  fetchProfile as apiFetchProfile,
+  lookupProfile as apiLookupProfile,
+} from "../api/profile";
+import { getApiToken } from "../api/auth";
 /* ---------- storage helpers ---------- */
 function loadCommittees() {
   try {
@@ -661,8 +660,7 @@ export default function Chat() {
     ((committeeLoading && !committee) ||
       (!motionsLoadedOnce && !motions.length) ||
       (loadingComments && !motionsLoadedOnce) ||
-      chatForceLoading ||
-      profilesLoading) &&
+      chatForceLoading) &&
     !commentsError;
 
   // find active motion object
@@ -1272,12 +1270,10 @@ export default function Chat() {
   const members = committeeUnavailable ? [] : normalizeMembers(committee);
 
   const [profileCache, setProfileCache] = useState({}); // keyed by username
-  const [profilesLoading, setProfilesLoading] = useState(false);
 
   // Prefetch member profiles (avatars/names) for display in messages
   useEffect(() => {
     let cancelled = false;
-
     async function ensureProfile(username) {
       if (!username) return;
       if (profileCache[username]) return;
@@ -1294,29 +1290,16 @@ export default function Chat() {
       } catch (e) {}
     }
 
-    async function run() {
-      const names = new Set();
-      (members || []).forEach((m) => {
-        if (m && m.username) names.add(m.username);
-      });
-      (activeMotion?.messages || []).forEach((msg) => {
-        const aid = (msg.authorId || "").toString().trim();
-        if (aid) names.add(aid);
-      });
+    const names = new Set();
+    (members || []).forEach((m) => {
+      if (m && m.username) names.add(m.username);
+    });
+    (activeMotion?.messages || []).forEach((msg) => {
+      const aid = (msg.authorId || "").toString().trim();
+      if (aid) names.add(aid);
+    });
 
-      const missing = Array.from(names).filter((u) => !profileCache[u]);
-      if (missing.length === 0) {
-        if (!cancelled) setProfilesLoading(false);
-        return;
-      }
-      if (!cancelled) setProfilesLoading(true);
-      try {
-        await Promise.all(missing.map((u) => ensureProfile(u)));
-      } catch (e) {}
-      if (!cancelled) setProfilesLoading(false);
-    }
-
-    run();
+    names.forEach((u) => ensureProfile(u));
 
     return () => {
       cancelled = true;
