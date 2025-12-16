@@ -1,7 +1,4 @@
-# Web-based platform implementing Robert’s Rules of Order (RONR)
-A digital system for committees and organizations to conduct meetings, propose motions, debate, and vote according to parliamentary procedure. Includes user accounts, committee management, structured discussions, and rule enforcement.
-
-# e-motions (Robert’s Rules of Order Web Platform)
+<img width="2559" height="1418" alt="image" src="https://github.com/user-attachments/assets/64738ce2-4a6f-49a6-962b-aa0eb1f9eb8c" /># e-motions (Robert’s Rules of Order Web Platform)
 
 e-motions is a web-based platform that enables committees and organizations to conduct meetings in accordance with **Robert’s Rules of Order (RONR)**. The system supports structured discussions, formal motions, debate, and voting with built-in rule enforcement.
 
@@ -28,18 +25,20 @@ An overview of the database structure, collections, and relationships between en
 ---
 
 ## Features
-
-Amend Motion
-<img src="docs/amend.png" width="700" />
-Chair Controls
-<img src="docs/chaircontrol.png" width="700" />
 Discussion / Chat
 <img src="docs/chat.png" width="700" />
 Create Committee
 <img src="docs/createcommittee.png" width="700" />
 User Profile
 <img src="docs/profile.png" width="700" />
+Amend Motion
+<img src="docs/amend.png" width="700" />
+Chair Controls
+<img src="docs/chaircontrol.png" width="700" />
 Refer Motion 
 <img src="docs/refer.png" width="700" />
 Voting
 <img src="docs/voting.png" width="700" />
+Final Decision Summary
+<img src="docs/finaldecision" width="700" />
+
