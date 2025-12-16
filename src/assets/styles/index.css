@@ -2571,6 +2571,15 @@ START NEW CHAT PAGE CSS
   min-height: 120px;
 }
 
+/* Ensure the manager-facing pre-save decision form inside the panel
+   uses the same 80% width + max-width as the final-card children. */
+.final-decision-panel > .decision-summary-form {
+  width: 80%;
+  max-width: 920px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
 /* Outcome row: center the label and value */
 .final-outcome-row {
   display: flex;

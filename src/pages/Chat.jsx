@@ -5479,11 +5479,22 @@ export default function Chat() {
 
             {/* Final decision (moved below vote tally) will render after the tally */}
 
-            {/* Large vote tally box (visible during voting or after closed) */}
+            {/* Large vote tally box (visible during voting or after closed)
+                Only show the closed tally when there are recorded votes —
+                hide the voting/tally box for main motions that were closed
+                by a submotion (no votes were cast on the main motion). */}
             {viewTab === "discussion" &&
               !otcClosed &&
-              (activeMotion.state === "voting" ||
-                activeMotion.state === "closed") && (
+              (() => {
+                const votes = voteEntries(activeMotion);
+                const tally = activeMotion?.tally || computeTally(votes);
+                const totalVotes =
+                  (tally.yes || 0) + (tally.no || 0) + (tally.abstain || 0);
+                const showForClosed =
+                  activeMotion.state === "voting" ||
+                  (activeMotion.state === "closed" && totalVotes > 0);
+                return showForClosed;
+              })() && (
                 <div className="vote-tally-panel">
                   {(() => {
                     const votes = voteEntries(activeMotion);
