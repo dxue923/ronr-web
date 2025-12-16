@@ -49,78 +49,51 @@ function usernameFromClaims(c = {}) {
     c.nickname ||
     c.preferred_username ||
     c.name ||
-      const db = getDb();
-      let deletedCommittee = null;
-      let deletedCount = 0;
-      let alreadyMissing = false;
+    c.sub ||
+    "user";
+  return base.toString();
+}
 
-      if (db) {
-        try {
-          // Prefer deleteOne so we can inspect deletedCount
-          try {
-            const r = await db.collection("committees").deleteOne({ _id: committeeId });
-            deletedCount = r?.deletedCount || 0;
-          } catch (e) {
-            console.warn("[committee] deleteOne by raw id failed", e?.message || e);
-          }
+// Ensure a Profile exists for a given member object (may contain email/username/name)
+// Returns a normalized member object { username, name, role, avatarUrl }
+async function ensureProfileForMember(member) {
+  if (!member) return member;
+  const inEmail = (member.email || "").toString().trim();
+  const inUsername = (member.username || "").toString().trim();
+  const inName = (member.name || "").toString().trim();
 
-          // If nothing deleted, try ObjectId form if it looks valid
-          if (
-            deletedCount === 0 &&
-            mongoose &&
-            mongoose.Types &&
-            typeof mongoose.Types.ObjectId.isValid === "function" &&
-            mongoose.Types.ObjectId.isValid(committeeId)
-          ) {
-            try {
-              const oid = new mongoose.Types.ObjectId(committeeId);
-              const r2 = await db.collection("committees").deleteOne({ _id: oid });
-              deletedCount = r2?.deletedCount || 0;
-            } catch (e) {
-              console.warn("[committee] deleteOne by ObjectId failed", e?.message || e);
-            }
-          }
-
-          // If still nothing deleted, check whether the document is simply missing
-          if (deletedCount === 0) {
-            try {
-              const foundRaw = await db.collection("committees").findOne({ _id: committeeId });
-              let foundOid = null;
-              if (!foundRaw && mongoose && mongoose.Types && mongoose.Types.ObjectId.isValid(committeeId)) {
-                const oid2 = new mongoose.Types.ObjectId(committeeId);
-                foundOid = await db.collection("committees").findOne({ _id: oid2 });
-              }
-              if (!foundRaw && !foundOid) {
-                // Document already absent — treat as success (idempotent)
-                alreadyMissing = true;
-              }
-            } catch (e) {
-              console.warn("[committee] existence check failed", e?.message || e);
-            }
-          }
-        } catch (e) {
-          console.warn("[committee] delete flow failed", e?.message || e);
-        }
-      } else if (Committee && typeof Committee.findByIdAndDelete === "function") {
-        try {
-          deletedCommittee = await Committee.findByIdAndDelete(committeeId);
-          if (!deletedCommittee && mongoose && mongoose.Types && mongoose.Types.ObjectId.isValid(committeeId)) {
-            const oid = new mongoose.Types.ObjectId(committeeId);
-            deletedCommittee = await Committee.findByIdAndDelete(oid);
-          }
-        } catch (e) {
-          console.warn("[committee] model delete failed", e?.message || e);
-        }
-      }
-
-      const success = alreadyMissing || deletedCount > 0 || !!deletedCommittee;
-      if (!success) {
+  // try find by exact email first
+  try {
+    if (inEmail) {
+      const byEmail = await Profile.findOne({ email: inEmail }).lean();
+      if (byEmail) {
         return {
-          statusCode: 404,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: "Committee not found" }),
+          username: byEmail.username || inUsername || inEmail.split("@")[0],
+          name:
+            byEmail.name || inName || byEmail.username || inEmail.split("@")[0],
+          role: member.role || "member",
+          avatarUrl: byEmail.avatarUrl || member.avatarUrl || "",
         };
       }
+    }
+
+    // Next, try existing username lookup (case-insensitive)
+    if (inUsername) {
+      const re = new RegExp(`^${escapeRegex(inUsername)}$`, "i");
+      const byU = await Profile.findOne({ username: re }).lean();
+      if (byU) {
+        return {
+          username: byU.username || inUsername,
+          name: byU.name || inName || byU.username,
+          role: member.role || "member",
+          avatarUrl: byU.avatarUrl || member.avatarUrl || "",
+        };
+      }
+    }
+
+    // If we have an email, attempt to derive a username from local-part and check
+    if (inEmail) {
+      const local = inEmail.split("@")[0];
       if (local) {
         const re2 = new RegExp(`^${escapeRegex(local)}$`, "i");
         const byLocal = await Profile.findOne({ username: re2 }).lean();
