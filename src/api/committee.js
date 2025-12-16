@@ -61,10 +61,15 @@ export async function getCommittee(id) {
 }
 
 // Create full committee (id?, name, ownerId, members[], settings?)
-export async function createCommittee(payload) {
+// Create a committee. If `token` is provided it will be used for Authorization.
+export async function createCommittee(payload, token = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else Object.assign(headers, getAuthHeader());
+
   const res = await fetch(BASE, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers,
     body: JSON.stringify({
       ...payload,
       createdAt: payload.createdAt || new Date().toISOString(),
@@ -73,6 +78,23 @@ export async function createCommittee(payload) {
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    // Capture details to help diagnose 401/403 in the browser
+    try {
+      const text = await res.text().catch(() => null);
+      const err = {
+        url: BASE,
+        method: "POST",
+        status: res.status,
+        statusText: res.statusText,
+        responseBody: text || data || null,
+        timestamp: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem("lastApiError", JSON.stringify(err));
+      } catch {}
+      // eslint-disable-next-line no-console
+      console.error("API createCommittee failed", err);
+    } catch (e) {}
     throw new Error(data?.error || `Failed to create committee: ${res.status}`);
   }
 
@@ -80,24 +102,42 @@ export async function createCommittee(payload) {
 }
 
 // Update (PATCH) committee (by id in query or body)
-export async function updateCommittee(id, updates) {
+// Update a committee. If `token` is provided it will be used for Authorization.
+export async function updateCommittee(id, updates, token = null) {
   const url = id ? `${BASE}?id=${encodeURIComponent(id)}` : BASE;
+  const headers = {
+    "Content-Type": "application/json",
+    "X-HTTP-Method-Override": "PATCH",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else Object.assign(headers, getAuthHeader());
 
   const res = await fetch(url, {
-    // Using POST + override to match backend behavior
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-HTTP-Method-Override": "PATCH",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      ...getAuthHeader(),
-    },
+    headers,
     body: JSON.stringify({ _method: "PATCH", id, ...updates }),
   });
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    try {
+      const text = await res.text().catch(() => null);
+      const err = {
+        url: url,
+        method: "PATCH",
+        status: res.status,
+        statusText: res.statusText,
+        responseBody: text || data || null,
+        timestamp: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem("lastApiError", JSON.stringify(err));
+      } catch {}
+      // eslint-disable-next-line no-console
+      console.error("API updateCommittee failed", err);
+    } catch (e) {}
     throw new Error("Failed to update committee");
   }
   return data;

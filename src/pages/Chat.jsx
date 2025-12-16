@@ -1332,12 +1332,32 @@ export default function Chat() {
         })
         .filter(Boolean);
 
-      const updated = await apiUpdateCommittee(committee.id, {
-        name: committee.name,
-        ownerId: committee.ownerId || committee.owner,
-        members: payloadMembers,
-        settings: committee.settings || {},
-      });
+      // Acquire API token (prefer access token) for update request
+      let apiToken = null;
+      try {
+        const { token, isAccessToken } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
+        if (token) {
+          if (isAccessToken) apiToken = token;
+          else {
+            const idClaims = await getIdTokenClaims().catch(() => null);
+            apiToken = idClaims?.__raw || token;
+          }
+        }
+      } catch {}
+
+      const updated = await apiUpdateCommittee(
+        committee.id,
+        {
+          name: committee.name,
+          ownerId: committee.ownerId || committee.owner,
+          members: payloadMembers,
+          settings: committee.settings || {},
+        },
+        apiToken
+      );
       // ...keep the rest of persistMembers the same
 
       if (updated && updated.id) {

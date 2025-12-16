@@ -23,5 +23,19 @@ profileSchema.index({ username: 1 }, { unique: true, sparse: true });
 // Ensure a single email maps to a single profile; prevent crossovers
 profileSchema.index({ email: 1 }, { unique: true, sparse: true });
 
-export default mongoose.models.Profile ||
-  mongoose.model("Profile", profileSchema);
+const ProfileModel = mongoose.models.Profile || mongoose.model("Profile", profileSchema);
+
+// ESM default + named export
+export default ProfileModel;
+export { ProfileModel };
+
+// CommonJS fallback for environments that import compiled ESM as CJS
+try {
+  // eslint-disable-next-line no-undef
+  if (typeof module !== "undefined" && module.exports) {
+    // eslint-disable-next-line no-param-reassign
+    module.exports = ProfileModel;
+  }
+} catch (e) {
+  // ignore
+}

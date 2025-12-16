@@ -9,6 +9,7 @@ import Profile from "../../models/Profile.js";
 
 const DOMAIN = process.env.AUTH0_DOMAIN;
 const AUDIENCE = process.env.AUTH0_AUDIENCE;
+const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const IS_NETLIFY_DEV = process.env.NETLIFY_DEV === "true";
 
 const client =
@@ -90,6 +91,7 @@ function getClaims(authHeader = "") {
   }
 
   return new Promise((resolve, reject) => {
+    // First attempt: verify requiring the API audience (preferred)
     jwt.verify(
       token,
       getKey,
@@ -99,8 +101,24 @@ function getClaims(authHeader = "") {
         issuer: `https://${DOMAIN}/`,
       },
       (err, decoded) => {
-        if (err) return reject(err);
-        resolve(decoded);
+        if (!err) return resolve(decoded);
+        // If the error is an audience mismatch, attempt a second verification
+        // that accepts the Auth0 client ID (ID token) or skips audience check.
+        const isAudienceErr = err && /audience/i.test(err.message);
+        if (!isAudienceErr) return reject(err);
+
+        // Retry verify accepting either the Auth0 client ID or no audience.
+        const retryOptions = {
+          algorithms: ["RS256"],
+          issuer: `https://${DOMAIN}/`,
+        };
+        // If we have a client id configured, allow it as an accepted audience
+        if (CLIENT_ID) retryOptions.audience = CLIENT_ID;
+
+        jwt.verify(token, getKey, retryOptions, (err2, decoded2) => {
+          if (err2) return reject(err2);
+          return resolve(decoded2);
+        });
       }
     );
   });
@@ -200,6 +218,12 @@ export async function handler(event) {
     // Ensure profile exists or create/update/merge by email
     let profileDoc;
     try {
+      // Debug: log the imported Profile shape to help diagnose missing methods
+      try {
+        console.log("[profile] Profile export type:", typeof Profile, "modelName:", Profile && Profile.modelName, "keys:", Object.keys(Profile || {}));
+      } catch (dbg) {
+        console.error("[profile] failed to inspect Profile export", dbg && dbg.message ? dbg.message : dbg);
+      }
       // Try to find by email first
       profileDoc = await Profile.findOne({ email: tokenProfile.email }).lean();
       // If not found by email, fallback to Auth0 ID

@@ -10,7 +10,11 @@ import {
   deleteCommittee as apiDeleteCommittee,
   updateCommittee as apiUpdateCommittee,
 } from "../api/committee";
-import { fetchProfile, findProfileByUsername } from "../api/profile";
+import {
+  fetchProfile,
+  findProfileByUsername,
+  loadProfileFromStorage,
+} from "../api/profile";
 
 const AVATAR_SIZE = 40;
 // Avatar component at top level for use in all subcomponents
@@ -64,13 +68,21 @@ function Avatar({ src, alt }) {
 
 function MemberProfileCard({ member, onRemove }) {
   if (!member) return null;
+  // Try to load cached profile by email so we can show name/avatar when available
+  let cached = null;
+  try {
+    if (member.email) cached = loadProfileFromStorage(member.email);
+  } catch {}
+
+  const displayName = member.name || (cached && cached.name) || member.username;
+  const avatarSrc = member.avatarUrl || (cached && cached.avatarUrl) || null;
 
   return (
     <div className="member-item" id={`member-${member.username}`}>
       <div className="member-left">
-        <Avatar src={member.avatarUrl} alt={member.name || member.username} />
+        <Avatar src={avatarSrc} alt={displayName || member.username} />
         <div className="member-meta">
-          <p className="member-name">{member.name || member.username}</p>
+          <p className="member-name">{displayName}</p>
           <p className="member-username">({member.username})</p>
         </div>
       </div>
@@ -377,7 +389,7 @@ export default function CreateCommittee() {
 
   /* ---------- tiny helper to render avatar ---------- */
   const Avatar = ({ src, alt }) => {
-    const hasImage = src && src.trim().length > 0;
+    const hasImage = src && typeof src === "string" && src.trim().length > 0;
     if (hasImage) {
       return (
         <img
@@ -396,6 +408,15 @@ export default function CreateCommittee() {
         />
       );
     }
+    // Render initials fallback when no avatar image
+    const initials =
+      (alt || "")
+        .toString()
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((s) => s[0].toUpperCase())
+        .join("") || "?";
     return (
       <div
         className="member-avatar"
@@ -406,8 +427,16 @@ export default function CreateCommittee() {
           background: "#e5e7eb",
           border: "1px solid #d1d5db",
           flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#374151",
+          fontSize: 14,
+          fontWeight: 600,
         }}
-      />
+      >
+        {initials}
+      </div>
     );
   };
 
@@ -686,19 +715,38 @@ export default function CreateCommittee() {
     // Use the latest currentUser for committee creation
     const local = normalizeForSave(name);
     try {
-      const created = await apiCreateCommittee({
-        id: local.id,
-        name: local.name,
-        ownerId: local.ownerId,
-        members: local.members.map((m) => ({
-          username: m.username,
-          name: m.name,
-          email: m.email || "",
-          role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
-          avatarUrl: m.avatarUrl,
-        })),
-        settings: local.settings,
-      });
+      // Acquire a token for the API (prefer access token, fall back to ID token)
+      let apiToken = null;
+      try {
+        const { token, isAccessToken } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
+        if (token) {
+          if (isAccessToken) apiToken = token;
+          else {
+            const idClaims = await getIdTokenClaims().catch(() => null);
+            apiToken = idClaims?.__raw || token;
+          }
+        }
+      } catch {}
+
+      const created = await apiCreateCommittee(
+        {
+          id: local.id,
+          name: local.name,
+          ownerId: local.ownerId,
+          members: local.members.map((m) => ({
+            username: m.username,
+            name: m.name,
+            email: m.email || "",
+            role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
+            avatarUrl: m.avatarUrl,
+          })),
+          settings: local.settings,
+        },
+        apiToken
+      );
       setCommittees((prev) => {
         const exists = prev.some((c) => c.id === created.id);
         const next = exists
@@ -733,18 +781,38 @@ export default function CreateCommittee() {
 
     const updatedLocal = normalizeForSave(name);
     try {
-      const updatedRemote = await apiUpdateCommittee(editingId, {
-        name: updatedLocal.name,
-        ownerId: updatedLocal.ownerId,
-        members: updatedLocal.members.map((m) => ({
-          username: m.username,
-          name: m.name,
-          email: m.email || "",
-          role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
-          avatarUrl: m.avatarUrl,
-        })),
-        settings: updatedLocal.settings,
-      });
+      // Acquire fresh API token for the update request
+      let apiToken = null;
+      try {
+        const { token, isAccessToken } = await getApiToken({
+          getAccessTokenSilently,
+          getIdTokenClaims,
+        });
+        if (token) {
+          if (isAccessToken) apiToken = token;
+          else {
+            const idClaims = await getIdTokenClaims().catch(() => null);
+            apiToken = idClaims?.__raw || token;
+          }
+        }
+      } catch {}
+
+      const updatedRemote = await apiUpdateCommittee(
+        editingId,
+        {
+          name: updatedLocal.name,
+          ownerId: updatedLocal.ownerId,
+          members: updatedLocal.members.map((m) => ({
+            username: m.username,
+            name: m.name,
+            email: m.email || "",
+            role: m.role === ROLE.OWNER ? "owner" : m.role.toLowerCase(),
+            avatarUrl: m.avatarUrl,
+          })),
+          settings: updatedLocal.settings,
+        },
+        apiToken
+      );
       setCommittees((prev) =>
         prev.map((c) => (c.id === editingId ? updatedRemote : c))
       );

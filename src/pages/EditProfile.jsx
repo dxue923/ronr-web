@@ -36,6 +36,13 @@ export default function EditProfile() {
       // Try to seed from local cache first so the UI appears instantly
       const email = user?.email || "";
       const localPart = email ? String(email).split("@")[0] : "";
+      const authName = (
+        user?.name ||
+        `${user?.given_name || ""} ${user?.family_name || ""}` ||
+        ""
+      )
+        .toString()
+        .trim();
       const cached = loadProfileFromStorage(email);
       if (cached && !cancelled) {
         setFormData({
@@ -48,7 +55,7 @@ export default function EditProfile() {
       } else if (!cached && !cancelled) {
         // Seed from Auth0 user claims immediately so email/username show up
         setFormData({
-          name: user?.name || "",
+          name: authName || "",
           username: localPart || "",
           email: email || "",
           bio: "",
@@ -72,7 +79,7 @@ export default function EditProfile() {
             ? String(emailForCache).split("@")[0]
             : "";
           setFormData({
-            name: profile?.name || user?.name || "",
+            name: profile?.name || authName || "",
             // Prefer saved username, otherwise derive from email local-part
             username:
               profile?.username ||
