@@ -1788,13 +1788,70 @@ export default function Chat() {
           apiMeta.overturnOf = overturnTarget.id;
         }
         if (submotionType === "postpone") {
-          // only support specific date/time for postpone
-          if (postponeDateTime) {
-            try {
-              apiMeta.resumeAt = new Date(postponeDateTime).toISOString();
-            } catch {
-              apiMeta.resumeAt = postponeDateTime;
+          // Instead of creating a postpone submotion, update the parent motion
+          // to set its status to 'postponed' and attach postpone meta.
+          if (submotionTarget) {
+            const patchMeta = {};
+            if (postponeDateTime) {
+              try {
+                patchMeta.resumeAt = new Date(postponeDateTime).toISOString();
+              } catch {
+                patchMeta.resumeAt = postponeDateTime;
+              }
             }
+            // Record parent's previous state so UI can restore later if needed
+            patchMeta.parentPreviousState = submotionTarget.state;
+            try {
+              // call updateMotion (imported as updateMotion at top)
+              const updated = await updateMotion(submotionTarget.id, {
+                status: "postponed",
+                meta: patchMeta,
+              });
+              // Update local motions list replacing the parent motion
+              const mapped = motions.map((m) =>
+                m.id === (submotionTarget.id || submotionTarget.id)
+                  ? {
+                      id: updated.id,
+                      title: updated.title || m.title,
+                      description: updated.description || m.description,
+                      state:
+                        updated.status === "paused"
+                          ? "paused"
+                          : updated.status === "postponed"
+                          ? "postponed"
+                          : updated.status === "referred"
+                          ? "referred"
+                          : updated.status === "closed" ||
+                            updated.status === "passed" ||
+                            updated.status === "failed"
+                          ? "closed"
+                          : "discussion",
+                      messages: m.messages || [],
+                      decisionLog: m.decisionLog || [],
+                      meta: { ...(updated.meta || {}), ...(m.meta || {}) },
+                      decisionDetails:
+                        updated.decisionDetails || m.decisionDetails,
+                    }
+                  : m
+              );
+              setMotions(mapped);
+              saveMotionsForCommittee(committee.id, mapped);
+              setActiveMotionId(submotionTarget.id);
+              setMotionView("discussion", submotionTarget.id);
+              setShowAddModal(false);
+              setNewMotionTitle("");
+              setNewMotionDesc("");
+              setOverturnTarget(null);
+              setSubmotionTarget(null);
+              setSubmotionType(null);
+              setPostponeOption("specific");
+              setPostponeDateTime("");
+            } catch (err) {
+              console.error("Failed to postpone motion:", err);
+              alert("Failed to postpone motion. Please try again.");
+            }
+            // Skip creating a submotion entirely
+            return;
           }
         } else if (submotionType === "refer" && referDestId) {
           const dest = (allCommittees || []).find((c) => c.id === referDestId);
