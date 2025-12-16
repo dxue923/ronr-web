@@ -527,21 +527,44 @@ export async function handler(event) {
         }
       }
 
-      const doc = await Committee.create({
-        _id: body.id || `committee-${Date.now()}`,
-        name,
-        ownerId,
-        members: membersWithProfiles,
-        settings,
-        createdAt,
-        updatedAt: createdAt,
-      });
+      // Sanitize members to ensure required fields are strings
+      const sanitizedMembers = (membersWithProfiles || [])
+        .map((m) => ({
+          username: String(m.username || "").trim(),
+          name: String(m.name || m.username || "").trim(),
+          role: String(m.role || "member").toLowerCase(),
+          avatarUrl: String(m.avatarUrl || ""),
+        }))
+        .filter((m) => m.username);
 
-      return {
-        statusCode: 201,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toClient(doc)),
-      };
+      // Create committee with explicit error handling to avoid uncaught 500s
+      try {
+        const doc = await Committee.create({
+          _id: body.id || `committee-${Date.now()}`,
+          name,
+          ownerId,
+          members: sanitizedMembers,
+          settings,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        return {
+          statusCode: 201,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(toClient(doc)),
+        };
+      } catch (e) {
+        console.error("[committee] create failed:", e);
+        return {
+          statusCode: 500,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            error: "Failed to create committee",
+            details: String(e?.message || e),
+          }),
+        };
+      }
     }
 
     // ---------- PATCH (update committee: name, members, settings) ----------

@@ -55,6 +55,7 @@ export default function EditProfile() {
       } else if (!cached && !cancelled) {
         // Seed from Auth0 user claims immediately so email/username show up
         setFormData({
+          // Username should always be the email local-part
           name: authName || "",
           username: localPart || "",
           email: email || "",
@@ -79,10 +80,10 @@ export default function EditProfile() {
             ? String(emailForCache).split("@")[0]
             : "";
           setFormData({
+            // Prefer server-stored profile name (user-updated), otherwise prefer Auth0 name, otherwise blank
             name: profile?.name || authName || "",
-            // Prefer saved username, otherwise derive from email local-part
+            // Enforce username as the email local-part only
             username:
-              profile?.username ||
               localFromEmail ||
               (user?.email ? String(user.email).split("@")[0] : ""),
             email: emailForCache,
