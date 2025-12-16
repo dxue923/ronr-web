@@ -2838,6 +2838,13 @@ export default function Chat() {
     );
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
+    try {
+      if (committee?.id)
+        localStorage.setItem(
+          `committee:${committee.id}:motions:updateAt`,
+          String(Date.now())
+        );
+    } catch (e) {}
     // Persist closed status to backend so it remains on refresh
     (async () => {
       try {
@@ -2853,7 +2860,10 @@ export default function Chat() {
           recordedAt: new Date().toISOString(),
           recordedBy: me.id,
         };
-        await updateMotion(motionId, { decisionDetails: detail });
+        await updateMotion(motionId, {
+          decisionDetails: detail,
+          status: "closed",
+        });
       } catch (err) {
         console.warn("Failed to persist closed status", err);
       }

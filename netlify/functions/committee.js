@@ -1027,6 +1027,32 @@ export async function handler(event) {
         deletedCommittee = await Committee.findByIdAndDelete(committeeId);
       }
 
+      // As some drivers / runtimes may not return the deleted document from
+      // findOneAndDelete, attempt a conservative deleteOne fallback and treat
+      // any positive deletedCount as a successful deletion.
+      if (!deletedCommittee) {
+        try {
+          if (db) {
+            const delRes = await db
+              .collection("committees")
+              .deleteOne({ _id: committeeId });
+            if (delRes && delRes.deletedCount > 0) {
+              deletedCommittee = { _id: committeeId };
+            }
+          } else if (Committee && typeof Committee.deleteOne === "function") {
+            const delRes = await Committee.deleteOne({ _id: committeeId });
+            if (delRes && delRes.deletedCount > 0) {
+              deletedCommittee = { _id: committeeId };
+            }
+          }
+        } catch (e) {
+          console.warn(
+            "[committee] deleteOne fallback failed",
+            e?.message || e
+          );
+        }
+      }
+
       if (!deletedCommittee) {
         return {
           statusCode: 404,

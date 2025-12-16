@@ -59,7 +59,9 @@ async function getRoleForCommittee(committeeId, username) {
     const db = getDb();
     let committee = null;
     if (db) {
-      committee = await db.collection("committees").findOne({ _id: committeeId });
+      committee = await db
+        .collection("committees")
+        .findOne({ _id: committeeId });
     } else if (Committee && typeof Committee.findById === "function") {
       committee = await Committee.findById(committeeId).lean();
     }
@@ -240,7 +242,9 @@ export async function handler(event) {
       const db = getDb();
       let committee = null;
       if (db) {
-        committee = await db.collection("committees").findOne({ _id: committeeId });
+        committee = await db
+          .collection("committees")
+          .findOne({ _id: committeeId });
       } else if (Committee && typeof Committee.findById === "function") {
         committee = await Committee.findById(committeeId).lean();
       }
@@ -274,7 +278,10 @@ export async function handler(event) {
                 },
               }
             );
-          } else if (Committee && typeof Committee.findByIdAndUpdate === "function") {
+          } else if (
+            Committee &&
+            typeof Committee.findByIdAndUpdate === "function"
+          ) {
             await Committee.findByIdAndUpdate(committeeId, {
               $push: {
                 members: {
@@ -327,7 +334,9 @@ export async function handler(event) {
         try {
           const db3 = getDb();
           if (db3) {
-            const origin = await db3.collection("committees").findOne({ _id: committeeId });
+            const origin = await db3
+              .collection("committees")
+              .findOne({ _id: committeeId });
             meta.referredFrom.committeeName = origin?.name || committeeId;
           } else if (Committee && typeof Committee.findById === "function") {
             const origin = await Committee.findById(committeeId).lean();
@@ -364,7 +373,10 @@ export async function handler(event) {
         await db4.collection("motions").insertOne(newMotionDoc);
       } else if (Motion && typeof Motion.create === "function") {
         const created = await Motion.create(newMotionDoc);
-        Object.assign(newMotionDoc, created.toObject ? created.toObject() : created);
+        Object.assign(
+          newMotionDoc,
+          created.toObject ? created.toObject() : created
+        );
       }
       const plain = newMotionDoc;
       const serialized = serializeMotion(plain);
@@ -452,6 +464,14 @@ export async function handler(event) {
             body: JSON.stringify({
               error: 'Invalid vote. Must be "yes", "no", or "abstain".',
             }),
+          };
+        }
+        // Enforce backend voting window: only allow tallying when motion is in `voting` state
+        if (motionDoc.status !== "voting") {
+          return {
+            statusCode: 403,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ error: "Voting is closed for this motion" }),
           };
         }
         // Permissive: allow any actor to vote; backend tallies aggregate
@@ -558,10 +578,17 @@ export async function handler(event) {
                 try {
                   const db7 = getDb();
                   if (db7) {
-                    const origin = await db7.collection("committees").findOne({ _id: motionDoc.committeeId });
+                    const origin = await db7
+                      .collection("committees")
+                      .findOne({ _id: motionDoc.committeeId });
                     originName = origin?.name || motionDoc.committeeId;
-                  } else if (Committee && typeof Committee.findById === "function") {
-                    const origin = await Committee.findById(motionDoc.committeeId).lean();
+                  } else if (
+                    Committee &&
+                    typeof Committee.findById === "function"
+                  ) {
+                    const origin = await Committee.findById(
+                      motionDoc.committeeId
+                    ).lean();
                     originName = origin?.name || motionDoc.committeeId;
                   }
                 } catch (e) {}
@@ -593,14 +620,27 @@ export async function handler(event) {
                 if (!existing.meta || !existing.meta.referredFrom?.receivedAt) {
                   const db9 = getDb();
                   if (db9) {
-                    await db9.collection("motions").updateOne(
-                      { _id: existing._id },
-                      { $set: { "meta.referredFrom.receivedAt": new Date().toISOString() } }
-                    ).catch(() => {});
+                    await db9
+                      .collection("motions")
+                      .updateOne(
+                        { _id: existing._id },
+                        {
+                          $set: {
+                            "meta.referredFrom.receivedAt":
+                              new Date().toISOString(),
+                          },
+                        }
+                      )
+                      .catch(() => {});
                   } else if (Motion && typeof Motion.updateOne === "function") {
                     await Motion.updateOne(
                       { _id: existing._id },
-                      { $set: { "meta.referredFrom.receivedAt": new Date().toISOString() } }
+                      {
+                        $set: {
+                          "meta.referredFrom.receivedAt":
+                            new Date().toISOString(),
+                        },
+                      }
                     ).catch(() => {});
                   }
                 }
@@ -621,13 +661,18 @@ export async function handler(event) {
         const toSave = { ...motionDoc };
         delete toSave.__v;
         if (db10) {
-          await db10.collection("motions").updateOne({ _id: id }, { $set: toSave });
+          await db10
+            .collection("motions")
+            .updateOne({ _id: id }, { $set: toSave });
           motionDoc = await db10.collection("motions").findOne({ _id: id });
         } else if (Motion && typeof Motion.findByIdAndUpdate === "function") {
           motionDoc = await Motion.findByIdAndUpdate(id, toSave, { new: true });
         }
       } catch (e) {
-        console.warn("[motions] failed to persist updated motion", e?.message || e);
+        console.warn(
+          "[motions] failed to persist updated motion",
+          e?.message || e
+        );
       }
 
       // If this motion is a referred/received motion and it just reached a
@@ -646,9 +691,21 @@ export async function handler(event) {
           if (originalId) {
             const db11 = getDb();
             if (db11) {
-              await db11.collection("motions").updateOne({ _id: originalId }, { $set: { status: "in-progress" } });
-            } else if (Motion && typeof Motion.findOneAndUpdate === "function") {
-              await Motion.findOneAndUpdate({ _id: originalId }, { $set: { status: "in-progress" } }, { new: true }).lean();
+              await db11
+                .collection("motions")
+                .updateOne(
+                  { _id: originalId },
+                  { $set: { status: "in-progress" } }
+                );
+            } else if (
+              Motion &&
+              typeof Motion.findOneAndUpdate === "function"
+            ) {
+              await Motion.findOneAndUpdate(
+                { _id: originalId },
+                { $set: { status: "in-progress" } },
+                { new: true }
+              ).lean();
             }
           }
         }
@@ -659,7 +716,10 @@ export async function handler(event) {
         );
       }
 
-      const plain = motionDoc && typeof motionDoc.toObject === "function" ? motionDoc.toObject({ versionKey: false }) : { ...motionDoc };
+      const plain =
+        motionDoc && typeof motionDoc.toObject === "function"
+          ? motionDoc.toObject({ versionKey: false })
+          : { ...motionDoc };
       const serialized = serializeMotion(plain);
 
       return {
@@ -699,8 +759,13 @@ export async function handler(event) {
         try {
           const db_disc = getDb();
           if (db_disc) {
-            discussionResult = await db_disc.collection("discussions").deleteMany({ motionId: id });
-          } else if (Discussion && typeof Discussion.deleteMany === "function") {
+            discussionResult = await db_disc
+              .collection("discussions")
+              .deleteMany({ motionId: id });
+          } else if (
+            Discussion &&
+            typeof Discussion.deleteMany === "function"
+          ) {
             discussionResult = await Discussion.deleteMany({ motionId: id });
           }
         } catch (e) {
@@ -732,9 +797,15 @@ export async function handler(event) {
         // Find all motions for this committee so we know which discussions to delete
         let motionsToDelete = [];
         if (dbxx) {
-          motionsToDelete = await dbxx.collection("motions").find({ committeeId }).project({ _id: 1 }).toArray();
+          motionsToDelete = await dbxx
+            .collection("motions")
+            .find({ committeeId })
+            .project({ _id: 1 })
+            .toArray();
         } else if (Motion && typeof Motion.find === "function") {
-          motionsToDelete = await Motion.find({ committeeId }).select("_id").lean();
+          motionsToDelete = await Motion.find({ committeeId })
+            .select("_id")
+            .lean();
         }
 
         const motionIds = (motionsToDelete || []).map((m) => m._id);
@@ -745,13 +816,23 @@ export async function handler(event) {
             const db_disc2 = getDb();
             let discussionResult2 = { deletedCount: 0 };
             if (db_disc2) {
-              discussionResult2 = await db_disc2.collection("discussions").deleteMany({ motionId: { $in: motionIds } });
-            } else if (Discussion && typeof Discussion.deleteMany === "function") {
-              discussionResult2 = await Discussion.deleteMany({ motionId: { $in: motionIds } });
+              discussionResult2 = await db_disc2
+                .collection("discussions")
+                .deleteMany({ motionId: { $in: motionIds } });
+            } else if (
+              Discussion &&
+              typeof Discussion.deleteMany === "function"
+            ) {
+              discussionResult2 = await Discussion.deleteMany({
+                motionId: { $in: motionIds },
+              });
             }
             deletedDiscussions = discussionResult2.deletedCount || 0;
           } catch (e) {
-            console.warn("[motions] cascade discussion delete failed", e?.message || e);
+            console.warn(
+              "[motions] cascade discussion delete failed",
+              e?.message || e
+            );
             deletedDiscussions = 0;
           }
         }
@@ -790,12 +871,17 @@ export async function handler(event) {
       try {
         const db_all = getDb();
         if (db_all) {
-          discussionResult = await db_all.collection("discussions").deleteMany({});
+          discussionResult = await db_all
+            .collection("discussions")
+            .deleteMany({});
         } else if (Discussion && typeof Discussion.deleteMany === "function") {
           discussionResult = await Discussion.deleteMany({});
         }
       } catch (e) {
-        console.warn("[motions] delete all discussions failed", e?.message || e);
+        console.warn(
+          "[motions] delete all discussions failed",
+          e?.message || e
+        );
         discussionResult = { deletedCount: 0 };
       }
 
