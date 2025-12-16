@@ -309,6 +309,7 @@ export default function Chat() {
     } catch (e) {}
   };
   const scrollRef = useRef(null);
+  const motionsSigRef = useRef("");
   const recessRestoredRef = useRef(false);
   // Whether auto-scrolling to bottom is allowed. If the user scrolls up,
   // we set this to false so periodic updates won't yank the view to bottom.
@@ -3206,6 +3207,87 @@ export default function Chat() {
     return () => {
       mounted = false;
       window.removeEventListener("storage", onStorage);
+    };
+  }, [committee && committee.id]);
+
+  // Periodic lightweight poll to detect authoritative motion changes
+  // (ensures other clients see a chair moving a motion to `voting` quickly).
+  useEffect(() => {
+    if (!committee || !committee.id) return;
+    let cancelled = false;
+
+    const checkForUpdates = async () => {
+      try {
+        const remote = await fetchMotions(committee.id);
+        if (cancelled) return;
+        // Build a small signature capturing id/status/votes length/meta keys
+        const sig = JSON.stringify(
+          (remote || []).map((m) => ({
+            id: m.id,
+            status: m.status,
+            votesCount: Array.isArray(m.votes) ? m.votes.length : 0,
+            metaNonce: JSON.stringify(m.meta || {}),
+          }))
+        );
+        if (sig === motionsSigRef.current) return;
+        motionsSigRef.current = sig;
+
+        // Map remote motions into the local shape and update state
+        const mapped = (remote || []).map((m) => {
+          const state =
+            m.status === "paused"
+              ? "paused"
+              : m.status === "postponed"
+              ? "postponed"
+              : m.status === "referred"
+              ? "referred"
+              : m.status === "voting"
+              ? "voting"
+              : m.status === "closed" ||
+                m.status === "passed" ||
+                m.status === "failed"
+              ? "closed"
+              : "discussion";
+          const meta = { ...(m.meta || {}) };
+          const isSub =
+            (m.type === "submotion" && m.parentMotionId) ||
+            !!meta.submotionOf ||
+            !!meta.parentMotionId;
+          if (isSub) {
+            meta.kind = "sub";
+            meta.parentMotionId =
+              m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+            if (meta.submotionType && !meta.subType)
+              meta.subType = meta.submotionType;
+          }
+          return {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            state,
+            messages: [],
+            decisionLog: [],
+            votes: m.votes || [],
+            meta,
+            decisionDetails: m.decisionDetails || undefined,
+          };
+        });
+        setMotions(mapped);
+        try {
+          saveMotionsForCommittee(committee.id, mapped);
+        } catch (e) {}
+        setMotionsLoadedOnce(true);
+      } catch (err) {
+        // ignore transient errors
+      }
+    };
+
+    // Initial quick check, then interval
+    checkForUpdates();
+    const id = setInterval(checkForUpdates, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
     };
   }, [committee && committee.id]);
 
