@@ -2,6 +2,7 @@
 // Manage committees (GET all/one, POST new, DELETE one) using MongoDB
 
 import { connectToDatabase } from "../../db/mongoose.js";
+import mongoose from "../../db/mongoose.js";
 import Committee from "../../models/Committee.js";
 import Motion from "../../models/Motions.js"; // motions to cascade delete
 import Discussion from "../../models/Discussion.js"; // related discussions
@@ -104,26 +105,18 @@ async function ensureProfileForMember(member) {
         }
 
         try {
-          // Insert lightweight profile directly to avoid model.create bundler issues
-          const insert = await mongoose.connection.db.collection("profiles").insertOne({
+          const created = await insertDocument(Profile, "profiles", {
             _id: `local:${inEmail}`,
             username: finalUsername,
             name: inName || "",
             email: inEmail,
             avatarUrl: member.avatarUrl || "",
           });
-          const created = {
-            _id: insert.insertedId,
-            username: finalUsername,
-            name: inName || finalUsername,
-            email: inEmail,
-            avatarUrl: member.avatarUrl || "",
-          };
           return {
-            username: created.username,
-            name: created.name || created.username,
+            username: created.username || finalUsername,
+            name: created.name || finalUsername,
             role: member.role || "member",
-            avatarUrl: created.avatarUrl || "",
+            avatarUrl: created.avatarUrl || member.avatarUrl || "",
           };
         } catch (e) {
           // Creation race or unique index failure — fallback to using provided fields
@@ -162,6 +155,62 @@ function toClient(doc) {
 
 function escapeRegex(str = "") {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Resilient insert helper: try model.create, then model.collection.insertOne,
+// then fallback to mongoose.connection.db.collection(...).insertOne
+async function insertDocument(model, collectionName, doc) {
+  // Try model.create when available
+  try {
+    if (model && typeof model.create === "function") {
+      const created = await model.create(doc);
+      return created;
+    }
+  } catch (e) {
+    // fall through to collection insert
+    console.warn(
+      "insertDocument: model.create failed, falling back",
+      e?.message || e
+    );
+  }
+
+  // Try model.collection.insertOne
+  try {
+    if (
+      model &&
+      model.collection &&
+      typeof model.collection.insertOne === "function"
+    ) {
+      const res = await model.collection.insertOne(doc);
+      return { ...doc, _id: res.insertedId };
+    }
+  } catch (e) {
+    console.warn(
+      "insertDocument: model.collection.insertOne failed",
+      e?.message || e
+    );
+  }
+
+  // Last-resort: use mongoose connection DB
+  try {
+    if (
+      typeof mongoose !== "undefined" &&
+      mongoose.connection &&
+      mongoose.connection.db
+    ) {
+      const res = await mongoose.connection.db
+        .collection(collectionName)
+        .insertOne(doc);
+      return { ...doc, _id: res.insertedId };
+    }
+  } catch (e) {
+    console.warn(
+      "insertDocument: mongoose.connection.db.collection insert failed",
+      e?.message || e
+    );
+  }
+
+  throw new Error("insertDocument: unable to insert document");
 }
 
 export async function handler(event) {
@@ -245,7 +294,7 @@ export async function handler(event) {
             body: JSON.stringify({ error: "Missing username" }),
           };
         }
-        const username = usernameRaw.toLowerCase();
+
         const profile = await Profile.findOne({
           username: new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
         })
@@ -260,39 +309,20 @@ export async function handler(event) {
           };
         }
 
-        const docs = await Committee.find({
-          "members.username": new RegExp(`^${escapeRegex(usernameRaw)}$`, "i"),
-        });
-
-        await Promise.all(
-          docs.map(async (doc) => {
-            doc.members = (doc.members || []).map((m) => {
-              if ((m.username || "").toString().toLowerCase() === username) {
-                return {
-                  ...m,
-                  username: profile.username || m.username,
-                  name:
-                    profile.name || m.name || profile.username || m.username,
-                  avatarUrl: profile.avatarUrl || m.avatarUrl || "",
-                };
-              }
-              return m;
-            });
-            await doc.save();
-          })
-        );
-
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ updated: docs.length }),
+          body: JSON.stringify(profile),
         };
       } catch (e) {
-        console.warn("[committee] syncProfile failed", e?.message || e);
+        console.error("[committee] syncProfile failed:", e);
         return {
           statusCode: 500,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: "syncProfile failed" }),
+          body: JSON.stringify({
+            error: "syncProfile failed",
+            details: String(e?.message || e),
+          }),
         };
       }
     }
@@ -538,15 +568,17 @@ export async function handler(event) {
 
       // Create committee using direct collection insert to avoid model.create issues
       try {
-        const insert = await mongoose.connection.db.collection("committees").insertOne({
-          _id: body.id || `committee-${Date.now()}`,
-          name,
-          ownerId,
-          members: sanitizedMembers,
-          settings,
-          createdAt,
-          updatedAt: createdAt,
-        });
+        const insert = await mongoose.connection.db
+          .collection("committees")
+          .insertOne({
+            _id: body.id || `committee-${Date.now()}`,
+            name,
+            ownerId,
+            members: sanitizedMembers,
+            settings,
+            createdAt,
+            updatedAt: createdAt,
+          });
         const createdDoc = {
           id: insert.insertedId,
           name,
@@ -649,8 +681,8 @@ export async function handler(event) {
             }
           }
           // Insert directly into collection to avoid model.create interop issues
-            try {
-            const insert = await mongoose.connection.db.collection("committees").insertOne({
+          try {
+            const created = await insertDocument(Committee, "committees", {
               _id: committeeId,
               name,
               ownerId: ownerId || withOwner[0]?.username || "",
@@ -662,19 +694,7 @@ export async function handler(event) {
               createdAt,
               updatedAt: createdAt,
             });
-            doc = {
-              id: insert.insertedId,
-              _id: insert.insertedId,
-              name,
-              ownerId: ownerId || withOwner[0]?.username || "",
-              members: resolved,
-              settings:
-                body.settings && typeof body.settings === "object"
-                  ? body.settings
-                  : {},
-              createdAt,
-              updatedAt: createdAt,
-            };
+            doc = created;
           } catch (e) {
             throw e;
           }
