@@ -660,7 +660,8 @@ export default function Chat() {
     ((committeeLoading && !committee) ||
       (!motionsLoadedOnce && !motions.length) ||
       (loadingComments && !motionsLoadedOnce) ||
-      chatForceLoading) &&
+      chatForceLoading ||
+      profilesLoading) &&
     !commentsError;
 
   // find active motion object
@@ -1270,10 +1271,12 @@ export default function Chat() {
   const members = committeeUnavailable ? [] : normalizeMembers(committee);
 
   const [profileCache, setProfileCache] = useState({}); // keyed by username
+  const [profilesLoading, setProfilesLoading] = useState(false);
 
   // Prefetch member profiles (avatars/names) for display in messages
   useEffect(() => {
     let cancelled = false;
+
     async function ensureProfile(username) {
       if (!username) return;
       if (profileCache[username]) return;
@@ -1290,16 +1293,29 @@ export default function Chat() {
       } catch (e) {}
     }
 
-    const names = new Set();
-    (members || []).forEach((m) => {
-      if (m && m.username) names.add(m.username);
-    });
-    (activeMotion?.messages || []).forEach((msg) => {
-      const aid = (msg.authorId || "").toString().trim();
-      if (aid) names.add(aid);
-    });
+    async function run() {
+      const names = new Set();
+      (members || []).forEach((m) => {
+        if (m && m.username) names.add(m.username);
+      });
+      (activeMotion?.messages || []).forEach((msg) => {
+        const aid = (msg.authorId || "").toString().trim();
+        if (aid) names.add(aid);
+      });
 
-    names.forEach((u) => ensureProfile(u));
+      const missing = Array.from(names).filter((u) => !profileCache[u]);
+      if (missing.length === 0) {
+        if (!cancelled) setProfilesLoading(false);
+        return;
+      }
+      if (!cancelled) setProfilesLoading(true);
+      try {
+        await Promise.all(missing.map((u) => ensureProfile(u)));
+      } catch (e) {}
+      if (!cancelled) setProfilesLoading(false);
+    }
+
+    run();
 
     return () => {
       cancelled = true;

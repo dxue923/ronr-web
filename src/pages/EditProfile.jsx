@@ -8,6 +8,7 @@ import {
   saveProfileToStorage,
 } from "../api/profile";
 import "../assets/styles/index.css";
+import logo from "../assets/logo.png";
 
 const PLACEHOLDER_AVATAR = null;
 
@@ -194,6 +195,27 @@ export default function EditProfile() {
   };
 
   const notAuthed = !isAuthenticated;
+
+  if (loading) {
+    return (
+      <div className="chat-page two-pane">
+        <div className="ronr-loading-screen">
+          <div className="ronr-loading-card">
+            <div className="ronr-loading-icon">
+              <div className="ronr-loading-pulse" />
+              <img
+                src={logo}
+                alt="Rules of Order logo"
+                className="ronr-loading-logo"
+              />
+            </div>
+            <h1 className="ronr-loading-title">Rules of Order</h1>
+            <p className="ronr-loading-subtitle">Loading your profile…</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="edit-profile-page">
