@@ -2547,27 +2547,28 @@ START NEW CHAT PAGE CSS
 .final-card-body > .final-summary,
 .final-card-body > .final-pros-cons,
 .final-card-body > .final-tally {
-  width: auto;
-  max-width: 1280px; /* allow the input card to be larger when editing */
+  width: 80%;
+  max-width: 920px; /* constrain width to match design */
   margin: 0 auto; /* center these children inside the final card body */
+  box-sizing: border-box;
 }
 
-/* Larger styling specifically when editing the final decision summary */
+/* Editing the final decision summary: keep same dimensions but slightly denser padding */
 .final-card-body > .decision-summary-form.is-editing {
-  max-width: 1400px;
-  padding: 22px 24px 24px;
+  max-width: 920px;
+  padding: 16px 18px 18px;
   border-radius: 14px;
 }
 .final-card-body > .decision-summary-form.is-editing .decision-summary-title {
-  font-size: 1.2rem;
-}
-.final-card-body > .decision-summary-form.is-editing .decision-label {
   font-size: 1.05rem;
 }
+.final-card-body > .decision-summary-form.is-editing .decision-label {
+  font-size: 0.9rem;
+}
 .final-card-body > .decision-summary-form.is-editing textarea {
-  font-size: 1rem;
-  padding: 14px;
-  min-height: 160px;
+  font-size: 0.95rem;
+  padding: 10px;
+  min-height: 120px;
 }
 
 /* Outcome row: center the label and value */

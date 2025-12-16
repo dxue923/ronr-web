@@ -2536,6 +2536,19 @@ export default function Chat() {
       }
     } catch (e) {}
     setSavingDecision(false);
+    // Ensure we exit any edit mode and clear local draft state so the
+    // saved decision is shown as the final view (not the edit form).
+    try {
+      setEditingDecision(false);
+      setDecisionSummary("");
+      setDecisionPros("");
+      setDecisionCons("");
+      setDecisionOutcome("");
+      setEditDecisionSummary("");
+      setEditDecisionPros("");
+      setEditDecisionCons("");
+      setEditDecisionOutcome("");
+    } catch (e) {}
     try {
       if (pendingCreates && pendingCreates.length)
         await Promise.all(pendingCreates);
@@ -2545,11 +2558,7 @@ export default function Chat() {
         e?.message || e
       );
     }
-    // removed: cross-window final decision blink notification
   };
-  // unchanged: submotion effect application handled elsewhere; removed blink listeners
-
-  // start editing an existing decision summary
   const handleStartEditDecision = () => {
     if (!activeMotion || !activeMotion.decisionDetails) return;
     setEditDecisionSummary(activeMotion.decisionDetails.summary || "");
@@ -2562,6 +2571,27 @@ export default function Chat() {
     );
     setEditingDecision(true);
   };
+
+  // Reset decision draft state when switching active motions so values
+  // from a previously-closed motion don't leak into the new form.
+  useEffect(() => {
+    try {
+      if (!activeMotion) return;
+      // If the newly-active motion has no decision details, clear any
+      // draft values so the chair sees a blank form.
+      if (!activeMotion.decisionDetails) {
+        setDecisionSummary("");
+        setDecisionPros("");
+        setDecisionCons("");
+        setDecisionOutcome("");
+        setEditDecisionSummary("");
+        setEditDecisionPros("");
+        setEditDecisionCons("");
+        setEditDecisionOutcome("");
+        setEditingDecision(false);
+      }
+    } catch (e) {}
+  }, [activeMotion?.id]);
 
   const handleCancelEditDecision = () => {
     setEditingDecision(false);
