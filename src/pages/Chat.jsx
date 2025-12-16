@@ -480,6 +480,25 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, []);
 
+  // Ensure inputs inside any modal do not show browser autofill/history.
+  useEffect(() => {
+    const onFocusIn = (e) => {
+      try {
+        const el = e.target;
+        if (!el) return;
+        if (!(el instanceof HTMLElement)) return;
+        const modal = el.closest && el.closest(".modal-overlay");
+        if (modal) {
+          try {
+            el.setAttribute("autocomplete", "off");
+          } catch (err) {}
+        }
+      } catch (err) {}
+    };
+    window.addEventListener("focusin", onFocusIn);
+    return () => window.removeEventListener("focusin", onFocusIn);
+  }, []);
+
   const setMotionView = (tab, motionId = activeMotionId) => {
     // debug logging to help trace per-motion tab behavior
     try {
@@ -1633,6 +1652,7 @@ export default function Chat() {
   };
 
   const handleAddMotion = () => {
+    if (meetingRecessed) return;
     setEditingMotionId(null);
     setNewMotionTitle("");
     setNewMotionDesc("");
@@ -3385,10 +3405,15 @@ export default function Chat() {
                 ? "Propose Overturn"
                 : "New Motion"}
             </h3>
-            <form onSubmit={handleCreateMotion} className="modal-form">
+            <form
+              onSubmit={handleCreateMotion}
+              className="modal-form"
+              autoComplete="off"
+            >
               <label htmlFor="motion-title">Title</label>
               <input
                 id="motion-title"
+                autoComplete="off"
                 value={newMotionTitle}
                 onChange={(e) => setNewMotionTitle(e.target.value)}
                 placeholder="Enter motion title"
@@ -3405,6 +3430,7 @@ export default function Chat() {
               />
               <label htmlFor="motion-desc">Description</label>
               <textarea
+                autoComplete="off"
                 id="motion-desc"
                 value={newMotionDesc}
                 onChange={(e) => setNewMotionDesc(e.target.value)}
@@ -3543,8 +3569,14 @@ export default function Chat() {
                 <button
                   onClick={handleAddMotion}
                   className="primary-icon-btn small"
-                  title="Add Motion"
+                  title={
+                    meetingRecessed
+                      ? "Disabled — meeting in recess"
+                      : "Add Motion"
+                  }
                   aria-label="Add Motion"
+                  aria-disabled={meetingRecessed}
+                  disabled={meetingRecessed}
                   style={{ marginLeft: 8 }}
                 >
                   +
