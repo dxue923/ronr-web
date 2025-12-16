@@ -5643,40 +5643,6 @@ export default function Chat() {
 
                               return (
                                 <>
-                                  {!isSub && inProgress && noComments && (
-                                    <button
-                                      type="button"
-                                      onClick={startObjectionVote}
-                                      disabled={controlsDisabled}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : isReferred
-                                          ? "Disabled until chair accepts referred motion"
-                                          : "Object to the consideration of the question"
-                                      }
-                                    >
-                                      Object to Consideration
-                                    </button>
-                                  )}
-
-                                  {isVotingOTC && (
-                                    <button
-                                      type="button"
-                                      onClick={finalizeObjectionVote}
-                                      disabled={controlsDisabled}
-                                      title={
-                                        meetingRecessed
-                                          ? "Disabled — meeting in recess"
-                                          : isReferred
-                                          ? "Disabled until chair accepts referred motion"
-                                          : "End objection vote and apply result"
-                                      }
-                                    >
-                                      End Objection Vote (decide by tally)
-                                    </button>
-                                  )}
-
                                   {!(
                                     activeMotion &&
                                     activeMotion.meta &&
@@ -5714,6 +5680,68 @@ export default function Chat() {
                               Special Motions
                             </div>
                             {/* Recess / Resume */}
+                            {/* Object to Consideration (moved here under Special Motions) */}
+                            {(() => {
+                              const isSub = !!(
+                                activeMotion &&
+                                activeMotion.meta &&
+                                activeMotion.meta.kind === "sub"
+                              );
+                              const noComments =
+                                (activeMotion?.messages || []).length === 0;
+                              const inProgress =
+                                (activeMotion?.state || "discussion") ===
+                                "discussion";
+                              const isReferredState =
+                                (activeMotion?.state || "") === "referred";
+                              const isVotingOTC = !!(
+                                activeMotion?.meta?.specialVote?.type ===
+                                  "otc" &&
+                                (activeMotion?.state || "") === "voting"
+                              );
+
+                              return (
+                                <>
+                                  {!isSub && inProgress && noComments && (
+                                    <button
+                                      type="button"
+                                      onClick={startObjectionVote}
+                                      disabled={
+                                        meetingRecessed || isReferredState
+                                      }
+                                      title={
+                                        meetingRecessed
+                                          ? "Disabled — meeting in recess"
+                                          : isReferredState
+                                          ? "Disabled until chair accepts referred motion"
+                                          : "Object to the consideration of the question"
+                                      }
+                                    >
+                                      Object to Consideration
+                                    </button>
+                                  )}
+
+                                  {isVotingOTC && (
+                                    <button
+                                      type="button"
+                                      onClick={finalizeObjectionVote}
+                                      disabled={
+                                        meetingRecessed || isReferredState
+                                      }
+                                      title={
+                                        meetingRecessed
+                                          ? "Disabled — meeting in recess"
+                                          : isReferredState
+                                          ? "Disabled until chair accepts referred motion"
+                                          : "End objection vote and apply result"
+                                      }
+                                    >
+                                      End Objection Vote (decide by tally)
+                                    </button>
+                                  )}
+                                </>
+                              );
+                            })()}
                             {meetingRecessed ? (
                               <button
                                 type="button"
@@ -6067,7 +6095,8 @@ export default function Chat() {
                                 activeMotion?.tally || computeTally(votes);
                               const outcomeText =
                                 activeMotion.decisionDetails?.outcome ||
-                                computeOutcome(votes);
+                                (votes.length > 0 ? computeOutcome(votes) : "");
+                              if (!outcomeText) return null;
                               const cls = outcomeClassFromText(outcomeText);
                               return (
                                 <span className={`outcome-pill ${cls}`}>
@@ -6137,7 +6166,10 @@ export default function Chat() {
                                   activeMotion?.tally || computeTally(votes);
                                 const outcomeText =
                                   activeMotion.decisionDetails?.outcome ||
-                                  computeOutcome(votes);
+                                  (votes.length > 0
+                                    ? computeOutcome(votes)
+                                    : "");
+                                if (!outcomeText) return null;
                                 const cls = outcomeClassFromText(outcomeText);
                                 return (
                                   <span className={`outcome-pill ${cls}`}>
@@ -6311,7 +6343,10 @@ export default function Chat() {
                             const votes = voteEntries(activeMotion);
                             const tally =
                               activeMotion?.tally || computeTally(votes);
-                            const outcomeText = computeOutcome(votes);
+                            const outcomeText =
+                              activeMotion.decisionDetails?.outcome ||
+                              (votes.length > 0 ? computeOutcome(votes) : "");
+                            if (!outcomeText) return null;
                             const cls = outcomeClassFromText(outcomeText);
                             return (
                               <span className={`outcome-pill ${cls}`}>

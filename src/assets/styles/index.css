@@ -4431,3 +4431,27 @@ label[for="myCheckbox"] {
 }
 
 /* END NEW CHANGES */
+
+/* Final Decision / Edit form overrides: center and limit width */
+.final-decision-panel .decision-summary-form,
+.decision-summary-form.is-editing,
+.final-decision-fullcard .decision-summary-form {
+  width: 80% !important;
+  max-width: 920px;
+  margin: 0 auto !important;
+  box-sizing: border-box;
+}
+
+.decision-summary-form textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .final-decision-panel .decision-summary-form,
+  .decision-summary-form.is-editing,
+  .final-decision-fullcard .decision-summary-form {
+    width: 96% !important;
+    max-width: none;
+  }
+}
