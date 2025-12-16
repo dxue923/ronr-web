@@ -93,7 +93,16 @@ export async function createMotion({
     throw new Error(message);
   }
 
-  return res.json();
+  const data = await res.json().catch(() => null);
+  try {
+    if (data && data.committeeId && typeof localStorage !== "undefined") {
+      localStorage.setItem(
+        `committee:${data.committeeId}:motions:updateAt`,
+        String(Date.now())
+      );
+    }
+  } catch (e) {}
+  return data;
 }
 
 // PATCH: update motion status
@@ -117,6 +126,14 @@ export async function updateMotionStatus(id, status) {
       data.error || `Failed to update motion status: ${res.status}`
     );
   }
+  try {
+    if (data && data.committeeId && typeof localStorage !== "undefined") {
+      localStorage.setItem(
+        `committee:${data.committeeId}:motions:updateAt`,
+        String(Date.now())
+      );
+    }
+  } catch (e) {}
   return data; // updated motion
 }
 
@@ -140,6 +157,14 @@ export async function castMotionVote(id, vote, voterId) {
   if (!res.ok) {
     throw new Error(data.error || `Failed to cast vote: ${res.status}`);
   }
+  try {
+    if (data && data.committeeId && typeof localStorage !== "undefined") {
+      localStorage.setItem(
+        `committee:${data.committeeId}:motions:updateAt`,
+        String(Date.now())
+      );
+    }
+  } catch (e) {}
   return data; // updated motion
 }
 
@@ -165,6 +190,14 @@ export async function updateMotion(id, { status, decisionDetails, meta } = {}) {
   if (!res.ok) {
     throw new Error(data.error || `Failed to update motion: ${res.status}`);
   }
+  try {
+    if (data && data.committeeId && typeof localStorage !== "undefined") {
+      localStorage.setItem(
+        `committee:${data.committeeId}:motions:updateAt`,
+        String(Date.now())
+      );
+    }
+  } catch (e) {}
   return data;
 }
 

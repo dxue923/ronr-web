@@ -300,6 +300,13 @@ export default function Chat() {
     });
     setMotions(updated);
     saveMotionsForCommittee(committee.id, updated);
+    try {
+      if (committee?.id)
+        localStorage.setItem(
+          `committee:${committee.id}:motions:updateAt`,
+          String(Date.now())
+        );
+    } catch (e) {}
   };
   const scrollRef = useRef(null);
   const recessRestoredRef = useRef(false);
@@ -2039,6 +2046,15 @@ export default function Chat() {
         if (activeMotion && activeMotion.state === "referred") {
           // Persist only the closed status so it moves to closed list without Final Decision
           await updateMotion(activeMotion.id, { status });
+          try {
+            if (committee?.id) {
+              saveMotionsForCommittee(committee.id, updated);
+              localStorage.setItem(
+                `committee:${committee.id}:motions:updateAt`,
+                String(Date.now())
+              );
+            }
+          } catch (e) {}
         } else {
           // Persist a decision outcome so reload shows Passed/Failed instead of generic Closed
           const votes = voteEntries(activeMotion);
@@ -2052,6 +2068,15 @@ export default function Chat() {
             recordedBy: me.id,
           };
           await updateMotion(activeMotion.id, { decisionDetails: detail });
+          try {
+            if (committee?.id) {
+              saveMotionsForCommittee(committee.id, updated);
+              localStorage.setItem(
+                `committee:${committee.id}:motions:updateAt`,
+                String(Date.now())
+              );
+            }
+          } catch (e) {}
         }
         // After closing, if the current user is a chair/manager, show the
         // Final Decision tab and the final-decision panel so they can fill it.
@@ -2501,6 +2526,15 @@ export default function Chat() {
     }
 
     setMotions(updated);
+    try {
+      if (committee?.id) {
+        saveMotionsForCommittee(committee.id, updated);
+        localStorage.setItem(
+          `committee:${committee.id}:motions:updateAt`,
+          String(Date.now())
+        );
+      }
+    } catch (e) {}
     setSavingDecision(false);
     try {
       if (pendingCreates && pendingCreates.length)
@@ -2705,6 +2739,15 @@ export default function Chat() {
       console.warn("Failed to persist edited decision details", err);
     }
     setMotions(updated);
+    try {
+      if (committee?.id) {
+        saveMotionsForCommittee(committee.id, updated);
+        localStorage.setItem(
+          `committee:${committee.id}:motions:updateAt`,
+          String(Date.now())
+        );
+      }
+    } catch (e) {}
     setSavingEditDecision(false);
     setEditingDecision(false);
   };
@@ -2906,16 +2949,18 @@ export default function Chat() {
   const handleVote = async (choice) => {
     if (!activeMotion || activeMotion.state !== "voting") return;
     if (meetingRecessed || activeMotion.state === "referred") return;
-    if (voteSubmittingRef.current === activeMotion.id) return; // already submitting (sync guard)
+    const motionId = activeMotion?.id;
+    if (!motionId) return;
+    if (voteSubmittingRef.current === motionId) return; // already submitting (sync guard)
     try {
       // mark synchronously to prevent concurrent invocations
-      voteSubmittingRef.current = activeMotion.id;
-      setVoteSubmittingFor(activeMotion.id);
-      const updatedDoc = await castMotionVote(activeMotion.id, choice, me.id);
+      voteSubmittingRef.current = motionId;
+      setVoteSubmittingFor(motionId);
+      const updatedDoc = await castMotionVote(motionId, choice, me.id);
       // reflect aggregate counts in UI while keeping local per-user record for isMine checks
       setMotions((prev) =>
         prev.map((m) => {
-          if (m.id !== activeMotion.id) return m;
+          if (m.id !== motionId) return m;
           // Prefer authoritative per-voter choices returned by backend
           const metaChoices =
             updatedDoc?.meta && typeof updatedDoc.meta.voterChoices === "object"
@@ -2943,6 +2988,32 @@ export default function Chat() {
           };
         })
       );
+      // persist local cache and broadcast update so other tabs refresh
+      try {
+        if (committee?.id) {
+          const next = (motions || []).map((m) =>
+            m.id === motionId
+              ? {
+                  ...m,
+                  votes:
+                    updatedDoc?.meta && updatedDoc.meta.voterChoices
+                      ? Object.keys(updatedDoc.meta.voterChoices).map((v) => ({
+                          voterId: v,
+                          choice: updatedDoc.meta.voterChoices[v],
+                        }))
+                      : m.votes,
+                  tally: updatedDoc.votes ||
+                    m.tally || { yes: 0, no: 0, abstain: 0 },
+                }
+              : m
+          );
+          saveMotionsForCommittee(committee.id, next);
+          localStorage.setItem(
+            `committee:${committee.id}:motions:updateAt`,
+            String(Date.now())
+          );
+        }
+      } catch (e) {}
       voteSubmittingRef.current = null;
       setVoteSubmittingFor(null);
     } catch (err) {
@@ -2954,12 +3025,14 @@ export default function Chat() {
 
   // group motions for UI sections: active (not concluded) and concluded
   // Keep submotions grouped under their parent regardless of concluded state.
-  // A motion is considered "concluded" only when it has been closed and
-  // the chair has saved final `decisionDetails`. Until decision details are
-  // saved, the motion remains visible in the Active section so the chair
-  // can complete the Final Decision form.
-  const isConcluded = (m) =>
-    (m.state || "discussion") === "closed" && !!m.decisionDetails;
+  // A motion is considered "concluded" when it reached a terminal state
+  // such as `closed`, `passed`, or `failed`. Treat terminal statuses as
+  // concluded so closed motions move immediately to the Closed section
+  // for all members (decisionDetails may still be edited by the chair).
+  const isConcluded = (m) => {
+    const st = (m.state || "discussion").toString();
+    return ["closed", "passed", "failed"].includes(st);
+  };
 
   const activeMotions = (motions || []).filter((m) => {
     const concluded = isConcluded(m);
@@ -2996,6 +3069,85 @@ export default function Chat() {
   // Build children map from the full motions list so submotions remain
   // attached to their parent regardless of the parent's or child's state.
   const childrenMap = buildChildrenMap(motions || []);
+
+  // Listen for motion updates broadcast by other tabs/clients via
+  // `committee:{id}:motions:updateAt` and refetch authoritative motions
+  // for this committee so decisionDetails and vote tallies appear for all.
+  useEffect(() => {
+    if (!committee || !committee.id) return;
+    let mounted = true;
+    const key = `committee:${committee.id}:motions:updateAt`;
+
+    const refetch = async () => {
+      try {
+        const remote = await fetchMotions(committee.id);
+        if (!mounted) return;
+        const mapped = (remote || []).map((m) => {
+          const state =
+            m.status === "paused"
+              ? "paused"
+              : m.status === "postponed"
+              ? "postponed"
+              : m.status === "referred"
+              ? "referred"
+              : m.status === "voting"
+              ? "voting"
+              : m.status === "closed" ||
+                m.status === "passed" ||
+                m.status === "failed"
+              ? "closed"
+              : "discussion";
+          const meta = { ...(m.meta || {}) };
+          const isSub =
+            (m.type === "submotion" && m.parentMotionId) ||
+            !!meta.submotionOf ||
+            !!meta.parentMotionId;
+          if (isSub) {
+            meta.kind = "sub";
+            meta.parentMotionId =
+              m.parentMotionId || meta.submotionOf || meta.parentMotionId;
+            if (meta.submotionType && !meta.subType)
+              meta.subType = meta.submotionType;
+          }
+          return {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            state,
+            messages: [],
+            decisionLog: [],
+            votes: m.votes || [],
+            meta,
+            decisionDetails: m.decisionDetails || undefined,
+          };
+        });
+        setMotions(mapped);
+        try {
+          saveMotionsForCommittee(committee.id, mapped);
+        } catch (e) {}
+        setMotionsLoadedOnce(true);
+      } catch (e) {
+        // ignore fetch errors
+      }
+    };
+
+    const onStorage = (e) => {
+      try {
+        if (!e || !e.key) return;
+        if (e.key === key) refetch();
+      } catch (err) {}
+    };
+
+    window.addEventListener("storage", onStorage);
+    try {
+      if (localStorage.getItem(key)) refetch();
+    } catch (e) {}
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [committee && committee.id]);
 
   // Render a text string with discretionary break opportunities so long
   // titles can wrap before overlapping the status pill. We insert <wbr/>
